@@ -1,0 +1,76 @@
+/* ------------------------------------------------------------ *\
+	List dates
+\* ------------------------------------------------------------ */
+
+.list-dates {
+	list-style-type: none;
+	display: grid;
+	align-items: flex-end;
+	grid-template-columns: repeat(6, minmax(calc(16.67% - 1rem), 9.2rem));
+	gap: 1.4rem;
+	text-transform: uppercase;
+	font-size: 2.4rem;
+	text-align: center;
+
+	@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+		font-size: 1.6vw;
+	}
+
+	@include breakpoint-down(tablet) {
+		font-size: 2rem;		
+	}
+
+	@include breakpoint-down(mobile) {
+		font-size: 1.8rem;		
+	}
+
+	@include breakpoint-down(mobile-medium) {
+		font-size: 1.3rem;		
+		gap: 1rem;
+	}
+
+	button {
+		width: 100%;
+		max-width: 9.2rem;
+		aspect-ratio: 1 / 1;
+		border-radius: 50%;
+		background: var(--c-white);
+		border: 2px solid var(--c-black);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 4rem;
+		line-height: 1;
+		/*text-transform: uppercase;*/
+		outline: .4rem solid transparent;
+		transition: all .4s;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			font-size: 2.4vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			margin-inline: auto;	
+			font-size: 3rem;		
+		}
+		
+		@include breakpoint-down(mobile) {
+			font-size: 2.4rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {	
+			font-size: 2rem;
+		}
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				border-color: var(--c-base);		
+			}
+		}
+
+		&:focus-visible {
+			outline-color: var(--c-base);		
+		}
+	}
+
+}

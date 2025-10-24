@@ -1,0 +1,95 @@
+/* ------------------------------------------------------------ *\
+	React Datepicker
+\* ------------------------------------------------------------ */
+
+.react-datepicker {
+	width: 100%;
+	font-size: 2.4rem;
+	font-family: var(--ff-base);
+	border: 2px solid var(--c-black);
+	border-radius: 1rem;
+	overflow: hidden;
+
+	.react-datepicker__header {
+		padding-block: 1.4rem 1rem;
+		border-bottom: 0;
+		background: var(--c-blue);
+	}
+
+	.react-datepicker__day--selected, 
+	.react-datepicker__day--in-selecting-range, 
+	.react-datepicker__day--in-range, 
+	.react-datepicker__month-text--selected, 
+	.react-datepicker__month-text--in-selecting-range, 
+	.react-datepicker__month-text--in-range, 
+	.react-datepicker__quarter-text--selected, 
+	.react-datepicker__quarter-text--in-selecting-range, 
+	.react-datepicker__quarter-text--in-range, 
+	.react-datepicker__year-text--selected, 
+	.react-datepicker__year-text--in-selecting-range, 
+	.react-datepicker__year-text--in-range {
+		background: var(--c-base);
+	}
+
+	.react-datepicker__navigation {
+		width: 5rem;
+		height: 5rem;
+		top: .8rem;
+		outline: .4rem solid transparent;
+		border-radius: .5rem;
+		transition: outline-color .4s;
+
+		&:focus-visible {
+			outline-color: var(--c-base);		
+		}
+	}
+
+	.react-datepicker__year-read-view--down-arrow, 
+	.react-datepicker__month-read-view--down-arrow, 
+	.react-datepicker__month-year-read-view--down-arrow, 
+	.react-datepicker__navigation-icon::before {
+		width: 1.4rem;
+		height: 1.4rem;
+		border-color: var(--c-black)
+	}
+
+	.react-datepicker__current-month, 
+	.react-datepicker-time__header, 
+	.react-datepicker-year-header {
+		font-size: 2.8rem;
+	}
+
+	.react-datepicker__month {
+		margin: 0;
+	}
+
+	.react-datepicker__day-name, 
+	.react-datepicker__day, 
+	.react-datepicker__time-name {
+		width: 100%;
+		height: auto;
+		aspect-ratio: 1 / 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin: 0;
+		padding: .5rem;
+		border-radius: .5rem;
+		outline: .4rem solid transparent;
+		transition: background .4s, color .4s, outline-color .4s;
+
+		&:focus-visible {
+			outline-color: var(--c-base);		
+		}
+	}
+
+	.react-datepicker__week,
+	.react-datepicker__day-names {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+	}
+
+	.react-datepicker__month-container {
+		width: 100%;
+	}
+}

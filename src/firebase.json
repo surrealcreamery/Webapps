@@ -1,0 +1,9 @@
+{
+    "project": "dollar-boba-club",
+    "emulators": {
+      "auth": {
+        "port": 9099
+      }
+    }
+  }
+  

@@ -1,0 +1,77 @@
+/* ------------------------------------------------------------ *\
+	Block Product Info
+\* ------------------------------------------------------------ */
+
+.block-product-info {
+	background: var(--c-white);
+	border: 3px solid var(--c-black);
+	border-radius: 4.5rem;
+	display: flex;
+	align-items: center;
+	gap: 2.4rem;
+	padding: 0.6rem 0.9rem 0.6rem 3rem;
+
+	@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+		gap: 1.4vw;
+		padding-left: 2vw;
+	}
+
+	@include breakpoint-down(tablet) {
+		gap: 1.8rem;		
+		padding: 0.6rem 0.9rem 0.6rem 2rem;
+	}
+
+	@include breakpoint-down(mobile) {
+		width: fit-content;		
+		margin-inline: auto;
+		border-width: .2rem;
+	}
+
+	@include breakpoint-down(mobile-medium) {
+		padding: .3rem .4rem .3rem 1.2rem;	
+		gap: .9rem;	
+	}
+
+	.block__price {
+		flex-grow: 1;
+		font-weight: 700;
+
+		@include breakpoint-down(mobile) {
+			flex-grow: 0;		
+		}
+	}
+
+	.block__price p {
+		margin-bottom: 0;
+	}
+
+	.block__price-wrapper {
+		display: flex;
+		align-items: center;
+		gap: 2.8rem;
+		width: 100%;
+		justify-content: center;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			gap: 1.4vw
+		}	
+
+		@include breakpoint-down(tablet) {
+			gap: 1.8rem;		
+		}
+
+		@include breakpoint-down(mobile) {
+			gap: 1rem;		
+		}
+	}
+
+	.block__actions {
+		flex-shrink: 0;
+	}
+	
+	&:has(.block__actions:only-child) {
+		background: transparent;
+		border: 0;
+		border-radius: 0;
+	}
+}

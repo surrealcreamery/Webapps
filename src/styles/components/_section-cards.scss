@@ -1,0 +1,53 @@
+/* ------------------------------------------------------------ *\
+	Section Cards
+\* ------------------------------------------------------------ */
+
+.section-cards {
+	padding: .2rem 0 3rem;
+	overflow: hidden;
+
+	@include breakpoint-down(tablet) {
+		display: none;		
+	}
+
+	.section__shell {
+		display: grid;
+		grid-template-columns: calc(67.1% - 1rem) calc(32.9% - .4rem);
+		gap: 1.4rem;
+
+		@include breakpoint-down(large-desktop) {
+			grid-template-columns: calc(65% - 1rem) calc(35% - .4rem);	
+		}
+	}
+
+	.section__title {
+		text-align: center;
+		margin-bottom: 1.2rem;
+		text-transform: uppercase;
+	}
+
+	.section__title h4 {
+		font-size: 4.8rem;
+
+		@include breakpoint-down(xlarge-desktop) {
+			font-size: 4rem;
+		}
+
+		@include breakpoint-down(large-desktop) {
+			font-size: 3.6rem;		
+		}
+
+		@include breakpoint-down(small-desktop) {
+			font-size: 3.4rem;		
+		}
+	}
+
+	.section__aside .card a {
+		display: block;
+		padding-top: 6.2rem;
+
+		@media only screen and (max-width: 1728px) {
+			padding-top: 3.5vw;
+		}
+	}
+}

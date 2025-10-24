@@ -1,0 +1,59 @@
+/* ------------------------------------------------------------ *\
+	Boxes
+\* ------------------------------------------------------------ */
+
+.boxes {
+	display: grid;
+	grid-template-columns: calc(67% - 1rem) calc(33% - 1rem);
+	grid-template-rows: 36.2rem 53.6rem;
+	gap: 2rem;
+
+	@media only screen and (max-width: 1700px) {
+		grid-template-rows: 20vw 31vw;
+	}
+	
+	@include breakpoint-down(large-desktop) {
+		grid-template-columns: calc(65% - 1rem) calc(35% - 1rem);
+	}
+
+	@include breakpoint-down(tablet) {
+		grid-template-columns: 1fr 1fr;
+		grid-template-rows: auto auto;		
+	}
+
+	@include breakpoint-down(mobile) {
+		grid-template-columns: 100%;
+		grid-template-rows: unset;	
+		gap: 1.8rem;	
+	}
+}
+
+/* ------------------------------------------------------------ *\
+	Code Boxes - Added by AT
+\* ------------------------------------------------------------ */
+
+.codeBoxes {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	grid-template-rows: auto auto;		
+	gap: 2rem;
+
+	@media only screen and (max-width: 1700px) {
+		grid-template-columns: 1fr;
+	}
+	
+	@include breakpoint-down(large-desktop) {
+		grid-template-columns: 1fr;
+		grid-template-rows: auto auto;		
+	}
+
+	@include breakpoint-down(tablet) {
+		grid-template-columns: 1fr 1fr;
+		grid-template-rows: auto auto;		
+	}
+
+	@include breakpoint-down(mobile) {
+		grid-template-columns: 1fr 1fr;
+		grid-template-rows: auto auto;		
+	}
+}

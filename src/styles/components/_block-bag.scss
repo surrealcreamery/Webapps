@@ -1,0 +1,53 @@
+/* ------------------------------------------------------------ *\
+	Block Bag
+\* ------------------------------------------------------------ */
+
+.block-bag {
+	position: absolute;
+	top: 6.4rem;
+	right: 5.2rem;
+	font-size: 2.8rem;
+	z-index: 999;
+	height: fit-content;
+
+	@include breakpoint-down(small-desktop) {
+		top: 3rem;		
+		right: 3rem;
+	}
+
+	@include breakpoint-down(mobile) {
+		top: 1.7rem;
+		right: 2.7rem;
+		max-width: 2.4rem;
+		font-size: 1.4rem;		
+	}
+
+	svg {
+		max-width: 100%;
+	}
+
+	a {
+		display: block;
+		text-decoration: none;
+		transition: color .4s;
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				color: var(--c-base);		
+			}
+		}
+	}
+
+	span {
+		position: absolute;
+		top: 2.4rem;
+		left: 50%;
+		transform: translateX(-50%);
+		color: var(--c-white);
+		text-align: center;
+
+		@include breakpoint-down(mobile) {
+			top: 3rem;		
+		}
+	}
+}

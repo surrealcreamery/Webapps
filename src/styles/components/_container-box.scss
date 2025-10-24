@@ -1,0 +1,100 @@
+/* ------------------------------------------------------------ *\
+	Container Box
+\* ------------------------------------------------------------ */
+
+.container-box {
+	background: linear-gradient(180deg, #FCFDFF 0%, #FAFDFF 49.5%, #F5F9FD 100%);
+	border: 1px solid var(--c-black);
+	border-radius: 30px;
+
+	@include breakpoint-down(tablet) {
+		border: 0;
+		background: none;
+		border-radius: 0;		
+	}
+
+	.container__head {
+		margin-top: -4rem;
+		padding-inline: 2.4rem;
+		display: flex;
+		justify-content: space-between;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			margin-top: -2.4vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			flex-direction: column;
+			justify-content: center;
+			align-items: center;
+			text-align: center;		
+			margin-top: 0;
+			padding: 0;
+		}
+	}
+
+	.container__title {
+		width: fit-content;
+		max-width: 106.8rem;
+		background: var(--c-white);
+		padding-inline: 2rem;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			max-width: 48vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			margin-bottom: 1.2rem;	
+			padding: 0;			
+		}
+
+		@include breakpoint-down(mobile) {
+			margin-bottom: 0.7rem;		
+		}
+	}
+
+	.container__image {
+		display: none;
+		margin-bottom: 3rem;
+		width: 100%;
+
+		@include breakpoint-down(tablet) {
+			display: block;		
+		}
+
+		@include breakpoint-down(mobile) {
+			margin-bottom: 1.8rem;		
+		}
+	}
+
+	.container__image img {
+		width: 100%;
+	}
+
+	.container__body {
+		padding: 0 2rem 4.2rem;
+
+		@include breakpoint-down(tablet) {
+			padding: 0;		
+		}
+	}
+
+	.container__actions {
+		margin-top: -.4rem;
+		flex-shrink: 0;
+
+		@include breakpoint-down(tablet) {
+			margin-top: 0;
+			margin-bottom: 2.4rem;		
+		}
+
+		@include breakpoint-down(mobile) {
+			margin-bottom: 1.6rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			width: 100%;		
+			margin-bottom: 1rem;
+		}
+	}
+}

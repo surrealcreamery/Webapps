@@ -1,0 +1,64 @@
+/* ------------------------------------------------------------ *\
+	List times - DELETE OR MODIFY THESE
+\* ------------------------------------------------------------ */
+
+.list-times {
+	list-style-type: none;
+
+	li + li {
+		margin-top: 1.8rem;
+
+		@include breakpoint-down(mobile-medium) {
+			margin-top: .95rem;		
+		}
+	}
+
+	button {
+		padding: 3.9rem 4.9rem;
+		border-radius: 1rem;
+		text-align: left;
+		width: 100%;
+		background: var(--c-white);
+		border: 2px solid var(--c-black);
+		/*text-transform: uppercase;*/
+		outline: .4rem solid transparent;
+		transition: all .4s;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			padding: 2.4vw 2.5vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			padding: 2rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			padding: 1.9rem 2.4rem;	
+			border-radius: .7rem;
+		}
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				border-color: var(--c-base);		
+			}
+		}
+
+		&:focus-visible {
+			outline-color: var(--c-base);		
+		}
+	}
+
+	li.is-active button {
+		background: var(--c-base);
+		border-color: var(--c-base);		
+		color: var(--c-white);
+	}
+}
+
+/* List Times Alt */
+.list-times--alt {
+
+	button {
+		text-transform: none;
+	}
+}

@@ -1,0 +1,73 @@
+/* ------------------------------------------------------------ *\
+	Card
+\* ------------------------------------------------------------ */
+
+.card {
+	text-align: center;
+	font-size: 2.8rem;
+
+	@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+		font-size: 1.6vw;
+	}
+
+	a {
+		display: block;
+		text-decoration: none;
+		outline: .4rem solid transparent;
+		border-radius: 3rem;
+		transition: outline-color .4s;
+
+		&:focus-visible {
+			outline-color: var(--c-base);		
+		}
+	}
+
+	.card__image {
+		margin-bottom: 3rem;
+	}
+
+	.card__image img {
+		width: 100%;
+	}
+
+	.card__content-title {
+		margin-bottom: .7rem;
+	}
+
+	.card__content-title h6 {
+		font-size: 2.8rem;	
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			font-size: 2vw;
+		}
+	}
+
+	.card__content-text {
+		display: flex;
+		justify-content: flex-start;
+		align-items: center;
+		gap: .8rem;
+		padding: 0 3rem;
+	}
+
+	.card__content-text:not(:last-child) {
+		margin-bottom: .8rem;
+	}
+
+	.card__content-text img {
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			max-width: 3vw;
+		}
+	}
+}
+
+/* Card with background */
+.card--background {
+	background: linear-gradient(180deg, #FCFDFF 0%, #FAFDFF 49.5%, #F5F9FD 100%);
+	border-radius: 3rem;
+
+	a {
+		padding: 2.5rem 0 3rem;
+	}
+}

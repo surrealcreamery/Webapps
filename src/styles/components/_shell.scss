@@ -1,0 +1,31 @@
+// ==========================================================================
+// Shell
+// ==========================================================================
+
+
+
+/* SHELL SIZE FOR EVERYTHING ELSE */
+
+.shell {
+	/*--shell-max-width: 167.2rem;*/
+	--shell-max-width: 167.2rem;
+	--shell-gutter: 2.8rem;
+
+	max-width: calc(var(--shell-max-width) + (var(--shell-gutter) * 2));
+	padding-inline: var(--shell-gutter);
+	margin-inline: auto;
+	width: 100%;
+
+	@include breakpoint-down(mobile) {
+		--shell-gutter: 2.4rem;
+	}
+
+	@include breakpoint-down(mobile-medium) {
+		--shell-gutter: 1.4rem;				
+	}
+}
+
+// Shell fluid
+.shell--fluid {
+	max-width: none;
+}

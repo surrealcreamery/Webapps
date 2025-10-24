@@ -1,0 +1,26 @@
+/* ------------------------------------------------------------ *\
+	List Jars
+\* ------------------------------------------------------------ */
+
+.list-jars {
+	list-style-type: none;
+	display: flex;
+	gap: 2rem;
+	justify-content: space-between;
+
+	@include breakpoint-down(mobile-medium) {
+		gap: 1.4rem;		
+	}
+
+	li {
+		max-width: 5vw;
+
+		@include breakpoint-down(mobile) {
+			max-width: 5rem;		
+		}
+	}
+
+	img {
+		max-width: 100%;
+	}
+}

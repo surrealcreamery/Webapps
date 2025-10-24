@@ -1,0 +1,66 @@
+/* ------------------------------------------------------------ *\
+	Header
+\* ------------------------------------------------------------ */
+
+.header {
+	position: relative;
+	z-index: 999;
+	padding: 3.9rem 0;
+
+	@include breakpoint-down(mobile) {
+		padding: 2rem 0;		
+	}
+
+	.header__logo {
+		width: fit-content;
+		max-width: 25.5rem;
+		margin-inline: auto;
+
+		@media only screen and (max-width: 1599px) and (min-width: 767px) {
+			max-width: 15vw;
+		}
+
+		@include breakpoint-down(mobile) {
+			max-width: 19vw;
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			max-width: 22vw;
+		}
+	}
+
+	.header__logo a {
+		text-decoration: none;
+		display: block;
+		text-indent: 0;
+		outline: .4rem solid transparent;
+		border-radius: 1rem;
+		transition: outline-color .4s;
+
+		&:focus-visible {
+			outline-color: var(--c-base);
+		}
+	}
+}
+
+/* Header with small logo */
+.header--small-logo {
+	background: var(--c-white);
+
+	.header__logo {
+		max-width: 22.4rem;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			max-width: 14vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			max-width: 13vw;		
+		}
+	
+
+		@include breakpoint-down(mobile-medium) {
+			max-width: 22vw;
+		}
+	}
+}

@@ -1,0 +1,29 @@
+// ==========================================================================
+// Variables
+// ==========================================================================
+
+:root {
+	--fz-html: 62.5%;
+	--fz-base: 3.2rem;
+	--fw-base: 400;
+	--lh-base: 1.25;
+	--ff-base: 'Outfit', sans-serif;
+	--ff-poppins: 'Poppins', sans-serif;
+	--ff-book: 'AG Book', sans-serif;
+
+	--c-base: #0095FF;
+	--c-white: #fff;
+	--c-gray: #F7F7F7;
+	--c-black: #000;
+	--c-blue: #E4F4FF;
+}
+
+$breakpoints: (
+	mobile-small: 374px,
+	mobile-medium: 575px,
+	mobile: 767px,
+	tablet: 1023px,
+	small-desktop: 1199px,
+	large-desktop: 1399px,
+	xlarge-desktop: 1599px,
+);

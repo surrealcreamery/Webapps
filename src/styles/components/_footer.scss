@@ -1,0 +1,173 @@
+/* ------------------------------------------------------------ *\
+	Footer
+\* ------------------------------------------------------------ */
+
+.footer {
+	background: var(--c-black);
+	color: var(--c-white);
+	padding: 3rem 0 4.3rem;
+	overflow: hidden;
+	position: relative;
+	z-index: 100;
+
+	@include breakpoint-down(mobile) {
+		padding: 2.4rem 0 5rem;		
+	}
+
+	@include breakpoint-down(mobile-medium) {
+		padding: 2rem 0 5.9rem;		
+	}
+
+	ul {
+		list-style-type: none;
+	}
+
+	.footer__shell {
+		display: flex;
+		justify-content: space-between;
+		position: relative;
+
+		@include breakpoint-down(mobile) {
+			flex-direction: column-reverse;		
+			padding-inline: 2.6rem;
+		}
+	}
+
+	.footer__decoration {
+		position: absolute;
+		top: -8.4rem;
+		right: 12%;
+
+		@include breakpoint-down(mobile) {
+			right: -6.4rem;
+			min-width: unset;	
+			top: -10rem;	
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			top: -6.5rem;		
+		}
+	}
+
+	.footer__decoration img {
+
+		@include breakpoint-down(mobile) {
+			width: 100%;		
+		}
+	}
+
+	.footer__content {
+		margin-top: 0.5rem;
+		font-family: var(--ff-book);
+		text-transform: uppercase;
+		font-size: 5.2rem;
+		font-weight: 700;
+		line-height: 1;
+
+		@include breakpoint-down(mobile) {
+			font-size: 4.6rem;
+			line-height: 0.9;	
+			margin-top: 0;	
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			font-size: 3.4rem;
+		}
+
+		@include breakpoint-down(mobile-small) {
+		}
+	}
+
+	.footer__content li + li {
+		margin-top: 1rem;
+		
+		@include breakpoint-down(mobile) {
+			margin-top: 1.2rem;		
+		}
+	}
+
+	.footer__content a {
+		/*line-height: .7;*/
+		padding-top: 0.7rem;
+		text-decoration: none;
+		display: block;
+		width: fit-content;
+		outline: .4rem solid transparent;
+		border-radius: 1rem;
+		transition: color .4s, outline-color .4s;
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				color: var(--c-blue);		
+			}
+		}
+
+		&:focus-visible {
+			outline-color: var(--c-base);
+		}
+	}
+
+	.footer__socials {
+		width: 12%;
+		position: relative;
+		z-index: 2;
+
+		@include breakpoint-down(tablet) {
+			width: 15%;		
+		}
+
+		@include breakpoint-down(mobile) {
+			width: 70%;	
+			margin-bottom: 6.5rem;	
+			padding-left: .7rem;
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			padding-left: 0;		
+		}
+	}
+
+	.footer__socials ul {
+		list-style-type: none;
+		display: flex;
+		justify-content: flex-end;
+		align-items: center;
+		gap: 2.5rem;
+		margin-top: .8rem;
+
+		@include breakpoint-down(tablet) {
+			gap: 1.8rem;		
+		}
+		
+		@include breakpoint-down(mobile) {
+			justify-content: flex-start;	
+			gap: 2.2rem;	
+		}
+	}
+
+	.footer__socials a {
+		display: flex;
+		text-decoration: none;
+		outline: .4rem solid transparent;
+		border-radius: .4rem;
+		transition: opacity .4s, outline-color .4s;
+
+		@include breakpoint-down(mobile-medium) {
+			max-width: 2.6rem;
+		}
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				opacity: .7;		
+			}
+		}
+
+		&:focus-visible {
+			outline-color: var(--c-base);
+		}
+	}
+
+	.footer__socials a img {
+		width: 100%;
+	}
+}

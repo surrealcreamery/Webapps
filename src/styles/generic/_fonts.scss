@@ -1,0 +1,12 @@
+// ==========================================================================
+// Fonts
+// ==========================================================================
+
+@font-face {
+    font-family: 'AG Book';
+    src: url('../assets/fonts/AGBookRounded-BoldCn.woff2') format('woff2'),
+        url('../assets/fonts/AGBookRounded-BoldCn.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}

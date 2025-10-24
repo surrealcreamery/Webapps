@@ -1,0 +1,226 @@
+/* ------------------------------------------------------------ *\
+	Product
+\* ------------------------------------------------------------ */
+
+.product {
+	display: grid;
+	grid-template-columns: 29.5% calc(70.5% - 5rem);
+	gap: 5rem;
+
+	@include breakpoint-down(tablet) {
+		grid-template-columns: 1fr;	
+		gap: 2.3rem;	
+	}
+
+	@include breakpoint-down(mobile-medium) {
+		gap: 1rem;		
+	}
+
+	.product__images {
+		display: grid;
+		grid-template-columns: repeat(6, 1fr);
+		gap: 1rem;
+	}
+
+	.product__image {
+
+		@include breakpoint-down(tablet) {
+			text-align: center;		
+		}
+
+		@include breakpoint-down(mobile) {
+			width: 100%;		
+		}
+	}
+
+	.product__image img {
+
+		@include breakpoint-down(mobile) {
+			width: 100%;		
+		}
+	}
+	
+	.product__wrapper-info {
+		display: grid;	
+		gap: 9rem;
+		grid-template-columns: 1fr 27.5% 16rem;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			gap: 3.4vw;
+			grid-template-columns: 1fr 30% 8.5vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			grid-template-columns: auto 1fr;
+			align-items: center;
+			gap: 2.7rem;
+			position: relative;
+		}
+
+		@include breakpoint-down(mobile) {
+			gap: .9rem 1.5rem;		
+		}
+	}
+
+	.product__info-content {
+		@include breakpoint-down(tablet) {
+			grid-column: 1 / -1;	
+			padding-right: 13rem;	
+		}
+
+		@include breakpoint-down(mobile) {
+			margin-top: .5rem;
+			padding-left: .4rem;
+			padding-right: 6rem;	
+		}
+	}
+
+	.product__info-content h4 {
+		font-weight: 400;
+		margin-bottom: 0;
+		font-size: 4.8rem;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			font-size: 2.8vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			font-size: 3rem;
+			font-weight: 700;		
+		}
+
+		@include breakpoint-down(mobile) {
+			font-size: 2.6rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			font-size: 2.1rem;		
+		}
+
+		@include breakpoint-down(mobile-small) {
+			font-size: 2rem;		
+		}
+	}
+
+	.product__info-content ul {
+		margin-bottom: 0;
+		padding-left: 0;
+		list-style-type: none;
+
+		@include breakpoint-down(mobile) {
+			line-height: 1.19;			
+		}
+	}
+
+	.product__info-quantity {
+		margin-top: -2rem;
+
+		@include breakpoint-down(xlarge-desktop) {
+			margin-top: 0;		
+		}
+
+		@include breakpoint-down(mobile) {
+			padding-left: .5rem;			
+		}
+	}
+
+	.product__info-price {
+		margin-top: -0.5rem;
+		text-align: center;
+
+		@include breakpoint-down(xlarge-desktop) {
+			margin-top: 0;		
+		}
+
+		@include breakpoint-down(tablet) {
+			text-align: left;
+		}
+	}
+
+	.product__info-price--mobile {
+		display: none;
+		position: absolute;
+		top: 0;
+		right: 0;
+		font-weight: 700;
+
+		@include breakpoint-down(tablet) {
+			display: block;		
+		}
+	}
+
+	.product__price-wrapper {
+		font-size: 4.8rem;
+		margin-bottom: .7rem;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			font-size: 2.8vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			font-size: 3rem;
+			font-weight: 700;		
+		}
+
+		@include breakpoint-down(mobile) {
+			font-size: 2.6rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			font-size: 2.5rem;		
+		}
+
+		@include breakpoint-down(mobile-small) {
+			font-size: 2rem;		
+		}
+	}
+
+	.product__info-price:not(.product__info-price--mobile) .product__price-wrapper {
+		@include breakpoint-down(tablet) {
+			margin-bottom: 0;		
+		}
+	}
+
+	.product__info-price:not(.product__info-price--mobile) .product__price-wrapper p {
+		@include breakpoint-down(tablet) {
+			display: none;	
+		}
+	}
+
+	.product__price-actions button {
+		background: transparent;
+		border: 0;
+		outline: none;
+		color: var(--c-base);
+		font-size: 3.2rem;
+		outline: .4rem solid transparent;
+		border-radius: .5rem;;
+		transition: color .4s, outline-color .4s;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			font-size: 2vw;
+		}
+	
+		@include breakpoint-down(tablet) {
+			font-size: 2.4rem;		
+		}
+	
+		@include breakpoint-down(mobile) {
+			font-size: 2rem;		
+		}
+	
+		@include breakpoint-down(mobile-medium) {
+			font-size: 1.7rem;		
+		}
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				color: var(--c-black);		
+			}
+		}
+
+		&:focus-visible {
+			outline-color: var(--c-base)		;
+		}
+	}
+}

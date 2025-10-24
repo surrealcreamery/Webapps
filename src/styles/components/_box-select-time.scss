@@ -1,0 +1,59 @@
+/* ------------------------------------------------------------ *\
+	Box Select Time
+\* ------------------------------------------------------------ */
+
+.box-select-time {
+	max-width: 65.2rem;
+
+	@include breakpoint-down(tablet) {
+		max-width: 100%;		
+	}
+
+	.box__title {
+		display: none;
+		grid-template-columns: auto 1fr;
+		gap: 2.6rem;	
+		margin-bottom: 2.4rem;
+
+		@include breakpoint-down(tablet) {
+			display: grid;
+		}
+	}
+
+	.box__title h6 {
+		margin-bottom: 0;
+	}
+
+	.box__title p {
+		margin-bottom: 0;
+	}
+
+	.box__title a:not(.btn) {
+		color: var(--c-base);
+		text-decoration: none;
+		transition: color .4s;
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				color: var(--c-black);		
+			}
+		}
+	}
+
+	.box__day {
+		margin-bottom: 2.6rem;
+		position: relative;
+
+		@include breakpoint-down(mobile-medium) {
+			margin-bottom: 1.5rem;		
+		}
+	}
+
+	.box__datepicker {
+		position: absolute;
+		top: 100%;
+		right: 0;
+		width: 100%;
+		max-width: 40rem;
+	}
+}

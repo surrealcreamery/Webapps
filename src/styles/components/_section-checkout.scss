@@ -1,0 +1,205 @@
+/* ------------------------------------------------------------ *\
+	Section Checkout
+\* ------------------------------------------------------------ */
+
+.section-checkout {
+	padding: 3.8rem 0 17rem;
+
+	@include breakpoint-down(mobile) {
+		padding-top: 0;
+		padding-bottom: 14rem;		
+	}
+
+	.shell {
+		max-width: 60rem;
+	}
+
+	.section__title {
+		margin-bottom: 4rem;
+		text-align: center;
+
+		@include breakpoint-down(mobile) {
+			margin-bottom: 3rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			margin-bottom: 1.5rem;		
+		}
+	}
+
+	.section__title a { /* ADDED FOR STEPPER */
+		text-decoration: none;
+	}
+
+	.section__title h1 {
+
+		@include breakpoint-down(mobile-medium) {
+			font-size: 3.8rem;		
+		}
+
+		@include breakpoint-down(mobile-small) {
+			font-size: 3.4rem;		
+		}
+	}
+
+	.section__cols {
+		position: relative;
+		/*display: grid;*/
+		/*grid-template-columns: repeat(1, 100%);*/
+
+		@include breakpoint-down(tablet) {
+			/*grid-template-columns: 100%;	*/	
+		}
+	}
+
+/* 	.section__col:first-child {
+		padding-right: 0rem;
+
+		@include breakpoint-down(tablet) {
+			padding-right: 0;		
+		}
+	} */
+
+	.section__col.is-hidden,
+	.section__col-head.is-hidden,
+	.section__col-body.is-hidden {
+
+		display: none;
+
+		@include breakpoint-down(tablet) {
+			display: none; /*ALLOWS THE lOCATIONS TO DISPLAY ALL THE TIME*/			
+		}
+
+	}
+
+	.section__col-head {
+		margin-bottom: 3rem;
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 2.6rem;
+
+		@include breakpoint-down(mobile) {
+			/* ADDED HERE TO HIDE AT BREAKPOINT */
+			/*display: none;*/
+			gap: 1.5rem;
+			margin-bottom: 1.5rem;		
+		}
+
+		@include breakpoint-down(tablet) {
+			/* ADDED HERE TO HIDE AT BREAKPOINT */
+			/*display: none;*/
+			gap: 1.5rem;
+			margin-bottom: 1.5rem;		
+		}
+	}
+
+	.section__col-head h6.errorMessage{
+		color: red;
+
+	}
+
+	.section__col + .section__col .section__col-head {
+		padding-top: 0;
+		gap: 1.6rem;
+		margin-bottom: 2rem;
+
+		@include breakpoint-down(mobile) {
+			margin-bottom: 0.8rem;		
+		}
+	}
+
+	.section__head-icon img {
+		width: 100%;
+		height: auto;
+
+		@include breakpoint-down(mobile-medium) {
+			width: 3rem;		
+		}
+	}
+
+	.section__head-content {
+		max-width: 55.7rem;
+		padding-top: 0.7rem;
+
+		@include breakpoint-down(mobile) {
+			padding-top: 0;		
+		}
+	}
+
+	.section__head-content h6 {
+		margin-bottom: 0;
+	}
+
+	.section__head-content p {
+		margin-bottom: 0;
+	}
+
+
+	.section__head-content a:not(.btn) {
+		color: var(--c-base);
+		text-decoration: none;
+		outline: .4rem solid transparent;
+		border-radius: .5rem;
+		transition: color .4s, outline-color .4s;
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				color: var(--c-black);		
+			}
+		}
+
+		&:focus-visible {
+			outline-color: var(--c-base);
+		}
+	}
+	
+	.section__head-content a.btn {
+
+		margin-top: 2rem;		
+
+		@include breakpoint-down(tablet) {
+			display: inline-block;	
+			margin-top: 2.34rem;	
+		}
+
+		@include breakpoint-down(mobile) {
+			margin-top: 0.8rem;		
+		}
+	}
+
+	.section__actions {
+		text-align: center;
+		position: fixed;
+		z-index: 100;
+		bottom: 0;
+		left: 0;
+		width: 100vw;
+		background: var(--c-white);	
+		text-align: center;	
+		padding: 2rem;
+		box-shadow: 0px -4px 20px rgba(0, 0, 0, 0.25);
+	}
+
+/* 	.section__actions .btn {
+		padding: 2.4rem 2.8rem 1.6rem;
+		font-size: 2.8rem;
+
+		@include breakpoint-down(mobile) {
+			padding: 1.8rem 2rem 1.2rem;
+			font-size: 2.4rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			font-size: 2.2rem;		
+		}
+
+		@include breakpoint-down(mobile-small) {
+			font-size: 2rem;
+			padding-inline: 1.5rem;		
+		}
+	} */
+
+	.section__alert {
+		margin-bottom: 5.3rem;
+	}
+}

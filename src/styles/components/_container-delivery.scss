@@ -1,0 +1,82 @@
+/* ------------------------------------------------------------ *\
+	Container Delivery
+\* ------------------------------------------------------------ */
+
+.container-delivery {
+
+	.container__form {
+		margin-bottom: 4rem;
+		/* padding-left: 8rem; DELETE THIS */
+
+		@include breakpoint-down(mobile) {
+			/* padding-left: 7rem; DELETE THIS */		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			/* padding-left: 4.3rem; DELETE THIS */
+		}
+	}
+
+	.container__wrapper:first-child {
+
+		@include breakpoint-down(mobile-medium) {
+			margin-top: 1.6rem;		
+		}
+	}
+
+	
+	.container__message {
+		font-family: var(--ff-book);
+
+		@include breakpoint-down(large-desktop) {
+			/*padding-left: 4rem;*/
+		}
+
+		@media only screen and (max-width: 640px) {
+			padding-left: 0;
+		}
+	}
+
+	.container__actions {
+		text-align: center;
+		opacity: 0;
+		visibility: hidden;
+		transition: opacity .4s, visibility .4s;
+
+		@include breakpoint-down(tablet) {
+			position: fixed;
+			z-index: 100;
+			bottom: 0;
+			left: 0;
+			width: 100vw;
+			background: var(--c-white);	
+			text-align: center;	
+			padding: 2rem;
+			box-shadow: 0px -4px 20px rgba(0, 0, 0, 0.25);
+		}
+
+		&.is-visible {
+			opacity: 1;
+			visibility: visible;
+		}
+	}
+
+	.container__actions .btn {
+		padding: 2.4rem 2.8rem 1.6rem;
+		font-size: 2.8rem;
+
+		@include breakpoint-down(mobile) {
+			padding: 1.8rem 2rem 1.2rem;
+			font-size: 2.4rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			font-size: 2.2rem;		
+		}
+
+		@include breakpoint-down(mobile-small) {
+			font-size: 2rem;
+			padding-inline: 1.5rem;		
+		}
+	}
+}

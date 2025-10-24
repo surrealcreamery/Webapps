@@ -1,0 +1,16 @@
+/* ------------------------------------------------------------ *\
+	Block Button
+\* ------------------------------------------------------------ */
+
+.block-button {
+	position: fixed;
+	top: 2rem;
+	left: 50%;
+	transform: translate(-50%, -20vh);
+	z-index: 999;
+	transition: transform 0.4s;
+
+	&:has(a:focus-visible) {
+		transform: translateX(-50%);
+	}
+}

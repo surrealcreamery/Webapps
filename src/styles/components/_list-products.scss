@@ -1,0 +1,95 @@
+/* ------------------------------------------------------------ *\
+	List Products
+\* ------------------------------------------------------------ */
+
+.list-products {
+	list-style-type: none;
+	display: flex;
+	gap: 2rem;
+	text-align: center;
+
+	@include breakpoint-down(mobile-medium) {
+		gap: 1.2rem;		
+	}
+
+	> li {
+		width: calc(16.67% - 1rem);
+	}
+
+	a:not(.btn) {
+		display: flex;
+		flex-direction: column;
+		text-decoration: none;
+		height: 100%;
+		outline: .4rem solid transparent;
+		border-radius: 1rem;
+		transition: outline-color .4s;
+
+		&:focus-visible {
+			outline-color: var(--c-base);		
+		}
+	}
+
+	h6 {
+		font-size: 2.8rem;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			font-size: 1.6vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			font-size: 2.6rem;		
+		}
+		
+		@include breakpoint-down(mobile) {
+			font-size: 2.2rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			font-size: 1.8rem;		
+		}
+	}
+
+	.list__image {
+		max-width: 18rem;
+		margin-inline: auto;
+	}
+
+	.list__image:not(:last-child) {
+		margin-bottom: 1.3rem;
+	}
+
+	.list__content {
+		@include breakpoint-down(tablet) {
+			font-family: var(--ff-book);	
+		}
+	}
+}
+
+#container-0 .list-products,
+#container-1 .list-products {
+	@include breakpoint-down(tablet) {
+		flex-wrap: wrap;
+		gap: 0 2rem;	
+		text-align: left;	
+	}
+
+	> li {
+		@include breakpoint-down(tablet) {
+			width: calc(50% - 1rem);		
+		}
+	}
+
+	> li > a {
+		@include breakpoint-down(tablet) {
+			display: grid;
+			align-items: center;
+			gap: 2rem;
+			grid-template-columns: 30% 1fr;			
+		}
+
+		@include breakpoint-down(mobile) {
+			gap: 1rem;
+		}
+	}
+}

@@ -1,0 +1,58 @@
+/* ------------------------------------------------------------ *\
+	Block Redeem
+\* ------------------------------------------------------------ */
+
+.block-redeem {
+	position: absolute;
+	top: 8.4rem;
+	right: 15rem;
+	font-size: 3.4rem;
+	z-index: 999;
+	height: fit-content;
+
+	@include breakpoint-down(small-desktop) {
+		top: 4.2rem;		
+		right: 13rem;
+	}
+
+	@include breakpoint-down(mobile) {
+		top: 1.7rem;
+		right: 6.5rem;
+		max-width: 2.4rem;
+		font-size: 1.4rem;		
+	}
+
+	svg {
+		max-width: 100%;
+	}
+
+	a {
+		display: block;
+		text-decoration: none;
+		transition: color .4s;
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				color: var(--c-base);		
+			}
+		}
+	}
+
+	span {
+		position: absolute;
+		top: 2.4rem;
+		left: 50%;
+		transform: translateX(-50%);
+		color: var(--c-black);
+		text-align: center;
+
+		padding: .8rem 1.5rem .8rem 1.5rem;
+		border:solid .2rem #000;
+		border-radius: 1.5rem;
+
+
+		@include breakpoint-down(mobile) {
+			top: 3rem;		
+		}
+	}
+}

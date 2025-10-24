@@ -1,0 +1,189 @@
+/* ------------------------------------------------------------ *\
+	List Delivery Options
+\* ------------------------------------------------------------ */
+
+.list-delivery-options {
+	list-style-type: none;
+	max-width: 65.2rem;
+
+	@include breakpoint-down(tablet) {
+		max-width: 100%;		
+	}
+
+	@include breakpoint-down(mobile-medium) {
+		font-size: 1.7rem;		
+	}
+
+	li + li {
+		margin-top: 1.9rem;
+
+		@include breakpoint-down(mobile-medium) {
+			margin-top: .8rem;		
+		}
+	}
+
+	h6,
+	p {
+		margin-bottom: 0;
+	}
+
+	h6 {
+		@include breakpoint-down(mobile-medium) {
+			font-size: 1.7rem;		
+		}
+	}
+
+	button {
+		display: grid;
+		align-items: center;
+		grid-template-columns: 1fr 7.5rem;
+		gap: 1rem;
+		text-align: left;
+		background: transparent;
+		width: 100%;
+		outline: none;
+		background: var(--c-white);
+		border: .2rem solid var(--c-black);
+		border-radius: 1rem;		
+		padding: 1.9rem 2.1rem 1.9rem 4.9rem;
+		outline: .4rem solid transparent;
+		transition: all .4s;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			padding: 1.2vw 2.4vw 1.1vw 2.5vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			padding: 2rem;
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			padding: 1rem .8rem 1rem 2.6rem;
+			/*grid-template-columns: 1fr 5.5rem;*/
+			grid-template-columns: 1fr 15.5rem;
+		}
+
+		@include breakpoint-down(mobile-small) {
+			grid-template-columns: 1fr 4.5rem;
+		}
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				border-color: var(--c-base);		
+			}
+		}
+
+		&:focus-visible {
+			outline-color: var(--c-base);
+		}
+	}
+
+	li.is-active button {
+		background: var(--c-base);
+		border-color: var(--c-base);		
+		color: var(--c-white);
+	}
+
+	.list__price {
+		font-weight: 700;
+		font-size: 4.8rem;
+		line-height: 1.25;
+		text-align: right;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			font-size: 2.6vw;
+		}
+
+		@include breakpoint-down(tablet) {
+			font-size: 4rem;		
+		}
+
+		@include breakpoint-down(mobile) {
+			font-size: 3.4rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			font-size: 2.6rem;		
+		}
+
+		@include breakpoint-down(mobile-small) {
+			font-size: 2.2rem;
+		}
+	}
+}
+
+/* ------------------------------------------------------------ *\
+	View Estimate
+\* ------------------------------------------------------------ */
+
+.view-estimate {
+	display: grid;
+	margin-block-start: 1em;
+	margin-block-end: 1em;
+	margin-inline-start: 0em;
+	margin-inline-end: 0em;
+	unicode-bidi: isolate;
+	grid-template-columns: 1fr 15rem; 
+
+	@include breakpoint-down(tablet) {
+		max-width: 100%;		
+	}
+
+	@include breakpoint-down(mobile-medium) {
+		font-size: 1.7rem;		
+	}
+}
+
+.view-estimate .item {
+	font-weight: 500;
+	font-size: 2.8rem;
+	line-height: 1.25;
+}
+
+.view-estimate .item h6 {
+	font-weight: 700;
+	font-size: 2rem;
+	line-height: 2;
+}
+
+.view-estimate .item p {
+	font-weight: 300;
+	font-size: 2rem;
+	line-height: 1.25;
+}
+
+
+
+.view-estimate .price {
+	font-weight: 300;
+	font-size: 2.8rem;
+	line-height: 1.25;
+	text-align: right;
+
+	@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+		font-size: 2.6vw;
+	}
+
+	@include breakpoint-down(tablet) {
+		font-size: 4rem;		
+	}
+
+	@include breakpoint-down(mobile) {
+		font-size: 3.4rem;		
+	}
+
+	@include breakpoint-down(mobile-medium) {
+		font-size: 2.6rem;		
+	}
+
+	@include breakpoint-down(mobile-small) {
+		font-size: 2.2rem;
+	}
+	
+}
+
+.view-estimate p {
+
+	white-space: pre-line;
+
+}

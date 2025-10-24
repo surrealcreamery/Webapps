@@ -1,0 +1,437 @@
+[debug] [2025-06-05T00:06:01.468Z] ----------------------------------------------------------------------
+[debug] [2025-06-05T00:06:01.469Z] Command:       /usr/local/bin/node /usr/local/bin/firebase emulators:start --only auth --project dollar-boba-club
+[debug] [2025-06-05T00:06:01.470Z] CLI Version:   14.6.0
+[debug] [2025-06-05T00:06:01.470Z] Platform:      darwin
+[debug] [2025-06-05T00:06:01.470Z] Node Version:  v22.12.0
+[debug] [2025-06-05T00:06:01.470Z] Time:          Wed Jun 04 2025 20:06:01 GMT-0400 (Eastern Daylight Time)
+[debug] [2025-06-05T00:06:01.470Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-06-05T00:06:01.568Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"project"}
+[debug] [2025-06-05T00:06:01.571Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-06-05T00:06:01.571Z] > authorizing via signed-in user (albert@breakingbatter.com)
+[info] i  emulators: Starting emulators: auth {"metadata":{"emulator":{"name":"hub"},"message":"Starting emulators: auth"}}
+[debug] [2025-06-05T00:06:02.101Z] [logging] Logging Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2025-06-05T00:06:02.101Z] [auth] Authentication Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2025-06-05T00:06:02.101Z] assigned listening specs for emulators {"user":{"hub":[{"address":"127.0.0.1","family":"IPv4","port":4400},{"address":"::1","family":"IPv6","port":4400}],"ui":[{"address":"127.0.0.1","family":"IPv4","port":4000},{"address":"::1","family":"IPv6","port":4000}],"logging":[{"address":"127.0.0.1","family":"IPv4","port":4500}],"auth":[{"address":"127.0.0.1","family":"IPv4","port":9099}]},"metadata":{"message":"assigned listening specs for emulators"}}
+[debug] [2025-06-05T00:06:02.103Z] [hub] writing locator at /var/folders/8d/h0nfsdmd21sc_vw274w3rps40000gn/T/hub-dollar-boba-club.json
+[info] i  ui: downloading ui-v1.15.0.zip... {"metadata":{"emulator":{"name":"ui"},"message":"downloading ui-v1.15.0.zip..."}}
+[debug] [2025-06-05T00:06:05.154Z] >>> [apiv2][query] GET https://storage.googleapis.com/firebase-preview-drop/emulator/ui-v1.15.0.zip 
+[debug] [2025-06-05T00:06:05.253Z] <<< [apiv2][status] GET https://storage.googleapis.com/firebase-preview-drop/emulator/ui-v1.15.0.zip 200
+[debug] [2025-06-05T00:06:05.253Z] <<< [apiv2][body] GET https://storage.googleapis.com/firebase-preview-drop/emulator/ui-v1.15.0.zip [stream]
+[debug] [2025-06-05T00:06:05.431Z] Data is 3538469
+[debug] [2025-06-05T00:06:05.431Z] [unzip] Entry: client/ (compressed_size=0 bytes, uncompressed_size=0 bytes)
+[debug] [2025-06-05T00:06:05.431Z] [unzip] Processing entry: client/
+[debug] [2025-06-05T00:06:05.431Z] [unzip] mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/
+[debug] [2025-06-05T00:06:05.431Z] [unzip] Entry: client/favicon-16x16.png (compressed_size=293 bytes, uncompressed_size=293 bytes)
+[debug] [2025-06-05T00:06:05.431Z] [unzip] Processing entry: client/favicon-16x16.png
+[debug] [2025-06-05T00:06:05.431Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.432Z] [unzip] Writing file: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/favicon-16x16.png
+[debug] [2025-06-05T00:06:05.432Z] [unzip] Entry: client/safari-pinned-tab.svg (compressed_size=1433 bytes, uncompressed_size=2611 bytes)
+[debug] [2025-06-05T00:06:05.432Z] [unzip] Processing entry: client/safari-pinned-tab.svg
+[debug] [2025-06-05T00:06:05.432Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.432Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/safari-pinned-tab.svg
+[debug] [2025-06-05T00:06:05.434Z] [unzip] Entry: client/favicon.ico (compressed_size=2933 bytes, uncompressed_size=13294 bytes)
+[debug] [2025-06-05T00:06:05.434Z] [unzip] Processing entry: client/favicon.ico
+[debug] [2025-06-05T00:06:05.434Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.434Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/favicon.ico
+[debug] [2025-06-05T00:06:05.435Z] [unzip] Entry: client/index.html (compressed_size=1364 bytes, uncompressed_size=3071 bytes)
+[debug] [2025-06-05T00:06:05.435Z] [unzip] Processing entry: client/index.html
+[debug] [2025-06-05T00:06:05.435Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.435Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/index.html
+[debug] [2025-06-05T00:06:05.436Z] [unzip] Entry: client/android-chrome-192x192.png (compressed_size=2684 bytes, uncompressed_size=2684 bytes)
+[debug] [2025-06-05T00:06:05.436Z] [unzip] Processing entry: client/android-chrome-192x192.png
+[debug] [2025-06-05T00:06:05.436Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.436Z] [unzip] Writing file: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/android-chrome-192x192.png
+[debug] [2025-06-05T00:06:05.436Z] [unzip] Entry: client/apple-touch-icon.png (compressed_size=2123 bytes, uncompressed_size=2152 bytes)
+[debug] [2025-06-05T00:06:05.436Z] [unzip] Processing entry: client/apple-touch-icon.png
+[debug] [2025-06-05T00:06:05.436Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.437Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/apple-touch-icon.png
+[debug] [2025-06-05T00:06:05.437Z] [unzip] Entry: client/android-chrome-512x512.png (compressed_size=5369 bytes, uncompressed_size=5411 bytes)
+[debug] [2025-06-05T00:06:05.437Z] [unzip] Processing entry: client/android-chrome-512x512.png
+[debug] [2025-06-05T00:06:05.437Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.437Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/android-chrome-512x512.png
+[debug] [2025-06-05T00:06:05.438Z] [unzip] Entry: client/manifest.json (compressed_size=245 bytes, uncompressed_size=551 bytes)
+[debug] [2025-06-05T00:06:05.438Z] [unzip] Processing entry: client/manifest.json
+[debug] [2025-06-05T00:06:05.438Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.438Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/manifest.json
+[debug] [2025-06-05T00:06:05.438Z] [unzip] Entry: client/robots.txt (compressed_size=26 bytes, uncompressed_size=26 bytes)
+[debug] [2025-06-05T00:06:05.438Z] [unzip] Processing entry: client/robots.txt
+[debug] [2025-06-05T00:06:05.439Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.439Z] [unzip] Writing file: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/robots.txt
+[debug] [2025-06-05T00:06:05.439Z] [unzip] Entry: client/mstile-150x150.png (compressed_size=2034 bytes, uncompressed_size=2034 bytes)
+[debug] [2025-06-05T00:06:05.439Z] [unzip] Processing entry: client/mstile-150x150.png
+[debug] [2025-06-05T00:06:05.439Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.439Z] [unzip] Writing file: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/mstile-150x150.png
+[debug] [2025-06-05T00:06:05.439Z] [unzip] Entry: client/assets/ (compressed_size=0 bytes, uncompressed_size=0 bytes)
+[debug] [2025-06-05T00:06:05.439Z] [unzip] Processing entry: client/assets/
+[debug] [2025-06-05T00:06:05.439Z] [unzip] mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/
+[debug] [2025-06-05T00:06:05.439Z] [unzip] Entry: client/assets/index-BX-A56oj.js (compressed_size=582089 bytes, uncompressed_size=2092775 bytes)
+[debug] [2025-06-05T00:06:05.439Z] [unzip] Processing entry: client/assets/index-BX-A56oj.js
+[debug] [2025-06-05T00:06:05.439Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets
+[debug] [2025-06-05T00:06:05.439Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/index-BX-A56oj.js
+[debug] [2025-06-05T00:06:05.447Z] [unzip] Entry: client/assets/index-CjB9C900.css (compressed_size=35979 bytes, uncompressed_size=298654 bytes)
+[debug] [2025-06-05T00:06:05.447Z] [unzip] Processing entry: client/assets/index-CjB9C900.css
+[debug] [2025-06-05T00:06:05.447Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets
+[debug] [2025-06-05T00:06:05.447Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/index-CjB9C900.css
+[debug] [2025-06-05T00:06:05.448Z] [unzip] Entry: client/assets/index-BX-A56oj.js.map (compressed_size=2362482 bytes, uncompressed_size=10036679 bytes)
+[debug] [2025-06-05T00:06:05.448Z] [unzip] Processing entry: client/assets/index-BX-A56oj.js.map
+[debug] [2025-06-05T00:06:05.448Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets
+[debug] [2025-06-05T00:06:05.448Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/index-BX-A56oj.js.map
+[debug] [2025-06-05T00:06:05.475Z] [unzip] Entry: client/assets/extensions/ (compressed_size=0 bytes, uncompressed_size=0 bytes)
+[debug] [2025-06-05T00:06:05.475Z] [unzip] Processing entry: client/assets/extensions/
+[debug] [2025-06-05T00:06:05.475Z] [unzip] mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/extensions/
+[debug] [2025-06-05T00:06:05.475Z] [unzip] Entry: client/assets/extensions/default-extension.png (compressed_size=1646 bytes, uncompressed_size=1657 bytes)
+[debug] [2025-06-05T00:06:05.475Z] [unzip] Processing entry: client/assets/extensions/default-extension.png
+[debug] [2025-06-05T00:06:05.475Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/extensions
+[debug] [2025-06-05T00:06:05.475Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/extensions/default-extension.png
+[debug] [2025-06-05T00:06:05.476Z] [unzip] Entry: client/assets/img/ (compressed_size=0 bytes, uncompressed_size=0 bytes)
+[debug] [2025-06-05T00:06:05.476Z] [unzip] Processing entry: client/assets/img/
+[debug] [2025-06-05T00:06:05.476Z] [unzip] mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/img/
+[debug] [2025-06-05T00:06:05.476Z] [unzip] Entry: client/assets/img/database.png (compressed_size=29449 bytes, uncompressed_size=29988 bytes)
+[debug] [2025-06-05T00:06:05.476Z] [unzip] Processing entry: client/assets/img/database.png
+[debug] [2025-06-05T00:06:05.476Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/img
+[debug] [2025-06-05T00:06:05.476Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/img/database.png
+[debug] [2025-06-05T00:06:05.478Z] [unzip] Entry: client/assets/provider-icons/ (compressed_size=0 bytes, uncompressed_size=0 bytes)
+[debug] [2025-06-05T00:06:05.478Z] [unzip] Processing entry: client/assets/provider-icons/
+[debug] [2025-06-05T00:06:05.478Z] [unzip] mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/
+[debug] [2025-06-05T00:06:05.478Z] [unzip] Entry: client/assets/provider-icons/auth_service_saml.svg (compressed_size=575 bytes, uncompressed_size=1226 bytes)
+[debug] [2025-06-05T00:06:05.478Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_saml.svg
+[debug] [2025-06-05T00:06:05.478Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.478Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_saml.svg
+[debug] [2025-06-05T00:06:05.478Z] [unzip] Entry: client/assets/provider-icons/auth_service_phone.svg (compressed_size=261 bytes, uncompressed_size=414 bytes)
+[debug] [2025-06-05T00:06:05.478Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_phone.svg
+[debug] [2025-06-05T00:06:05.478Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.478Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_phone.svg
+[debug] [2025-06-05T00:06:05.479Z] [unzip] Entry: client/assets/provider-icons/auth_service_facebook.svg (compressed_size=289 bytes, uncompressed_size=457 bytes)
+[debug] [2025-06-05T00:06:05.479Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_facebook.svg
+[debug] [2025-06-05T00:06:05.479Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.479Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_facebook.svg
+[debug] [2025-06-05T00:06:05.479Z] [unzip] Entry: client/assets/provider-icons/auth_service_game_center.svg (compressed_size=991 bytes, uncompressed_size=3921 bytes)
+[debug] [2025-06-05T00:06:05.479Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_game_center.svg
+[debug] [2025-06-05T00:06:05.479Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.479Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_game_center.svg
+[debug] [2025-06-05T00:06:05.479Z] [unzip] Entry: client/assets/provider-icons/auth_service_apple.svg (compressed_size=230 bytes, uncompressed_size=334 bytes)
+[debug] [2025-06-05T00:06:05.479Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_apple.svg
+[debug] [2025-06-05T00:06:05.479Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.479Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_apple.svg
+[debug] [2025-06-05T00:06:05.480Z] [unzip] Entry: client/assets/provider-icons/auth_service_github.svg (compressed_size=466 bytes, uncompressed_size=838 bytes)
+[debug] [2025-06-05T00:06:05.480Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_github.svg
+[debug] [2025-06-05T00:06:05.480Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.480Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_github.svg
+[debug] [2025-06-05T00:06:05.480Z] [unzip] Entry: client/assets/provider-icons/auth_service_mslive.svg (compressed_size=203 bytes, uncompressed_size=378 bytes)
+[debug] [2025-06-05T00:06:05.480Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_mslive.svg
+[debug] [2025-06-05T00:06:05.480Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.480Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_mslive.svg
+[debug] [2025-06-05T00:06:05.480Z] [unzip] Entry: client/assets/provider-icons/auth_service_yahoo.svg (compressed_size=577 bytes, uncompressed_size=1182 bytes)
+[debug] [2025-06-05T00:06:05.480Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_yahoo.svg
+[debug] [2025-06-05T00:06:05.480Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.480Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_yahoo.svg
+[debug] [2025-06-05T00:06:05.480Z] [unzip] Entry: client/assets/provider-icons/auth_service_twitter.svg (compressed_size=444 bytes, uncompressed_size=751 bytes)
+[debug] [2025-06-05T00:06:05.480Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_twitter.svg
+[debug] [2025-06-05T00:06:05.480Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.480Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_twitter.svg
+[debug] [2025-06-05T00:06:05.481Z] [unzip] Entry: client/assets/provider-icons/auth_service_play_games.svg (compressed_size=565 bytes, uncompressed_size=1173 bytes)
+[debug] [2025-06-05T00:06:05.481Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_play_games.svg
+[debug] [2025-06-05T00:06:05.481Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.481Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_play_games.svg
+[debug] [2025-06-05T00:06:05.481Z] [unzip] Entry: client/assets/provider-icons/auth_service_email.svg (compressed_size=228 bytes, uncompressed_size=326 bytes)
+[debug] [2025-06-05T00:06:05.481Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_email.svg
+[debug] [2025-06-05T00:06:05.481Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.481Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_email.svg
+[debug] [2025-06-05T00:06:05.481Z] [unzip] Entry: client/assets/provider-icons/auth_service_google.svg (compressed_size=409 bytes, uncompressed_size=720 bytes)
+[debug] [2025-06-05T00:06:05.481Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_google.svg
+[debug] [2025-06-05T00:06:05.481Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.481Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_google.svg
+[debug] [2025-06-05T00:06:05.481Z] [unzip] Entry: client/assets/provider-icons/auth_service_oidc.svg (compressed_size=414 bytes, uncompressed_size=858 bytes)
+[debug] [2025-06-05T00:06:05.481Z] [unzip] Processing entry: client/assets/provider-icons/auth_service_oidc.svg
+[debug] [2025-06-05T00:06:05.481Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons
+[debug] [2025-06-05T00:06:05.481Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/assets/provider-icons/auth_service_oidc.svg
+[debug] [2025-06-05T00:06:05.482Z] [unzip] Entry: client/browserconfig.xml (compressed_size=491 bytes, uncompressed_size=822 bytes)
+[debug] [2025-06-05T00:06:05.482Z] [unzip] Processing entry: client/browserconfig.xml
+[debug] [2025-06-05T00:06:05.482Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.482Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/browserconfig.xml
+[debug] [2025-06-05T00:06:05.482Z] [unzip] Entry: client/favicon-32x32.png (compressed_size=475 bytes, uncompressed_size=475 bytes)
+[debug] [2025-06-05T00:06:05.482Z] [unzip] Processing entry: client/favicon-32x32.png
+[debug] [2025-06-05T00:06:05.482Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client
+[debug] [2025-06-05T00:06:05.482Z] [unzip] Writing file: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/client/favicon-32x32.png
+[debug] [2025-06-05T00:06:05.483Z] [unzip] Entry: server/ (compressed_size=0 bytes, uncompressed_size=0 bytes)
+[debug] [2025-06-05T00:06:05.483Z] [unzip] Processing entry: server/
+[debug] [2025-06-05T00:06:05.483Z] [unzip] mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/server/
+[debug] [2025-06-05T00:06:05.483Z] [unzip] Entry: server/server.mjs.map (compressed_size=217845 bytes, uncompressed_size=944978 bytes)
+[debug] [2025-06-05T00:06:05.483Z] [unzip] Processing entry: server/server.mjs.map
+[debug] [2025-06-05T00:06:05.483Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/server
+[debug] [2025-06-05T00:06:05.483Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/server/server.mjs.map
+[debug] [2025-06-05T00:06:05.485Z] [unzip] Entry: server/server.mjs (compressed_size=276407 bytes, uncompressed_size=933701 bytes)
+[debug] [2025-06-05T00:06:05.485Z] [unzip] Processing entry: server/server.mjs
+[debug] [2025-06-05T00:06:05.485Z] [unzip] else mkdir: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/server
+[debug] [2025-06-05T00:06:05.485Z] [unzip] deflating: /Users/alberttien/.cache/firebase/emulators/ui-v1.15.0/server/server.mjs
+[debug] [2025-06-05T00:06:05.491Z] Could not find VSCode notification endpoint: FetchError: request to http://localhost:40001/vscode/notify failed, reason: . If you are not running the Firebase Data Connect VSCode extension, this is expected and not an issue.
+[info] 
+┌─────────────────────────────────────────────────────────────┐
+│ ✔  All emulators ready! It is now safe to connect your app. │
+│ i  View Emulator UI at http://127.0.0.1:4000/               │
+└─────────────────────────────────────────────────────────────┘
+
+┌────────────────┬────────────────┬────────────────────────────┐
+│ Emulator       │ Host:Port      │ View in Emulator UI        │
+├────────────────┼────────────────┼────────────────────────────┤
+│ Authentication │ 127.0.0.1:9099 │ http://127.0.0.1:4000/auth │
+└────────────────┴────────────────┴────────────────────────────┘
+  Emulator Hub host: 127.0.0.1 port: 4400
+  Other reserved ports: 4500
+
+Issues? Report them at https://github.com/firebase/firebase-tools/issues and attach the *-debug.log files.
+ 
+[warn] ⚠  Received a signed JWT. Auth Emulator does not validate JWTs and IS NOT SECURE {"metadata":{"emulator":{"name":"auth"},"message":"Received a signed JWT. Auth Emulator does not validate JWTs and IS NOT SECURE"}}
+[info] i  To verify the phone number +19175399700, use the code 605251. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +19175399700, use the code 605251."}}
+[info] i  To verify the phone number +16505554334, use the code 002959. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +16505554334, use the code 002959."}}
+[info] i  To verify the phone number +16505554334, use the code 183408. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +16505554334, use the code 183408."}}
+[info] i  To verify the phone number +19175399700, use the code 943328. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +19175399700, use the code 943328."}}
+[info] i  To verify the phone number +19175399700, use the code 691758. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +19175399700, use the code 691758."}}
+[info] i  To verify the phone number +19175399700, use the code 498689. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +19175399700, use the code 498689."}}
+[info] i  To verify the phone number +19175399700, use the code 782250. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +19175399700, use the code 782250."}}
+[info] i  To verify the phone number +16505554334, use the code 510609. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +16505554334, use the code 510609."}}
+[info] i  To verify the phone number +16505554334, use the code 669802. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +16505554334, use the code 669802."}}
+[info] i  To verify the phone number +16505554334, use the code 536142. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +16505554334, use the code 536142."}}
+[info] i  To verify the phone number +16505554334, use the code 108109. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +16505554334, use the code 108109."}}
+[info] i  To verify the phone number +16505554334, use the code 719584. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +16505554334, use the code 719584."}}
+[info] i  To verify the phone number +16505554334, use the code 843703. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +16505554334, use the code 843703."}}
+[info] i  To verify the phone number +16505554334, use the code 030062. {"metadata":{"emulator":{"name":"auth"},"message":"To verify the phone number +16505554334, use the code 030062."}}
+[debug] [2025-08-04T09:59:16.132Z] Received signal SIGHUP 1
+[info]  
+[info] i  emulators: Received SIGHUP for the first time. Starting a clean shutdown. 
+[info] i  emulators: Please wait for a clean shutdown or send the SIGHUP signal again to stop right now. 
+[debug] [2025-08-04T09:59:16.467Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.486Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.490Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.492Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.493Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.496Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.497Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.499Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.500Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.506Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.506Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.507Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.508Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.509Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.510Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.511Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.512Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-08-04T09:59:16.513Z] Error: write EIO
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writeGeneric (node:internal/stream_base_commons:150:3)
+    at Socket._writeGeneric (node:net:964:11)
+    at Socket._write (node:net:976:8)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Console.log (/usr/local/lib/node_modules/firebase-tools/node_modules/winston/lib/winston/transports/console.js:87:23)
+    at Console._write (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/modern.js:103:17)
+    at doWrite (/usr/local/lib/node_modules/firebase-tools/node_modules/winston-transport/node_modules/readable-stream/lib/_stream_writable.js:390:139)
+[error] 
+[error] Error: An unexpected error has occurred.

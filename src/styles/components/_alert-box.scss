@@ -1,0 +1,19 @@
+/* ------------------------------------------------------------ *\
+	Alert Box
+\* ------------------------------------------------------------ */
+
+.alert-box {
+	background: #f2f2f2;
+	padding: 4rem;
+	border-radius: 1.5rem;
+
+	@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+		font-size: 2vw;
+		padding: 2.4vw;
+	}
+
+	@include breakpoint-down(mobile-medium) {
+		padding: 2rem;
+		font-size: 2.4rem;		
+	}
+}

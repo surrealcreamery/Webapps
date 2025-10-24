@@ -1,0 +1,97 @@
+/* ------------------------------------------------------------ *\
+	Box Stores
+\* ------------------------------------------------------------ */
+
+.box-stores {
+
+	.box__title {
+		/*display: none;*/
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 2.6rem;	
+		margin-bottom: 3.2rem;
+
+		@include breakpoint-down(tablet) {
+			/*display: grid; REDUNDANT */ 
+			gap: 1.4rem;
+		}
+
+		@include breakpoint-down(mobile) {
+			margin-bottom: 1.5rem;		
+		}
+	}
+
+	.box__title img {
+		@include breakpoint-down(mobile-medium) {
+			width: 3rem;
+		}
+	}
+
+	.box__list ul {
+		list-style-type: none;
+		padding-left: 0;
+		margin-bottom: 0;
+		/*max-width: 65.2rem;*/
+
+		@include breakpoint-down(tablet) {
+			max-width: 100%;		
+		}
+	}
+
+	.box__list ul li + li {
+		margin-top: 1.8rem;
+
+		@include breakpoint-down(mobile-medium) {
+			margin-top: .8rem;		
+		}
+	}
+
+	.box__list ul a {
+		text-decoration: none;
+		display: block;
+		padding: 2rem 4.2rem 1.8rem 4.9rem;
+		background: var(--c-white);
+		border: .2rem solid var(--c-black);
+		border-radius: 1rem;
+		outline: .4rem solid transparent;
+		transition: all .4s;
+
+		@media only screen and (max-width: 1599px) and (min-width: 1024px) {
+			padding: 1.2vw 2.4vw 1.1vw 2.5vw;
+		}
+
+		@include breakpoint-down(mobile) {
+			padding: 2rem 1.6rem;		
+		}
+
+		@include breakpoint-down(mobile-medium) {
+			padding: 1rem 1rem 1rem 2.4rem;	
+			border-radius: .6rem;	
+			font-size: 1.7rem;
+		}
+
+		@media(hover: hover) and (pointer: fine) {
+			&:hover {
+				border-color: var(--c-base);		
+			}
+		}
+
+		&:focus-visible {
+			outline-color: var(--c-base);		
+		}
+	}
+
+	.box__list ul li.is-active a {
+		background: var(--c-base);
+		border-color: var(--c-base);		
+		color: var(--c-white);
+	}
+
+	.box__list ul a h6 {
+		margin-bottom: 0;
+
+		@include breakpoint-down(mobile-medium) {
+			font-size: 1.7rem;		
+		}
+	}
+}
