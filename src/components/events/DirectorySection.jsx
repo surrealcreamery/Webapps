@@ -1,5 +1,29 @@
 import React from 'react';
 import { Box, Typography, Container, Stack, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { format, parse } from 'date-fns';
+
+// Helper to format date like "Friday, November 28th, 2025"
+const formatEventDate = (dateString) => {
+    try {
+        const date = new Date(dateString.replace(/-/g, '/'));
+        return format(date, 'EEEE, MMMM do, yyyy');
+    } catch (e) {
+        return '';
+    }
+};
+
+// Helper to format time like "3:00pm - 7:00pm"
+const formatTimeSlot = (slot) => {
+    if (!slot || !slot.includes(' - ')) return '';
+    try {
+        const [startTime, endTime] = slot.split(' - ');
+        const start = parse(startTime, 'HH:mm', new Date());
+        const end = parse(endTime, 'HH:mm', new Date());
+        return `${format(start, 'h:mmaaa')} - ${format(end, 'h:mmaaa')}`.toLowerCase();
+    } catch (e) {
+        return '';
+    }
+};
 
 export const DirectorySection = ({ events, onChooseFundraiser, view, handleViewChange }) => {
     const activeEvents = (events || []).filter(event => event.status === 'Active');
@@ -59,15 +83,43 @@ export const DirectorySection = ({ events, onChooseFundraiser, view, handleViewC
                             {event.title}
                         </Typography>
 
-                        {/* ✅ Render bullet points if they exist */}
-                        {event.bulletPoints && event.bulletPoints.length > 0 && (
-                            <Stack component="ul" sx={{ pl: 2.5, my: 0, color: 'text.secondary' }}>
-                                {event.bulletPoints.slice(0, 3).map((point) => (
-                                    <Typography component="li" variant="body1" key={point.id} sx={{ display: 'list-item', pl: 1 }}>
-                                        {point.name}
-                                    </Typography>
-                                ))}
-                            </Stack>
+                        {/* ✅ Show date and time if single date event */}
+                        {(() => {
+                            // Check if event has single date (start date equals end date and only one day of week)
+                            const daysOfWeek = event['Days of Week'] || event.daysOfWeek || [];
+                            const startDate = event['Start Date'] || event.startDate;
+                            const endDate = event['End Date'] || event.endDate;
+                            const eventTimes = event['Event Times'] || event.eventTimes || [];
+                            
+                            const isSingleDate = daysOfWeek.length === 1 && startDate === endDate;
+                            
+                            if (isSingleDate && startDate) {
+                                const dateDisplay = formatEventDate(startDate);
+                                const timeDisplay = eventTimes.length > 0 ? formatTimeSlot(eventTimes[0]) : '';
+                                
+                                return (
+                                    <Box sx={{ mb: 1.5 }}>
+                                        {dateDisplay && (
+                                            <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                                                {dateDisplay}
+                                            </Typography>
+                                        )}
+                                        {timeDisplay && (
+                                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                                {timeDisplay}
+                                            </Typography>
+                                        )}
+                                    </Box>
+                                );
+                            }
+                            return null;
+                        })()}
+
+                        {/* ✅ Show description */}
+                        {(event.description || event['Description']) && (
+                            <Typography variant="body1" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>
+                                {event.description || event['Description']}
+                            </Typography>
                         )}
                     </Box>
                 </Box>
@@ -76,4 +128,3 @@ export const DirectorySection = ({ events, onChooseFundraiser, view, handleViewC
     </Container>
     );
 };
-

@@ -39,7 +39,7 @@ export const ItemDetailView = ({ item, sendToCatering, isAuthenticated }) => {
 
     const handleAddToCart = () => {
         sendToCatering({ type: 'ADD_TO_CART', item, selectedModifiers: {}, quantity });
-        // ✅ Also send an event to navigate to the cart
+        // Also send an event to navigate to the cart
         sendToCatering({ type: 'VIEW_CART' });
     };
 
@@ -60,7 +60,6 @@ export const ItemDetailView = ({ item, sendToCatering, isAuthenticated }) => {
             <Typography variant="h2" component="h1" gutterBottom>{item['Item Name']}</Typography>
             <Divider sx={{ my: 2 }} />
             
-            {/* ✅ FIX: Logic to display strikethrough price */}
             <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 2 }}>
                 {applicableDiscount ? (
                     <>
@@ -114,7 +113,8 @@ export const ItemDetailView = ({ item, sendToCatering, isAuthenticated }) => {
                         </Stack>
                     </Box>
                 ) : (
-                    <Button variant="outlined" fullWidth sx={{ my: 2 }} onClick={() => sendToCatering({ type: 'TRIGGER_AUTH' })}>
+                    // ✅ MODIFIED: Send VIEW_DISCOUNTS_AUTH instead of TRIGGER_AUTH
+                    <Button variant="outlined" fullWidth sx={{ my: 2 }} onClick={() => sendToCatering({ type: 'VIEW_DISCOUNTS_AUTH' })}>
                         Login to View Discounts
                     </Button>
                 )
@@ -144,4 +144,3 @@ export const ItemDetailView = ({ item, sendToCatering, isAuthenticated }) => {
         </Box>
     );
 };
-

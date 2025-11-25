@@ -105,9 +105,9 @@ export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selected
                     slots={{ day: CustomDay }}
                     sx={{
                         width: '100%',
-                        '& .MuiPickersDay-root': { fontSize: '2rem', width: '4rem', height: '4rem' },
-                        '& .MuiDayCalendar-weekDayLabel': { fontSize: '2rem', fontWeight: 'bold', width: '4rem', height: '4rem' },
-                        '& .MuiPickersCalendarHeader-root svg': { width: '2.5rem', height: '2.5rem' },
+                        '& .MuiPickersDay-root': { fontSize: '1.85rem', width: '3.75rem', height: '3.75rem' },
+                        '& .MuiDayCalendar-weekDayLabel': { fontSize: '1.85rem', fontWeight: 'bold', width: '3.75rem', height: '3.75rem' },
+                        '& .MuiPickersCalendarHeader-root svg': { width: '2.25rem', height: '2.25rem' },
                     }}
                 />
             </LocalizationProvider>
@@ -130,4 +130,3 @@ export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selected
         </Box>
     );
 };
-

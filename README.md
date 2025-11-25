@@ -65,6 +65,8 @@ npm install @mui/xcharts
 
 npm install @mui/x-date-pickers date-fns @xstate/react xstate
 
+npm install react-google-places-autocomplete
+
 ## Build
 To build the project for production, run:
 

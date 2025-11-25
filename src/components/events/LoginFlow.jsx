@@ -26,9 +26,24 @@ export const LoginFlow = ({ send, context }) => {
     if (context.matches('loginFlow.selectingAccount')) {
         console.log("✅ Rendering 'selectingAccount' UI...");
         
-        const { potentialAccounts, selectedAccountId, error } = machineContext;
+        const { potentialAccounts, selectedAccountId, error, loginIdentifier, otpChannel } = machineContext;
         
         console.log("ACCOUNTS TO RENDER:", potentialAccounts);
+        console.log("Login identifier:", loginIdentifier);
+        console.log("OTP channel:", otpChannel);
+
+        // ✅ Determine authentication method
+        // Check if identifier looks like a phone number or email
+        const authenticatedWithPhone = otpChannel === 'sms' || 
+                                       (loginIdentifier && /^\+?[\d\s\-\(\)]+$/.test(loginIdentifier));
+        const authenticatedWithEmail = otpChannel === 'email' || 
+                                       (loginIdentifier && loginIdentifier.includes('@'));
+
+        console.log("Authenticated with phone?", authenticatedWithPhone);
+        console.log("Authenticated with email?", authenticatedWithEmail);
+
+        // ✅ Check if we need to show organization names
+        const showOrgNames = (potentialAccounts || []).some(acc => acc['Organization Name']);
 
         return (
             <>
@@ -40,6 +55,12 @@ export const LoginFlow = ({ send, context }) => {
                 <Box component="fieldset" sx={{ border: 'none', p: 0, m: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {(potentialAccounts || []).map((account) => {
                         console.log("Mapping account:", account);
+                        
+                        // Get contact info with fallback to login identifier
+                        const email = account['Email'] || (authenticatedWithEmail ? loginIdentifier : '');
+                        const phone = account['Mobile Number'] || (authenticatedWithPhone ? loginIdentifier : '');
+                        const orgName = account['Organization Name'] || '';
+
                         return (
                             <Card key={account['Guest ID']} variant="outlined" sx={{ '&:has(input:checked)': { borderColor: 'primary.main', borderWidth: 2 } }}>
                                 <CardContent 
@@ -54,12 +75,40 @@ export const LoginFlow = ({ send, context }) => {
                                         sx={{mr: 2}} 
                                     />
                                     <Box>
-                                        <Typography variant="h3">{account['Email']}</Typography>
-                                        {/* ✅ Organization Name is now displayed */}
-                                        {account['Organization Name'] && (
-                                            <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-                                                {account['Organization Name']}
-                                            </Typography>
+                                        {/* ✅ SMART DISPLAY ORDER based on authentication method */}
+                                        
+                                        {/* If authenticated with PHONE (SMS), show: Email → Org → Phone */}
+                                        {authenticatedWithPhone && (
+                                            <>
+                                                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                                                    {email}
+                                                </Typography>
+                                                {showOrgNames && orgName && (
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        {orgName}
+                                                    </Typography>
+                                                )}
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {phone}
+                                                </Typography>
+                                            </>
+                                        )}
+                                        
+                                        {/* If authenticated with EMAIL, show: Phone → Org → Email */}
+                                        {authenticatedWithEmail && (
+                                            <>
+                                                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                                                    {phone}
+                                                </Typography>
+                                                {showOrgNames && orgName && (
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        {orgName}
+                                                    </Typography>
+                                                )}
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {email}
+                                                </Typography>
+                                            </>
                                         )}
                                     </Box>
                                 </CardContent>

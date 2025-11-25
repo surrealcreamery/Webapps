@@ -18,6 +18,10 @@ import { TransactionDetails } from '@/components/events/TransactionDetails';
 import { PayoutDetails } from '@/components/events/PayoutDetails';
 import { MarketingMaterials } from '@/components/events/MarketingMaterials';
 import { ResolvingPartialMatch } from '@/components/events/ResolvingPartialMatch';
+import { DuplicateErrorSection } from '@/components/events/DuplicateErrorSection';
+
+// ✅ 1. Import your new data-fetching function
+import { fetchInitialData } from '@/state/events/eventService';
 
 // ✅ New component for the loading/verifying screen
 const VerifyingLoader = () => (
@@ -35,10 +39,35 @@ const VerifyingLoader = () => (
 export default function Home() {
     const { fundraiserState, sendToFundraiser, logout } = useContext(LayoutContext);
 
+    // ✅ 2. KEEP THIS NEW useEffect HOOK for data fetching
+    useEffect(() => {
+        // Don't run if the machine/send function isn't ready
+        if (!sendToFundraiser) return;
+
+        const loadData = async () => {
+            try {
+                console.log("Fetching fresh data on page load...");
+                const { events, locations } = await fetchInitialData();
+                
+                // Send the fresh data to the machine
+                sendToFundraiser({ type: 'DATA.LOADED', events, locations });
+                
+            } catch (error) {
+                console.error("Failed to load initial data:", error);
+                // Only send failure if we're still in the 'booting' state
+                if (fundraiserState?.matches('booting')) {
+                    sendToFundraiser({ type: 'DATA.FAILED', data: error });
+                }
+            }
+        };
+        
+        loadData();
+    }, [sendToFundraiser]); // Runs once when sendToFundraiser is available
+
     // This effect runs when the user navigates to a new "page" (state node).
     useEffect(() => {
         window.scrollTo(0, 0);
-    }, [JSON.stringify(fundraiserState.value)]);
+    }, [JSON.stringify(fundraiserState?.value)]); // Added optional chaining
     
     if (!fundraiserState || !fundraiserState.context) {
         return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>;
@@ -69,6 +98,9 @@ export default function Home() {
     const handleSubmitContact = () => sendToFundraiser({ type: 'SUBMIT' });
     const handleScrollToLocations = () => locationListRef.current?.scrollIntoView({ behavior: 'smooth' });
     const handleLogout = () => { if (logout) logout(); };
+    
+    // ✅ NEW HANDLER for button click on the detail page
+    const handleProceedToScheduling = () => sendToFundraiser({ type: 'PROCEED_TO_SCHEDULING' });
 
     const renderLocationList = () => {
         const { locations } = fundraiserState.context;
@@ -90,8 +122,34 @@ export default function Home() {
     const { fundraiserEvents, registeredEvents, selectedEventId, viewingEventId, selectedLocationId, locations, selectedDate, contactInfo, formErrors } = fundraiserState.context;
     const currentEvent = fundraiserEvents?.find(event => event.id === selectedEventId);
     const selectedLocation = locations.find(loc => loc.id === selectedLocationId);
-    const eventToView = registeredEvents?.find(event => event['Registered Event ID'] === viewingEventId);
+    
+    // ✅ FIX: registeredEvents is now an object with hostedEvents and participantEvents
+    const eventToView = (() => {
+        if (!viewingEventId) return undefined;
+        
+        // Check if registeredEvents is the new format (object with hostedEvents/participantEvents)
+        if (registeredEvents && typeof registeredEvents === 'object' && !Array.isArray(registeredEvents)) {
+            const hostedEvent = registeredEvents.hostedEvents?.find(
+                event => event['Registered Event ID'] === viewingEventId
+            );
+            if (hostedEvent) return hostedEvent;
+            
+            const participantEvent = registeredEvents.participantEvents?.find(
+                event => event['Registered Event ID'] === viewingEventId
+            );
+            return participantEvent;
+        }
+        
+        // Fallback for old format (array)
+        return registeredEvents?.find(event => event['Registered Event ID'] === viewingEventId);
+    })();
+    
     console.log("7. FINAL eventToView prop passed to UI:", eventToView);
+
+    // ✅ NEW VARIABLES for conditional button logic
+    const locationCount = currentEvent?.locationIds?.length || 0;
+    const isSingleLocation = locationCount === 1;
+
 
     // Logic to determine when to show the main verifying spinner
     const shouldShowVerifyingLoader =
@@ -100,7 +158,8 @@ export default function Home() {
       fundraiserState.matches({ wizardFlow: { submitting: 'creatingOrganization' } }) ||
       fundraiserState.matches({ wizardFlow: { submitting: 'creatingRegistration' } });
 
-    if (fundraiserState.matches('loadingInitialData')) {
+    // ✅ 3. UPDATE THIS LOADING CHECK
+    if (fundraiserState.matches('booting')) {
         return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>;
     }
     if (fundraiserState.matches('failure')) {
@@ -140,9 +199,105 @@ export default function Home() {
 
             <Box sx={{ maxWidth: 'sm', width: '100%', mx: 'auto', pt: 0, pb: 3, px: 3 }}>
                 <BreadcrumbsComponent />
-                {fundraiserState.matches({ wizardFlow: 'selectingLocation' }) && currentEvent && (<> <HeroSection title={currentEvent.title} imageUrl={currentEvent.imageUrl} description={currentEvent.description} bulletPoints={currentEvent.bulletPoints} onSelectLocationClick={handleScrollToLocations} /> <Divider sx={{ my: 3 }} /> <Box ref={locationListRef}> <Typography variant="h2" component="h2" gutterBottom> Select a Location</Typography> {renderLocationList()} </Box> </>)}
+
+                {/* ✅ FIX: EVENT LANDING PAGE - Button in hero, location list below if multiple locations */}
+                {fundraiserState.matches({ wizardFlow: 'eventLanding' }) && currentEvent && (
+                    <>
+                        <HeroSection 
+                            title={currentEvent.title} 
+                            imageUrl={currentEvent.imageUrl} 
+                            description={currentEvent.description || currentEvent['Description']} 
+                            bulletPoints={currentEvent.bulletPoints || currentEvent['Bullet Points']}
+                            onSelectLocationClick={handleProceedToScheduling}
+                            isSingleLocation={isSingleLocation}
+                            // ✅ NEW: Pass date, time, and location for single-date/location events
+                            eventDate={isSingleLocation ? (currentEvent.startDate || currentEvent['Start Date']) : null}
+                            eventTime={isSingleLocation && currentEvent.eventTimes?.[0] ? currentEvent.eventTimes[0] : 
+                                      (isSingleLocation && currentEvent['Event Times']?.[0] ? currentEvent['Event Times'][0] : null)}
+                            locationAddress={isSingleLocation && locations?.length === 1 ? locations[0].Address : null}
+                        />
+                        
+                        {!isSingleLocation && (
+                            <>
+                                <Divider sx={{ my: 3 }} />
+                                <Box id="location-selection">
+                                    <Typography variant="h2" component="h2" gutterBottom>
+                                        Select a Location
+                                    </Typography>
+                                    {renderLocationList()}
+                                </Box>
+                            </>
+                        )}
+                    </>
+                )}
                 
-                {/* ✅ This is the fix: The 'error' prop is now being passed to the component */}
+                {/* ✅ Show event details when selecting location */}
+                {fundraiserState.matches({ wizardFlow: 'selectingLocation' }) && currentEvent && (
+                    <>
+                        {/* Show event details */}
+                        <Box sx={{ mb: 4 }}>
+                            <Box sx={{ height: 250, backgroundColor: 'grey.200', borderRadius: 2, overflow: 'hidden', mb: 2 }}>
+                                <img
+                                    src={currentEvent.imageUrl}
+                                    alt={currentEvent.title}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                />
+                            </Box>
+                            <Typography variant="h1" component="h1" sx={{ mb: 2 }}>
+                                {currentEvent.title}
+                            </Typography>
+                            
+                            {/* Description */}
+                            {(currentEvent.description || currentEvent['Description']) && (
+                                <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
+                                    {currentEvent.description || currentEvent['Description']}
+                                </Typography>
+                            )}
+                            
+                            {/* Bullet points - render as formatted text, not bullet list */}
+                            {(currentEvent.bulletPoints || currentEvent['Bullet Points']) && (
+                                <Box sx={{ textAlign: 'left', my: 2 }}>
+                                    {(() => {
+                                        const bp = currentEvent.bulletPoints || currentEvent['Bullet Points'];
+                                        // Handle string format (with newlines)
+                                        if (typeof bp === 'string') {
+                                            return (
+                                                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                                                    {bp}
+                                                </Typography>
+                                            );
+                                        }
+                                        // Handle array format
+                                        if (Array.isArray(bp) && bp.length > 0) {
+                                            return (
+                                                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                                                    {bp.map(point => {
+                                                        if (typeof point === 'string') return point;
+                                                        if (point?.name) return point.name;
+                                                        if (point?.text) return point.text;
+                                                        if (point?.value) return point.value;
+                                                        // Return empty string for line breaks (will preserve spacing)
+                                                        return '';
+                                                    }).join('\n')}
+                                                </Typography>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
+                                </Box>
+                            )}
+                        </Box>
+                        
+                        {/* Location selection */}
+                        <Divider sx={{ my: 3 }} />
+                        <Box ref={locationListRef} id="location-selection"> 
+                            <Typography variant="h2" component="h2" gutterBottom>Select a Location</Typography> 
+                            {renderLocationList()} 
+                        </Box> 
+                    </>
+                )}
+                
+                {/* This prop was already correct, good! */}
                 {fundraiserState.matches({ wizardFlow: 'selectingDate' }) && selectedLocation && (
                     <DatePickerSection 
                         onBack={() => sendToFundraiser({ type: 'BACK' })} 
@@ -171,9 +326,16 @@ export default function Home() {
                 {fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.choosingMethod') && (<GuestOtpChoiceSection contactInfo={contactInfo} onBack={() => sendToFundraiser({ type: 'BACK' })} onChooseEmail={() => sendToFundraiser({ type: 'CHOOSE_EMAIL' })} onChooseSms={() => sendToFundraiser({ type: 'CHOOSE_SMS' })} />)}
                 {(fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.enteringGuestOtp') || fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.verifyingGuestOtp')) && (<GuestOtpInputSection contactInfo={contactInfo} otpChannel={fundraiserState.context.otpChannel} error={fundraiserState.context.error} isVerifying={fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.verifyingGuestOtp')} onBack={() => sendToFundraiser({ type: 'BACK_TO_GUEST_METHOD_CHOICE' })} onSubmitOtp={(otp) => sendToFundraiser({ type: 'SUBMIT_GUEST_OTP', value: otp })} />)}
                 
+                
+                {fundraiserState.matches({ wizardFlow: 'duplicateError' }) && (
+                    <DuplicateErrorSection 
+                        currentEvent={currentEvent}
+                        onViewOtherEvents={() => sendToFundraiser({ type: 'RESET' })}
+                    />
+                )}
+                
                 {fundraiserState.matches({ wizardFlow: 'success' }) && (<Alert severity="success" sx={{ mt: 2 }}>Your event has been successfully scheduled!</Alert>)}
             </Box>
         </Box>
     );
 }
-

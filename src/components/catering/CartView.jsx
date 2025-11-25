@@ -2,7 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Box, Typography, Stack, Button, Divider, CircularProgress, ToggleButtonGroup, ToggleButton, FormControl, InputLabel, Select, MenuItem, TextField, Modal, Paper, List, ListItemButton, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+import { LocalizationProvider, DateCalendar, PickersDay } from '@mui/x-date-pickers';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { isBefore, startOfToday, isToday, addDays, format } from 'date-fns';
 import { PROCESS_INVOICE_URL } from '@/constants/catering/cateringConstants';
+import { GoogleAddressAutocomplete } from './GoogleAddressAutocomplete';
 
 const CartQuantitySelector = ({ value, onIncrement, onDecrement }) => (
     <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
@@ -25,143 +29,137 @@ const modalStyle = {
     p: 4,
 };
 
-export const CartView = ({ cart, sendToCatering, cateringState }) => {
-    const { locations, fulfillmentDetails } = cateringState.context;
-    const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
-    const [modalOpen, setModalOpen] = useState(false); // State for location modal
+const states = [
+    'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+    'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+    'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+    'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+    'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
+];
 
-    const [localFulfillmentType, setLocalFulfillmentType] = useState(fulfillmentDetails.type);
-    const [localLocationId, setLocalLocationId] = useState(fulfillmentDetails.locationId || '');
+// Custom day styling for calendar
+const CustomDay = (props) => {
+    const { day, outsideCurrentMonth, disabled, selected, today, ...other } = props;
+    const isFutureWeekday = !disabled && !outsideCurrentMonth && !selected && !isBefore(day, startOfToday());
+
+    return (
+        <PickersDay
+            {...other}
+            outsideCurrentMonth={outsideCurrentMonth}
+            day={day}
+            disabled={disabled}
+            selected={selected}
+            sx={{
+                ...(isFutureWeekday && { 
+                    borderRadius: '50%', 
+                    backgroundColor: '#F1F4FF', 
+                    color: '#3055DD', 
+                    fontWeight: 'bold', 
+                    '&:hover': { backgroundColor: '#E4E9FF' } 
+                }),
+                ...(today && { border: '1px solid transparent !important' }),
+                ...(selected && { 
+                    borderRadius: '50%', 
+                    backgroundColor: '#3055DD', 
+                    color: 'white', 
+                    fontWeight: 'bold', 
+                    '&:hover': { backgroundColor: '#2545b2' } 
+                }),
+            }}
+        />
+    );
+};
+
+export const CartView = ({ cart, sendToCatering, cateringState }) => {
+    const { locations, fulfillmentDetails, isAuthenticated, contactInfo } = cateringState.context;
+    const { type, locationId, address } = fulfillmentDetails;
+
+    const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
+    const [modalOpen, setModalOpen] = useState(false);
+    const [isManualEntry, setIsManualEntry] = useState(false);
+    const [localFulfillmentType, setLocalFulfillmentType] = useState(type);
+    const [localLocationId, setLocalLocationId] = useState(locationId || '');
 
     useEffect(() => {
-        setLocalFulfillmentType(fulfillmentDetails.type);
-        setLocalLocationId(fulfillmentDetails.locationId || '');
-    }, [fulfillmentDetails.type, fulfillmentDetails.locationId]);
-
+        setLocalFulfillmentType(type);
+        setLocalLocationId(locationId || '');
+    }, [type, locationId]);
 
     const handleQuantityChange = (cartItemId, change) => sendToCatering({ type: 'UPDATE_QUANTITY', cartItemId, change });
     const handleRemoveItem = (cartItemId) => sendToCatering({ type: 'REMOVE_ITEM', cartItemId });
     const handleAddMoreItems = () => sendToCatering({ type: 'GO_BACK' });
-    
-    // --- Fulfillment Handlers ---
+
     const handleFulfillmentTypeChange = (event, newType) => {
         if (newType !== null) {
-            setLocalFulfillmentType(newType); 
+            setLocalFulfillmentType(newType);
             sendToCatering({ type: 'SET_FULFILLMENT_TYPE', 'type': newType });
+            setIsManualEntry(false);
         }
     };
 
     const handleLocationChange = (locationId) => {
-        setLocalLocationId(locationId); // Update local state immediately
+        setLocalLocationId(locationId);
         sendToCatering({ type: 'SELECT_PICKUP_LOCATION', locationId: locationId });
-        setModalOpen(false); // Close modal on selection
+        setModalOpen(false);
     };
 
     const handleAddressChange = (event) => {
-        sendToCatering({ type: 'UPDATE_DELIVERY_ADDRESS', address: event.target.value });
+        const { name, value } = event.target;
+        if (name === 'zip' && !/^\d*$/.test(value)) {
+            return;
+        }
+        sendToCatering({ type: 'UPDATE_DELIVERY_ADDRESS', field: name, value: value });
     };
 
-    // ... (discount and total calculation logic remains the same) ...
     const getApplicableDiscount = (cartItem) => {
+        if (!cartItem?.item) return null;
         const { item, quantity } = cartItem;
-        if (!item.discounts || item.discounts.length === 0) {
+        if (!item?.discounts || item.discounts.length === 0 || !isAuthenticated) {
             return null;
         }
-        const sortedDiscounts = [...item.discounts].sort((a, b) => b.minimumQuantity - a.minimumQuantity);
+        const sortedDiscounts = item.discounts ? [...item.discounts].sort((a, b) => b.minimumQuantity - a.minimumQuantity) : [];
         return sortedDiscounts.find(d => quantity >= d.minimumQuantity) || null;
     };
 
     const calculateLineItemTotal = (cartItem) => {
+        if (!cartItem?.item) {
+             console.error("Attempting to calculate total for cart item with missing item data:", cartItem);
+             return 0;
+        }
         let itemPrice = cartItem.item['Item Price'] || 0;
-        
         const applicableDiscount = getApplicableDiscount(cartItem);
         if (applicableDiscount) {
-            if (applicableDiscount.fixedAmount) {
-                itemPrice -= applicableDiscount.fixedAmount;
-            } else if (applicableDiscount.percentage) {
-                itemPrice *= (1 - applicableDiscount.percentage);
-            }
+            if (applicableDiscount.fixedAmount) itemPrice -= applicableDiscount.fixedAmount;
+            else if (applicableDiscount.percentage) itemPrice *= (1 - applicableDiscount.percentage);
         }
-
-        const modifiersPrice = Object.entries(cartItem.selectedModifiers).reduce((modTotal, [modId, quantity]) => {
+        const modifiersPrice = Object.entries(cartItem.selectedModifiers || {}).reduce((modTotal, [modId, quantity]) => {
             let modifierPrice = 0;
-            for (const cat of cartItem.item.ModifierCategories) {
-                const foundMod = cat.Modifiers.find(mod => mod['Modifier ID'] === modId);
-                if (foundMod) {
-                    modifierPrice = foundMod['Modifier Price'] || 0;
-                    break;
+            const fullItemData = cartItem.item;
+            if (fullItemData?.ModifierCategories) {
+                for (const cat of fullItemData.ModifierCategories) {
+                    if (cat?.Modifiers) {
+                        const foundMod = cat.Modifiers.find(mod => mod?.['Modifier ID'] === modId);
+                        if (foundMod) { modifierPrice = foundMod['Modifier Price'] || 0; break; }
+                    }
                 }
             }
-            return modTotal + (modifierPrice * quantity);
+            return modTotal + (modifierPrice * (quantity || 0));
         }, 0);
-
-        return ((itemPrice + modifiersPrice) * cartItem.quantity);
+        return ((itemPrice + modifiersPrice) * (cartItem.quantity || 0));
     };
 
     const total = cart.reduce((acc, cartItem) => acc + calculateLineItemTotal(cartItem), 0).toFixed(2);
-    
-    const handleGenerateInvoice = async () => {
-        setIsGeneratingInvoice(true);
-        const invoiceSummary = {
-            lineItems: cart.map(cartItem => {
-                const applicableDiscount = getApplicableDiscount(cartItem);
-                let perItemPrice = cartItem.item['Item Price'];
-                let discountDetails = null;
 
-                if(applicableDiscount) {
-                    if(applicableDiscount.fixedAmount) {
-                        perItemPrice -= applicableDiscount.fixedAmount;
-                        discountDetails = `$${applicableDiscount.fixedAmount} off per item (min ${applicableDiscount.minimumQuantity})`;
-                    } else if (applicableDiscount.percentage) {
-                        perItemPrice *= (1 - applicableDiscount.percentage);
-                        discountDetails = `${applicableDiscount.percentage * 100}% off per item (min ${applicableDiscount.minimumQuantity})`;
-                    }
-                }
+    const selectedLocation = locations.find(loc => loc?.['Location ID'] === localLocationId);
 
-                return {
-                    itemName: cartItem.item['Item Name'],
-                    quantity: cartItem.quantity,
-                    originalPerItemPrice: cartItem.item['Item Price'].toFixed(2),
-                    finalPerItemPrice: perItemPrice.toFixed(2),
-                    discountApplied: discountDetails,
-                    selectedModifiers: cartItem.selectedModifiers,
-                    lineItemTotal: calculateLineItemTotal(cartItem).toFixed(2)
-                };
-            }),
-            subtotal: total,
-            taxes: "0.00",
-            total: total
-        };
-
-        console.log("--- SENDING INVOICE SUMMARY ---");
-        console.log(JSON.stringify(invoiceSummary, null, 2));
-        
-        try {
-            const response = await fetch(PROCESS_INVOICE_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(invoiceSummary)
-            });
-
-            if (!response.ok) {
-                throw new Error('Invoice generation failed.');
-            }
-
-            const result = await response.json();
-            console.log("Invoice generation successful:", result);
-            alert("Invoice has been successfully generated!");
-
-        } catch (error) {
-            console.error("Error generating invoice:", error);
-            alert("There was an error generating the invoice. Please try again.");
-        } finally {
-            setIsGeneratingInvoice(false);
-        }
-    };
-
-    const selectedLocation = locations.find(loc => loc['Location ID'] === localLocationId);
+    const isPickupValid = type === 'pickup' && !!locationId;
+    const isDeliveryValid = type === "delivery" &&
+                            !!address?.street &&
+                            !!address?.city &&
+                            !!address?.state &&
+                            !!address?.zip &&
+                            address.zip.length === 5;
+    const isContinueDisabled = !(isPickupValid || isDeliveryValid);
 
     return (
         <Box>
@@ -175,54 +173,56 @@ export const CartView = ({ cart, sendToCatering, cateringState }) => {
                 <Box>
                     <Stack spacing={2} divider={<Divider />}>
                         {cart.map((cartItem) => {
+                             if (!cartItem?.item) {
+                                 return <Typography key={cartItem.id || Math.random()} color="error">Invalid item in cart.</Typography>;
+                             }
                             const { item, quantity } = cartItem;
                             const lineItemTotal = calculateLineItemTotal(cartItem);
                             const applicableDiscount = getApplicableDiscount(cartItem);
-                            
-                            let perItemPrice = item['Item Price'];
+                            let perItemPrice = item['Item Price'] || 0;
                             if(applicableDiscount) {
-                                if(applicableDiscount.fixedAmount) {
-                                    perItemPrice -= applicableDiscount.fixedAmount;
-                                } else if (applicableDiscount.percentage) {
-                                    perItemPrice *= (1 - applicableDiscount.percentage);
-                                }
+                                if(applicableDiscount.fixedAmount) perItemPrice -= applicableDiscount.fixedAmount;
+                                else if (applicableDiscount.percentage) perItemPrice *= (1 - applicableDiscount.percentage);
                             }
 
                             return (
                                 <Box key={cartItem.id} sx={{ py: 1 }}>
                                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                        <Typography variant="body1" component="div">{item['Item Name']}</Typography>
+                                        <Typography variant="body1" component="div">{item['Item Name'] || 'Unknown Item'}</Typography>
                                         <Button color="primary" onClick={() => handleRemoveItem(cartItem.id)} sx={{ padding: 0, minWidth: 'auto' }}>Remove</Button>
                                     </Box>
                                      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
                                         {applicableDiscount ? (
                                             <>
                                                 <Typography variant="body1" component="span" sx={{ textDecoration: 'line-through', color: 'text.secondary' }}>
-                                                    ${item['Item Price'].toFixed(2)}
+                                                    ${(item['Item Price'] || 0).toFixed(2)}
                                                 </Typography>
                                                 <Typography variant="body1" component="div">${perItemPrice.toFixed(2)}</Typography>
                                                 <Typography variant="body1" component="span" color="text.primary">
-                                                    (Discount for {applicableDiscount.minimumQuantity} Units)
+                                                    (Min {applicableDiscount.minimumQuantity})
                                                 </Typography>
                                             </>
                                         ) : (
-                                            <Typography variant="body1" component="div">${item['Item Price'].toFixed(2)}</Typography>
+                                            <Typography variant="body1" component="div">${(item['Item Price'] || 0).toFixed(2)}</Typography>
                                         )}
                                     </Box>
                                     <Box sx={{ pl: 1, mt: 1, color: 'text.secondary' }}>
-                                        {Object.entries(cartItem.selectedModifiers).map(([modifierId, quantity]) => {
-                                            if (quantity > 0) {
-                                                let modifierName = '';
+                                        {Object.entries(cartItem.selectedModifiers || {})
+                                           .filter(([modId, qty]) => qty > 0)
+                                           .map(([modifierId, qty]) => {
+                                            let modifierName = `Modifier ID: ${modifierId}`;
+                                            if (item && item.ModifierCategories) {
                                                 for (const cat of item.ModifierCategories) {
-                                                    const foundMod = cat.Modifiers.find(mod => mod['Modifier ID'] === modifierId);
-                                                    if (foundMod) {
-                                                        modifierName = foundMod['Modifier Name'];
-                                                        break;
-                                                    }
+                                                     if (cat?.Modifiers) {
+                                                        const foundMod = cat.Modifiers.find(mod => mod?.['Modifier ID'] === modifierId);
+                                                        if (foundMod) {
+                                                            modifierName = foundMod['Modifier Name'];
+                                                            break;
+                                                        }
+                                                     }
                                                 }
-                                                return <Typography key={modifierId} variant="body2">{modifierName} (x{quantity})</Typography>;
                                             }
-                                            return null;
+                                            return <Typography key={modifierId} variant="body2">{modifierName} (x{qty})</Typography>;
                                         })}
                                     </Box>
                                     <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -235,8 +235,9 @@ export const CartView = ({ cart, sendToCatering, cateringState }) => {
                             );
                         })}
                     </Stack>
-                    
-                    {/* ✅ MOVED: Total Summary now here */}
+
+                    <Button variant="outlined" fullWidth sx={{ mt: 3, mb: 2, color: 'black', borderColor: 'black' }} onClick={handleAddMoreItems}>Add More Items</Button>
+
                     <Divider sx={{ my: 3 }} />
                     <Stack spacing={1.5}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Typography variant="body1" color="text.secondary">Subtotal</Typography><Typography variant="body1" color="text.secondary">${total}</Typography></Box>
@@ -244,10 +245,8 @@ export const CartView = ({ cart, sendToCatering, cateringState }) => {
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}><Typography variant="body1" sx={{ fontWeight: 'bold' }}>Total</Typography><Typography variant="body1" sx={{ fontWeight: 'bold' }}>${total}</Typography></Box>
                     </Stack>
 
-                    <Button variant="outlined" fullWidth sx={{ mt: 3, color: 'black', borderColor: 'black' }} onClick={handleAddMoreItems}>Add More Items</Button>
                     <Divider sx={{ my: 3 }} />
-                    
-                    {/* Fulfillment Section */}
+
                     <Box sx={{ my: 3 }}>
                         <Typography variant="h5" component="h2" gutterBottom sx={{ fontWeight: 'bold' }}>Fulfillment</Typography>
                         <ToggleButtonGroup
@@ -262,101 +261,78 @@ export const CartView = ({ cart, sendToCatering, cateringState }) => {
                         </ToggleButtonGroup>
 
                         {localFulfillmentType === 'pickup' ? (
-                            // ✅ FIX: Use a FormControl and InputLabel to properly style the button
-                            <FormControl fullWidth variant="outlined" size="small">
-                                <InputLabel shrink id="pickup-location-label" sx={{backgroundColor: 'white', pr: 1, ml: -0.5}}>
-                                    Pickup Location
-                                </InputLabel>
-                                <Button
-                                    fullWidth
-                                    variant="outlined"
-                                    onClick={() => setModalOpen(true)}
-                                    endIcon={<ArrowDropDownIcon sx={{ color: 'action.active' }} />}
-                                    sx={{
-                                        borderColor: 'rgba(0, 0, 0, 0.23)',
-                                        color: 'black',
-                                        textTransform: 'none',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        py: '8.5px', // Match dense TextField
-                                        px: '14px',
-                                        '&:hover': {
-                                            borderColor: 'black',
-                                            backgroundColor: 'rgba(0,0,0,0.04)'
-                                        }
-                                    }}
-                                >
-                                    {selectedLocation ? (
-                                        <Box sx={{ textAlign: 'left' }}>
-                                            <Typography sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
-                                                {selectedLocation['Location Name']}
-                                            </Typography>
-                                            <Typography variant="body2" color="text.secondary">
-                                                {selectedLocation['Location Address'].replace('\n', ', ')}
-                                            </Typography>
-                                        </Box>
-                                    ) : (
-                                        <Typography color="text.secondary" sx={{py: 1.5}}>Select a location</Typography>
-                                    )}
-                                </Button>
-                            </FormControl>
+                             <FormControl fullWidth variant="outlined" size="small">
+                                 <InputLabel shrink id="pickup-location-label" sx={{backgroundColor: 'white', pr: 1, ml: -0.5}}>
+                                     Pickup Location
+                                 </InputLabel>
+                                 <Button fullWidth variant="outlined" onClick={() => setModalOpen(true)} endIcon={<ArrowDropDownIcon sx={{ color: 'action.active' }} />} sx={{ borderColor: 'rgba(0, 0, 0, 0.23)', color: 'black', textTransform: 'none', justifyContent: 'space-between', alignItems: 'center', py: '8.5px', px: '14px', '&:hover': { borderColor: 'black', backgroundColor: 'rgba(0,0,0,0.04)'}}}>
+                                     {selectedLocation ? (
+                                         <Box sx={{ textAlign: 'left' }}>
+                                             <Typography sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>{selectedLocation['Location Name']}</Typography>
+                                             <Typography variant="body2" color="text.secondary">{selectedLocation['Location Address'] ? selectedLocation['Location Address'].replace('\n', ', ') : ''}</Typography>
+                                         </Box>
+                                     ) : (
+                                         <Typography color="text.secondary" sx={{py: 1.5}}>Select a location</Typography>
+                                     )}
+                                 </Button>
+                             </FormControl>
                         ) : (
-                            <TextField
-                                fullWidth
-                                label="Delivery Address"
-                                value={fulfillmentDetails.address || ''} 
-                                onChange={handleAddressChange}
-                                placeholder="Enter your delivery address"
-                                multiline
-                                rows={3}
-                            />
+                            <Stack spacing={2}>
+                                {isManualEntry ? (
+                                    <>
+                                        <TextField fullWidth label="Street Address" name="street" value={address?.street || ''} onChange={handleAddressChange} size="small"/>
+                                        <TextField fullWidth label="Apt or Suite (Optional)" name="aptSuite" value={address?.aptSuite || ''} onChange={handleAddressChange} size="small"/>
+                                        <TextField fullWidth label="City" name="city" value={address?.city || ''} onChange={handleAddressChange} size="small"/>
+                                        <Box sx={{ display: 'flex', gap: 2 }}>
+                                            <FormControl fullWidth size="small">
+                                                <InputLabel id="state-select-label">State</InputLabel>
+                                                <Select labelId="state-select-label" name="state" value={address?.state || ''} label="State" onChange={handleAddressChange}>
+                                                    {states.map(stateAbbr => (<MenuItem key={stateAbbr} value={stateAbbr}>{stateAbbr}</MenuItem>))}
+                                                </Select>
+                                            </FormControl>
+                                            <TextField fullWidth label="Zip Code" name="zip" value={address?.zip || ''} onChange={handleAddressChange} inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 5 }} size="small"/>
+                                        </Box>
+                                        <Button variant="text" size="small" onClick={() => setIsManualEntry(false)}>Use Address Search</Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <GoogleAddressAutocomplete value={address?.fullAddressText || ''} sendToCatering={sendToCatering} onAddressSelected={(success) => { if (!success) setIsManualEntry(true); }}/>
+                                        {!!address?.street && !isManualEntry && (
+                                            <TextField fullWidth label="Apt or Suite (Optional)" name="aptSuite" value={address?.aptSuite || ''} onChange={handleAddressChange} size="small"/>
+                                        )}
+                                    </>
+                                )}
+                            </Stack>
                         )}
                     </Box>
                     <Divider sx={{ my: 3 }} />
-                    {/* END: Fulfillment Section */}
 
-                    <Button variant="contained" fullWidth sx={{ mt: 3 }}>
-                        Proceed to Checkout
-                    </Button>
-                    <Button 
-                        variant="text" 
-                        fullWidth 
-                        sx={{ mt: 1.5 }}
-                        onClick={handleGenerateInvoice}
-                        disabled={isGeneratingInvoice}
+                    <Button
+                        variant="contained"
+                        fullWidth
+                        sx={{ mt: 3 }}
+                        disabled={isContinueDisabled}
+                        onClick={() => sendToCatering({ type: 'CONTINUE_TO_DATE' })}
                     >
-                        {isGeneratingInvoice ? <CircularProgress size={24} /> : 'Generate Invoice'}
+                        Continue
                     </Button>
                 </Box>
             )}
 
-            {/* Location Selection Modal */}
-            <Modal
-                open={modalOpen}
-                onClose={() => setModalOpen(false)}
-                aria-labelledby="location-select-modal-title"
-            >
+            <Modal open={modalOpen} onClose={() => setModalOpen(false)} aria-labelledby="location-select-modal-title">
                 <Paper sx={modalStyle}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                        <Typography id="location-select-modal-title" variant="h6" component="h2">
-                            Select a Pickup Location
-                        </Typography>
-                        <IconButton onClick={() => setModalOpen(false)}>
-                            <CloseIcon />
-                        </IconButton>
+                        <Typography id="location-select-modal-title" variant="h6" component="h2">Select a Pickup Location</Typography>
+                        <IconButton onClick={() => setModalOpen(false)}><CloseIcon /></IconButton>
                     </Box>
                     <List sx={{ maxHeight: '60vh', overflowY: 'auto' }}>
                         {locations.map(location => {
-                            const address = location['Location Address'] ? location['Location Address'].replace('\n', ', ') : '';
+                            const addressText = location?.['Location Address'] ? location['Location Address'].replace('\n', ', ') : '';
                             return (
-                                <ListItemButton
-                                    key={location['Location ID']}
-                                    onClick={() => handleLocationChange(location['Location ID'])}
-                                    selected={localLocationId === location['Location ID']}
-                                >
+                                <ListItemButton key={location?.['Location ID']} onClick={() => handleLocationChange(location?.['Location ID'])} selected={localLocationId === location?.['Location ID']}>
                                     <Box>
-                                        <Typography sx={{ fontWeight: 'bold' }}>{location['Location Name']}</Typography>
-                                        <Typography variant="body2" color="text.secondary">{address}</Typography>
+                                        <Typography sx={{ fontWeight: 'bold' }}>{location?.['Location Name']}</Typography>
+                                        <Typography variant="body2" color="text.secondary">{addressText}</Typography>
                                     </Box>
                                 </ListItemButton>
                             );
@@ -367,4 +343,3 @@ export const CartView = ({ cart, sendToCatering, cateringState }) => {
         </Box>
     );
 };
-

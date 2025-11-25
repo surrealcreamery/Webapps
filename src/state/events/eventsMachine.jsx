@@ -1,6 +1,5 @@
 import { setup, assign, fromPromise, createMachine } from 'xstate';
-// ✅ LIST_EVENTS_URL has been re-added to the import list
-import { LIST_LOCATIONS_URL, OTP_VERIFY_URL, LIST_EVENTS_URL, CHECK_GUEST_STATUS_URL, AUTHENTICATE_GUEST_URL, CREATE_EVENT_REGISTRATION_URL, LIST_REGISTERED_EVENTS_FOR_USER_URL, LIST_AND_UPDATE_TRANSACTION_DETAILS_AND_TALLY_URL, CREATE_ORGANIZATION_URL, UPDATE_PAYEE_URL } from '@/constants/events/eventsConstants';
+import { OTP_VERIFY_URL, CHECK_GUEST_STATUS_URL, AUTHENTICATE_GUEST_URL, CREATE_EVENT_REGISTRATION_URL, LIST_REGISTERED_EVENTS_FOR_USER_URL, LIST_AND_UPDATE_TRANSACTION_DETAILS_AND_TALLY_URL, CREATE_ORGANIZATION_URL, UPDATE_PAYEE_URL } from '@/constants/events/eventsConstants';
 import { format } from 'date-fns';
 
 // Helper function to format phone numbers to E.164
@@ -11,13 +10,140 @@ const formatPhoneNumberE164 = (mobileNumber) => {
     return mobileNumber;
 };
 
-// Helper function to validate the contact form, now accepting the entire event object
+// ✅ NEW: Helper function to convert day names to day numbers
+const dayNameToNumber = (dayName) => {
+    const days = {
+        'Sunday': 0,
+        'Monday': 1,
+        'Tuesday': 2,
+        'Wednesday': 3,
+        'Thursday': 4,
+        'Friday': 5,
+        'Saturday': 6
+    };
+    return days[dayName];
+};
+
+// ✅ NEW: Helper to get all valid day numbers from daysOfWeek array
+const getDayNumbers = (daysOfWeek) => {
+    if (!daysOfWeek || !Array.isArray(daysOfWeek)) return [];
+    
+    return daysOfWeek.map(day => {
+        // If already a number, return it
+        if (typeof day === 'number') return day;
+        // If a string, convert it
+        return dayNameToNumber(day);
+    }).filter(num => num !== undefined);
+};
+
+// ✅ NEW: Helper function to calculate first valid date for an event
+const calculateFirstValidDate = (currentEvent) => {
+    console.log('🔍 calculateFirstValidDate called with event:', currentEvent);
+    
+    if (!currentEvent) {
+        console.error('❌ calculateFirstValidDate: No event provided');
+        return null;
+    }
+    
+    // ✅ Handle both field name formats: "Start Date" vs "startDate"
+    const startDateRaw = currentEvent['Start Date'] || currentEvent.startDate;
+    const endDateRaw = currentEvent['End Date'] || currentEvent.endDate;
+    const daysOfWeek = currentEvent['Days of Week'] || currentEvent.daysOfWeek;
+    
+    console.log('📊 Raw field values:');
+    console.log('   Start Date (from API):', currentEvent['Start Date']);
+    console.log('   End Date (from API):', currentEvent['End Date']);
+    console.log('   Days of Week (from API):', currentEvent['Days of Week']);
+    console.log('   startDate (camelCase):', currentEvent.startDate);
+    console.log('   endDate (camelCase):', currentEvent.endDate);
+    console.log('   daysOfWeek (camelCase):', currentEvent.daysOfWeek);
+    console.log('   Using startDateRaw:', startDateRaw);
+    console.log('   Using endDateRaw:', endDateRaw);
+    console.log('   Using daysOfWeek:', daysOfWeek);
+    
+    const startDate = new Date(startDateRaw);
+    const endDate = new Date(endDateRaw);
+    
+    console.log('📅 Parsed dates:');
+    console.log('   startDate object:', startDate);
+    console.log('   startDate valid?', !isNaN(startDate.getTime()));
+    console.log('   startDate ISO:', startDate.toISOString());
+    console.log('   startDate local string:', startDate.toString());
+    console.log('   endDate object:', endDate);
+    console.log('   endDate valid?', !isNaN(endDate.getTime()));
+    console.log('   endDate ISO:', endDate.toISOString());
+    
+    // ✅ FIX: Create dates in local timezone to avoid day shifting
+    // Parse "2025-11-28" as November 28 in local timezone, not UTC
+    const [startYear, startMonth, startDay] = startDateRaw.split('-').map(Number);
+    const [endYear, endMonth, endDay] = endDateRaw.split('-').map(Number);
+    
+    const startDateLocal = new Date(startYear, startMonth - 1, startDay);
+    const endDateLocal = new Date(endYear, endMonth - 1, endDay);
+    
+    console.log('📅 Local timezone dates:');
+    console.log('   startDateLocal:', startDateLocal.toString());
+    console.log('   startDateLocal day of week:', startDateLocal.getDay());
+    console.log('   endDateLocal:', endDateLocal.toString());
+    console.log('   endDateLocal day of week:', endDateLocal.getDay());
+    
+    // Convert day names to numbers
+    const dayNumbers = getDayNumbers(daysOfWeek);
+    console.log('🔢 Day conversion:');
+    console.log('   Input daysOfWeek:', daysOfWeek);
+    console.log('   Converted dayNumbers:', dayNumbers);
+    
+    if (dayNumbers.length === 0) {
+        console.error('❌ No valid days of week found!', daysOfWeek);
+        return null;
+    }
+    
+    const targetDayOfWeek = dayNumbers[0]; // Get first valid day number
+    
+    console.log('🎯 Target day:', targetDayOfWeek, '(0=Sun, 1=Mon, etc.)');
+    
+    let current = new Date(startDateLocal);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+    
+    console.log('⏰ Date iteration:');
+    console.log('   Starting from:', current.toString());
+    console.log('   Starting ISO:', current.toISOString());
+    console.log('   Today:', today.toString());
+    console.log('   End date:', endDateLocal.toString());
+    
+    let iterationCount = 0;
+    while (current <= endDateLocal) {
+        const currentDayOfWeek = current.getDay();
+        iterationCount++;
+        
+        if (iterationCount <= 10) { // Only log first 10 iterations
+            console.log(`   Day ${iterationCount}: ${current.toDateString()} (day ${currentDayOfWeek}) - Match target ${targetDayOfWeek}? ${currentDayOfWeek === targetDayOfWeek}, >= today? ${current >= today}`);
+        }
+        
+        if (currentDayOfWeek === targetDayOfWeek && current >= today) {
+            console.log('   ✅ Found valid date:', current.toISOString());
+            return current.toISOString();
+        }
+        current.setDate(current.getDate() + 1);
+        
+        if (iterationCount > 365) {
+            console.error('   ❌ Iteration limit reached (365 days) - stopping to prevent infinite loop');
+            break;
+        }
+    }
+    
+    console.error('   ❌ No valid future date found in range!');
+    console.error('   Total iterations:', iterationCount);
+    return null;
+};
+
+// Helper function to validate the contact form
 const validateContactForm = (contactInfo, currentEvent) => {
     const errors = {};
     if (!contactInfo.firstName) errors.firstName = 'First name is required';
     if (!contactInfo.lastName) errors.lastName = 'Last name is required';
 
-    // Conditionally require Organization Name based on the user's role for the event
     if (currentEvent?.Role === 'Host' && !contactInfo.organizationName) {
         errors.organizationName = 'Organization name is required for hosts';
     }
@@ -51,52 +177,13 @@ const initialContext = {
     otpChannel: null,
     potentialAccounts: [],
     selectedAccountId: null,
-    // Additions for partial match flow
     partialMatchAlternatives: [],
     selectedPartialMatch: null,
-    // ✅ Add sid to context
     sid: null,
 };
 
 export const eventsMachine = setup({
   actors: {
-    initialDataFetcher: fromPromise(async () => {
-        const [locationsRes, eventsRes] = await Promise.all([
-            fetch(LIST_LOCATIONS_URL),
-            // ✅ This now correctly uses the constant from your updated file
-            fetch(LIST_EVENTS_URL)
-        ]);
-        if (!locationsRes.ok) throw new Error(`Failed to fetch locations: ${locationsRes.statusText}`);
-        if (!eventsRes.ok) throw new Error('Failed to fetch events');
-        const locationsData = await locationsRes.json();
-        const eventsData = await eventsRes.json();
-        const dayNameToNumber = { 'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6 };
-        const normalizedEvents = eventsData.map(event => ({
-            id: event['Event ID'],
-            title: event['Event Name'],
-            imageUrl: event['Image URL'] || '/src/assets/images/placeholder.png',
-            description: event['Description'],
-            type: event['Event Type'] || 'Event',
-            status: 'Active',
-            // Pass the Role through from the API response
-            Role: event['Role'],
-            bulletPoints: event['Bullet Points']
-                ? event['Bullet Points'].split('\n').map(point => ({ name: point.trim(), id: point.trim() }))
-                : [],
-            startDate: event['Start Date'],
-            endDate: event['End Date'],
-            daysOfWeek: (event['Days of Week'] || []).map(day => dayNameToNumber[day]),
-            eventTimes: event['Event Times'] || [],
-        }));
-        return {
-            locations: locationsData.map(loc => ({
-                id: loc['Location ID'],
-                'Location Name': loc['Location Name'],
-                Address: loc['Location Address']
-            })),
-            events: normalizedEvents
-        };
-    }),
     checkGuestStatus: fromPromise(async ({ input }) => {
         const response = await fetch(CHECK_GUEST_STATUS_URL, {
             method: 'POST',
@@ -138,10 +225,10 @@ export const eventsMachine = setup({
         const response = await fetch(CREATE_ORGANIZATION_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(input) // Sends the contactInfo object
+            body: JSON.stringify(input)
         });
         if (!response.ok) throw new Error('Failed to create organization.');
-        return await response.json(); // Expects a response with a Guest ID
+        return await response.json();
     }),
     createEventRegistration: fromPromise(async ({ input }) => {
         const response = await fetch(CREATE_EVENT_REGISTRATION_URL, {
@@ -220,7 +307,10 @@ export const eventsMachine = setup({
         return await response.json();
     }),
     fetchRegisteredEvents: fromPromise(async ({ input }) => {
-        console.log("1. USER DASHBOARD: Fetching registered events with payload:", input);
+        console.log("📋 USER DASHBOARD: Fetching registered events with payload:", input);
+        console.log("   - guestId:", input.guestId);
+        console.log("   - sid:", input.sid);
+        
         const response = await fetch(LIST_REGISTERED_EVENTS_FOR_USER_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -228,6 +318,10 @@ export const eventsMachine = setup({
         });
         if (!response.ok) throw new Error("Could not fetch user's registered events.");
         const rawEvents = await response.json();
+        
+        console.log("📋 USER DASHBOARD: Received registered events:", rawEvents);
+        console.log("   - Event count:", Array.isArray(rawEvents) ? rawEvents.length : 'Not an array');
+        
         return rawEvents;
     }),
     fetchTransactionDetails: fromPromise(async ({ input }) => {
@@ -256,7 +350,7 @@ export const eventsMachine = setup({
                     const discount = txn.total_discount_money?.amount || 0;
                     return {
                         id: `txn_${index}`,
-                        timestamp: txn.created_at || new Date().toISOString(), // Temporary fallback
+                        timestamp: txn.created_at || new Date().toISOString(),
                         amount: (total - tax - tip - discount) / 100
                     };
                 });
@@ -296,30 +390,38 @@ export const eventsMachine = setup({
 }).createMachine({
   id: 'fundraiser',
   context: initialContext,
-  initial: 'loadingInitialData',
+  initial: 'booting',
 
   on: {
     RESET: {
       target: '.directory',
       actions: 'softReset',
     },
+    'DATA.LOADED': {
+        actions: assign({
+            fundraiserEvents: ({ event }) => event.events,
+            locations: ({ event }) => event.locations,
+        })
+    },
   },
 
   states: {
-    loadingInitialData: {
-        invoke: {
-            src: 'initialDataFetcher',
-            onDone: {
-              target: 'routing',
-              actions: assign(({ context, event }) => ({
-                    ...context,
-                    locations: event.output.locations,
-                    fundraiserEvents: event.output.events,
-                }))
+    booting: {
+        on: {
+            'DATA.LOADED': {
+                target: 'routing',
+                actions: assign({
+                    fundraiserEvents: ({ event }) => event.events,
+                    locations: ({ event }) => event.locations,
+                })
             },
-            onError: { target: 'failure', actions: 'assignError' },
-        },
+            'DATA.FAILED': {
+                target: 'failure',
+                actions: 'assignError'
+            }
+        }
     },
+
     routing: {
         always: [
             { target: 'wizardFlow', guard: ({ context }) => !!context.selectedEventId },
@@ -341,6 +443,14 @@ export const eventsMachine = setup({
         initial: 'loadingEvents',
         states: {
             loadingEvents: {
+                entry: ({ context }) => {
+                    console.log('📊 Entering userDashboard.loadingEvents state');
+                    console.log('   Context values:', {
+                        guestId: context.guestId,
+                        sid: context.sid,
+                        isAuthenticated: context.isAuthenticated
+                    });
+                },
                 invoke: {
                     src: 'fetchRegisteredEvents',
                     input: ({ context }) => ({
@@ -349,11 +459,66 @@ export const eventsMachine = setup({
                     }),
                     onDone: {
                         target: 'idle',
-                        actions: assign({ registeredEvents: ({ event }) => event.output || [] })
+                        actions: [
+                            assign({ 
+                                registeredEvents: ({ event }) => {
+                                    // ✅ NEW API FORMAT: Returns [{ hostedEvents: [], participantEvents: [] }]
+                                    let output = event.output;
+                                    
+                                    console.log('🔍 DEBUG: Raw API response:', JSON.stringify(output, null, 2));
+                                    console.log('🔍 DEBUG: Type of output:', typeof output);
+                                    console.log('🔍 DEBUG: Is array?', Array.isArray(output));
+                                    
+                                    // ✅ API returns array wrapper - extract first element
+                                    if (Array.isArray(output) && output.length > 0) {
+                                        console.log('🔍 DEBUG: Extracting first element from array wrapper');
+                                        output = output[0];
+                                    }
+                                    
+                                    console.log('🔍 DEBUG: Has hostedEvents?', output?.hostedEvents);
+                                    console.log('🔍 DEBUG: Has participantEvents?', output?.participantEvents);
+                                    
+                                    // Check if it's the new format
+                                    if (output && typeof output === 'object' && 
+                                        (output.hostedEvents || output.participantEvents)) {
+                                        console.log('✅ Detected new API format with hostedEvents/participantEvents');
+                                        return output; // Store the object (not array)
+                                    }
+                                    
+                                    // Fallback to old format (array)
+                                    console.log('⚠️ Using old API format (array)');
+                                    return Array.isArray(output) ? output : [];
+                                }
+                            }),
+                            ({ event }) => {
+                                console.log('✅ Dashboard events loaded successfully');
+                                
+                                let output = event.output;
+                                if (Array.isArray(output) && output.length > 0) {
+                                    output = output[0];
+                                }
+                                
+                                console.log('   Registered events:', output);
+                                
+                                if (output && typeof output === 'object' && 
+                                    (output.hostedEvents || output.participantEvents)) {
+                                    console.log('   Hosted events count:', output.hostedEvents?.length || 0);
+                                    console.log('   Participant events count:', output.participantEvents?.length || 0);
+                                } else {
+                                    console.log('   Event count:', Array.isArray(output) ? output.length : 'Not an object');
+                                }
+                            }
+                        ]
                     },
                     onError: {
                         target: 'idle',
-                        actions: 'assignError'
+                        actions: [
+                            'assignError',
+                            ({ event }) => {
+                                console.error('❌ Failed to load dashboard events');
+                                console.error('   Error:', event.error);
+                            }
+                        ]
                     }
                 }
             },
@@ -396,7 +561,31 @@ export const eventsMachine = setup({
                         actions: assign({
                             registeredEvents: ({ context, event }) => {
                                 console.log(`6. UPDATING REGISTERED EVENTS. Replacing event ${context.viewingEventId}`);
-                                const updatedList = context.registeredEvents.map(re =>
+                                
+                                const currentEvents = context.registeredEvents;
+                                
+                                // ✅ Handle new format (object with hostedEvents/participantEvents)
+                                if (currentEvents && typeof currentEvents === 'object' && !Array.isArray(currentEvents)) {
+                                    const updatedHostedEvents = (currentEvents.hostedEvents || []).map(re =>
+                                        re['Registered Event ID'] === context.viewingEventId ? event.output : re
+                                    );
+                                    const updatedParticipantEvents = (currentEvents.participantEvents || []).map(re =>
+                                        re['Registered Event ID'] === context.viewingEventId ? event.output : re
+                                    );
+                                    
+                                    console.log("7. NEW REGISTERED EVENTS after update:", {
+                                        hostedEvents: updatedHostedEvents,
+                                        participantEvents: updatedParticipantEvents
+                                    });
+                                    
+                                    return {
+                                        hostedEvents: updatedHostedEvents,
+                                        participantEvents: updatedParticipantEvents
+                                    };
+                                }
+                                
+                                // Fallback for old format (array)
+                                const updatedList = (currentEvents || []).map(re =>
                                     re['Registered Event ID'] === context.viewingEventId ? event.output : re
                                 );
                                 console.log("7. NEW REGISTERED EVENTS list after update:", updatedList);
@@ -455,7 +644,30 @@ export const eventsMachine = setup({
                                     name: updatedPayeeData['Payee Information'],
                                     address: updatedPayeeData['Payee Mailing Address']
                                 };
-                                return context.registeredEvents.map(re =>
+                                
+                                const currentEvents = context.registeredEvents;
+                                
+                                // ✅ Handle new format (object with hostedEvents/participantEvents)
+                                if (currentEvents && typeof currentEvents === 'object' && !Array.isArray(currentEvents)) {
+                                    const updatedHostedEvents = (currentEvents.hostedEvents || []).map(re =>
+                                        re['Registered Event ID'] === context.viewingEventId
+                                            ? { ...re, payeeInfo: newPayeeInfo }
+                                            : re
+                                    );
+                                    const updatedParticipantEvents = (currentEvents.participantEvents || []).map(re =>
+                                        re['Registered Event ID'] === context.viewingEventId
+                                            ? { ...re, payeeInfo: newPayeeInfo }
+                                            : re
+                                    );
+                                    
+                                    return {
+                                        hostedEvents: updatedHostedEvents,
+                                        participantEvents: updatedParticipantEvents
+                                    };
+                                }
+                                
+                                // Fallback for old format (array)
+                                return (currentEvents || []).map(re =>
                                     re['Registered Event ID'] === context.viewingEventId
                                         ? { ...re, payeeInfo: newPayeeInfo }
                                         : re
@@ -476,11 +688,130 @@ export const eventsMachine = setup({
         }
     },
     wizardFlow: {
-        initial: 'validating',
+        initial: 'eventLanding',
         states: {
+            eventLanding: { 
+                on: {
+                    SELECT_LOCATION: {
+                        target: 'validating',
+                        actions: [
+                            assign({ selectedLocationId: ({ event }) => {
+                                console.log('🎯 SELECT_LOCATION: Setting selectedLocationId to:', event.value);
+                                return event.value;
+                            }}),
+                            ({ event }) => console.log('🎯 SELECT_LOCATION action completed for:', event.value)
+                        ]
+                    },
+                    PROCEED_TO_SCHEDULING: 'validating', 
+                    BACK: '#fundraiser.directory'
+                }
+            },
+            
             validating: {
                 always: [
                     { target: '#fundraiser.directory', guard: ({ context }) => !context.selectedEventId },
+                    
+                    // ✅ NEW: Skip all the way to contact if single location, single day, and single time
+                    { 
+                        target: 'selectingContact', 
+                        guard: ({ context }) => {
+                            const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                            if (!currentEvent) return false;
+                            
+                            // ✅ Handle both field name formats
+                            const locationIds = currentEvent['Location ID'] || currentEvent.locationIds;
+                            const eventTimes = currentEvent['Event Times'] || currentEvent.eventTimes;
+                            const daysOfWeek = currentEvent['Days of Week'] || currentEvent.daysOfWeek;
+                            
+                            const hasSingleLocation = locationIds && locationIds.length === 1;
+                            const hasSingleTime = eventTimes && eventTimes.length === 1;
+                            const hasSingleDay = daysOfWeek && daysOfWeek.length === 1;
+                            
+                            console.log('🔍 Checking if can skip to contact form:', {
+                                hasSingleLocation,
+                                hasSingleTime,
+                                hasSingleDay,
+                                result: hasSingleLocation && hasSingleDay && hasSingleTime
+                            });
+                            
+                            return hasSingleLocation && hasSingleDay && hasSingleTime;
+                        },
+                        actions: assign({ 
+                            selectedLocationId: ({ context }) => {
+                                const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                const locationIds = currentEvent['Location ID'] || currentEvent.locationIds;
+                                return locationIds[0];
+                            },
+                            selectedTime: ({ context }) => {
+                                const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                const eventTimes = currentEvent['Event Times'] || currentEvent.eventTimes;
+                                return eventTimes[0];
+                            },
+                            selectedDate: ({ context }) => {
+                                const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                return calculateFirstValidDate(currentEvent);
+                            }
+                        })
+                    },
+                    
+                    // ✅ NEW: If location already selected (from clicking a location card), go to date selection
+                    {
+                        target: 'selectingDate',
+                        guard: ({ context }) => {
+                            const hasLocationSelected = !!context.selectedLocationId;
+                            console.log('🔍 Checking if location already selected:', hasLocationSelected);
+                            return hasLocationSelected;
+                        }
+                    },
+                    
+                    // ✅ NEW: Skip to time selection if single location and single day (but multiple times)
+                    { 
+                        target: 'selectingTime', 
+                        guard: ({ context }) => {
+                            const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                            if (!currentEvent) return false;
+                            
+                            // ✅ Handle both field name formats
+                            const locationIds = currentEvent['Location ID'] || currentEvent.locationIds;
+                            const eventTimes = currentEvent['Event Times'] || currentEvent.eventTimes;
+                            const daysOfWeek = currentEvent['Days of Week'] || currentEvent.daysOfWeek;
+                            
+                            const hasSingleLocation = locationIds && locationIds.length === 1;
+                            const hasSingleDay = daysOfWeek && daysOfWeek.length === 1;
+                            const hasMultipleTimes = eventTimes && eventTimes.length > 1;
+                            
+                            return hasSingleLocation && hasSingleDay && hasMultipleTimes;
+                        },
+                        actions: assign({ 
+                            selectedLocationId: ({ context }) => {
+                                const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                const locationIds = currentEvent['Location ID'] || currentEvent.locationIds;
+                                return locationIds[0];
+                            },
+                            selectedDate: ({ context }) => {
+                                const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                return calculateFirstValidDate(currentEvent);
+                            }
+                        })
+                    },
+                    
+                    // ✅ EXISTING: Skip location selection if only one location (but still show date picker)
+                    { 
+                        target: 'selectingDate', 
+                        guard: ({ context }) => {
+                            const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                            const locationIds = currentEvent?.['Location ID'] || currentEvent?.locationIds;
+                            return currentEvent && locationIds && locationIds.length === 1;
+                        },
+                        actions: assign({ 
+                            selectedLocationId: ({ context }) => {
+                                const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                const locationIds = currentEvent['Location ID'] || currentEvent.locationIds;
+                                return locationIds[0];
+                            }
+                        })
+                    },
+
                     { target: 'selectingLocation' }
                 ]
             },
@@ -497,7 +828,7 @@ export const eventsMachine = setup({
                     SELECT_DATE: {
                         actions: assign({
                             selectedDate: ({ event }) => event.value,
-                            error: null // Clear error when a new date is selected
+                            error: null
                         })
                     },
                     PROCEED_TO_CONTACT: [
@@ -505,12 +836,14 @@ export const eventsMachine = setup({
                             target: 'selectingContact',
                             guard: ({ context }) => {
                                 const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
-                                return currentEvent?.eventTimes?.length === 1;
+                                const eventTimes = currentEvent?.['Event Times'] || currentEvent?.eventTimes;
+                                return eventTimes?.length === 1;
                             },
                             actions: assign({
                                 selectedTime: ({ context }) => {
                                     const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
-                                    return currentEvent.eventTimes[0];
+                                    const eventTimes = currentEvent['Event Times'] || currentEvent.eventTimes;
+                                    return eventTimes[0];
                                 }
                             })
                         },
@@ -518,7 +851,13 @@ export const eventsMachine = setup({
                             target: 'selectingTime'
                         }
                     ],
-                    BACK: 'selectingLocation'
+                    BACK: {
+                        target: 'eventLanding',
+                        actions: assign({ 
+                            selectedLocationId: null,
+                            selectedDate: null 
+                        })
+                    }
                 },
             },
             selectingTime: {
@@ -582,7 +921,39 @@ export const eventsMachine = setup({
                             })
                         }
                     ],
-                    BACK: 'selectingTime'
+                    // ✅ SMART BACK BUTTON: Go to the last screen the user actually saw
+                    BACK: [
+                        // If user saw time selection (came from selectingTime), go back there
+                        {
+                            target: 'selectingTime',
+                            guard: ({ context }) => {
+                                const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                // User saw time selection if there were multiple times
+                                return currentEvent?.eventTimes?.length > 1;
+                            }
+                        },
+                        // If user saw date selection (came from selectingDate), go back there
+                        {
+                            target: 'selectingDate',
+                            guard: ({ context }) => {
+                                const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                // User saw date selection if NOT (single day AND single time)
+                                const hasSingleDay = currentEvent?.daysOfWeek?.length === 1;
+                                const hasSingleTime = currentEvent?.eventTimes?.length === 1;
+                                return !(hasSingleDay && hasSingleTime);
+                            }
+                        },
+                        // Otherwise, go back to event landing page (everything was skipped)
+                        {
+                            target: 'eventLanding',
+                            actions: assign({
+                                // Clear auto-assigned values so user can start fresh
+                                selectedLocationId: null,
+                                selectedDate: null,
+                                selectedTime: null
+                            })
+                        }
+                    ]
                 },
             },
             submitting: {
@@ -625,15 +996,21 @@ export const eventsMachine = setup({
                             }),
                             onDone: [
                                 {
-                                    target: 'awaitingGuestAuthentication', // Perfect match, NOT authenticated
+                                    target: 'awaitingGuestAuthentication',
                                     guard: ({ event }) => Array.isArray(event.output) && event.output.length === 1 && event.output[0]?.['Guest ID'],
-                                    actions: assign({
-                                        contactInfo: ({ event, context }) => ({ ...context.contactInfo, ...event.output[0] }),
-                                        guestId: ({ event }) => event.output[0]['Guest ID']
-                                    })
+                                    actions: [
+                                        assign({
+                                            contactInfo: ({ event, context }) => ({ ...context.contactInfo, ...event.output[0] }),
+                                            guestId: ({ event }) => event.output[0]['Guest ID']
+                                        }),
+                                        ({ event }) => {
+                                            console.log('✅ checkGuestStatus: Perfect match found!');
+                                            console.log('   Setting guestId to:', event.output[0]['Guest ID']);
+                                        }
+                                    ]
                                 },
                                 {
-                                    target: 'awaitingGuestAuthentication', // Partial Match - verify first
+                                    target: 'awaitingGuestAuthentication',
                                     guard: ({ event }) => Array.isArray(event.output) && event.output[0]?.partialMatch,
                                     actions: assign({
                                         partialMatchAlternatives: ({ event }) => event.output[0].partialMatch,
@@ -641,7 +1018,7 @@ export const eventsMachine = setup({
                                     })
                                 },
                                 {
-                                    target: 'creatingOrganization', // No match / New user
+                                    target: 'creatingOrganization',
                                     guard: ({ event }) => event.output?.action === 'Create Event',
                                 }
                             ],
@@ -680,12 +1057,24 @@ export const eventsMachine = setup({
                             src: 'createOrganization',
                             input: ({ context }) => context.contactInfo,
                             onDone: {
-                                target: 'awaitingGuestAuthentication',
-                                actions: assign({
-                                    guestId: ({ event }) => event.output[0]?.['Guest ID'],
-                                    partialMatchAlternatives: [],
-                                    sid: null
-                                })
+                                // ✅ FIX: Skip re-authentication if user already has sid (already authenticated)
+                                target: 'creatingRegistration',
+                                actions: [
+                                    assign({
+                                        guestId: ({ event }) => {
+                                            const guestId = event.output[0]?.['Guest ID'];
+                                            console.log('✅ Organization created! Guest ID:', guestId);
+                                            return guestId;
+                                        },
+                                        partialMatchAlternatives: []
+                                        // Keep sid - user already authenticated!
+                                    }),
+                                    ({ context }) => {
+                                        console.log('📝 New organization created, proceeding to registration');
+                                        console.log('   guestId:', context.guestId);
+                                        console.log('   sid:', context.sid, '(already authenticated)');
+                                    }
+                                ]
                             },
                             onError: {
                                 target: '#fundraiser.wizardFlow.selectingContact',
@@ -737,9 +1126,15 @@ export const eventsMachine = setup({
                                     }),
                                     onDone: {
                                         target: 'enteringGuestOtp',
-                                        actions: assign({
-                                            sid: ({ event }) => event.output.sid
-                                        })
+                                        actions: [
+                                            assign({
+                                                sid: ({ event }) => event.output.sid
+                                            }),
+                                            ({ event }) => {
+                                                console.log('✅ OTP sent successfully!');
+                                                console.log('   Setting sid to:', event.output.sid);
+                                            }
+                                        ]
                                     },
                                     onError: {
                                         target: 'choosingMethod',
@@ -765,18 +1160,24 @@ export const eventsMachine = setup({
                                     }),
                                     onDone: {
                                         target: 'decidePartialMatchPath',
-                                        actions: assign({
-                                            guestId: ({ context, event }) => context.guestId || event.output['Guest ID'],
-                                            // ✅ This is the fix: save the contact info as the potential account
-                                            potentialAccounts: ({ context }) => [{
-                                                'Guest ID': context.guestId,
-                                                'First Name': context.contactInfo.firstName,
-                                                'Last Name': context.contactInfo.lastName,
-                                                'Email': context.contactInfo.email,
-                                                'Mobile Number': context.contactInfo.mobileNumber,
-                                                'Organization Name': context.contactInfo.organizationName,
-                                            }]
-                                        })
+                                        actions: [
+                                            assign({
+                                                guestId: ({ context, event }) => context.guestId || event.output['Guest ID'],
+                                                potentialAccounts: ({ context }) => [{
+                                                    'Guest ID': context.guestId,
+                                                    'First Name': context.contactInfo.firstName,
+                                                    'Last Name': context.contactInfo.lastName,
+                                                    'Email': context.contactInfo.email,
+                                                    'Mobile Number': context.contactInfo.mobileNumber,
+                                                    'Organization Name': context.contactInfo.organizationName,
+                                                }]
+                                            }),
+                                            ({ context, event }) => {
+                                                console.log('✅ OTP verified successfully!');
+                                                console.log('   guestId:', context.guestId || event.output['Guest ID']);
+                                                console.log('   sid should still be:', context.sid);
+                                            }
+                                        ]
                                     },
                                     onError: {
                                         target: 'enteringGuestOtp',
@@ -793,11 +1194,32 @@ export const eventsMachine = setup({
                         }
                     },
                     creatingRegistration: {
+                        entry: ({ context }) => {
+                            const currentEvent = context.fundraiserEvents?.find(e => e.id === context.selectedEventId);
+                            const role = currentEvent?.Role || currentEvent?.role || 'Participant';
+                            
+                            console.log('📝 Creating registration with:');
+                            console.log('   guestId:', context.guestId);
+                            console.log('   sid:', context.sid);
+                            console.log('   eventId:', context.selectedEventId);
+                            console.log('   date:', context.selectedDate);
+                            console.log('   time:', context.selectedTime);
+                            console.log('   locationId:', context.selectedLocationId);
+                            console.log('   role:', role);
+                            
+                            if (!context.guestId || !context.sid) {
+                                console.error('❌ MISSING REQUIRED VALUES FOR REGISTRATION!');
+                            }
+                        },
                         invoke: {
                             src: 'createEventRegistration',
                             input: ({ context }) => {
                                 const localDate = new Date(context.selectedDate);
                                 const utcDate = new Date(Date.UTC(localDate.getFullYear(), localDate.getMonth(), localDate.getDate()));
+                                
+                                // ✅ Get role from current event
+                                const currentEvent = context.fundraiserEvents?.find(e => e.id === context.selectedEventId);
+                                const role = currentEvent?.Role || currentEvent?.role || 'Participant';
                                 
                                 return {
                                     guestId: context.guestId,
@@ -805,24 +1227,70 @@ export const eventsMachine = setup({
                                     date: utcDate.toISOString(),
                                     time: context.selectedTime,
                                     locationId: context.selectedLocationId,
-                                    sid: context.sid
+                                    sid: context.sid,
+                                    role: role
                                 };
                             },
                             onDone: [
                                 {
+                                    // ✅ SMART DUPLICATE HANDLING: Check if user can select another date
+                                    target: '#fundraiser.wizardFlow.duplicateError',
+                                    guard: ({ event, context }) => {
+                                        if (event.output.outcome !== 'DUPLICATE') return false;
+                                        
+                                        // Check if event has only one possible date
+                                        const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                        if (!currentEvent) return false;
+                                        
+                                        const daysOfWeek = currentEvent['Days of Week'] || currentEvent.daysOfWeek;
+                                        const hasSingleDay = daysOfWeek && daysOfWeek.length === 1;
+                                        
+                                        // If single day, user can't pick another date - show error state
+                                        return hasSingleDay;
+                                    },
+                                    actions: assign({
+                                        error: 'You have already registered for this event.',
+                                        selectedDate: null,
+                                        selectedTime: null,
+                                    })
+                                },
+                                {
+                                    // ✅ If multiple dates available, let user pick another
                                     target: '#fundraiser.wizardFlow.selectingDate',
                                     guard: ({ event }) => event.output.outcome === 'DUPLICATE',
                                     actions: assign({
                                         error: 'You already have an event scheduled for this day. Please choose another date.',
                                         selectedDate: null,
                                         selectedTime: null,
-                                        sid: null,
                                     })
                                 },
                                 {
                                     target: '#fundraiser.userDashboard',
                                     guard: ({ event }) => event.output.outcome === 'SUCCESS',
-                                    actions: assign({ isAuthenticated: true })
+                                    actions: [
+                                        assign({ 
+                                            isAuthenticated: true
+                                        }),
+                                        ({ context }) => {
+                                            console.log('🎉 Registration successful! Transitioning to userDashboard...');
+                                            console.log('Context at transition:', {
+                                                guestId: context.guestId,
+                                                sid: context.sid,
+                                                isAuthenticated: true
+                                            });
+                                            
+                                            if (!context.guestId) {
+                                                console.error('❌ CRITICAL: guestId is NULL/undefined at transition!');
+                                                console.error('   This will cause dashboard to fail.');
+                                                console.error('   Full context:', context);
+                                            }
+                                            if (!context.sid) {
+                                                console.error('❌ CRITICAL: sid is NULL/undefined at transition!');
+                                                console.error('   This will cause dashboard to fail.');
+                                                console.error('   Full context:', context);
+                                            }
+                                        }
+                                    ]
                                 }
                             ],
                             onError: {
@@ -830,6 +1298,14 @@ export const eventsMachine = setup({
                                 actions: 'assignError'
                             }
                         }
+                    }
+                }
+            },
+            duplicateError: {
+                on: {
+                    RESET: {
+                        target: '#fundraiser.directory',
+                        actions: 'softReset'
                     }
                 }
             },
@@ -933,4 +1409,3 @@ export const eventsMachine = setup({
     failure: { type: 'final' }
   }
 });
-

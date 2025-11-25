@@ -3,14 +3,43 @@ import { Box, Typography, Button, Card, CardContent, Radio, Alert } from '@mui/m
 
 export const ResolvingPartialMatch = ({ send, context }) => {
     const machineContext = context.context;
-    const { partialMatchAlternatives, selectedPartialMatch, contactInfo } = machineContext;
+    const { partialMatchAlternatives, selectedPartialMatch, contactInfo, otpChannel } = machineContext;
 
-    // This is the data the user originally typed into the form
+    // ✅ Get current event to check role
+    const currentEvent = machineContext.fundraiserEvents?.find(e => e.id === machineContext.selectedEventId);
+    const isHost = currentEvent?.Role === 'Host';
+
+    // ✅ Check if we need to show organization names to differentiate
+    // For Participants: Only show org if there are duplicates (same email+phone, different org)
+    const hasDuplicateContacts = () => {
+        if (isHost) return true; // Always show for hosts
+        if (!partialMatchAlternatives || partialMatchAlternatives.length <= 1) return false;
+        
+        // Check if any two alternatives have the same email AND phone
+        const contactPairs = partialMatchAlternatives.map(alt => ({
+            email: (alt['Email'] || '').toLowerCase(),
+            phone: alt['Mobile Number'] || ''
+        }));
+        
+        for (let i = 0; i < contactPairs.length; i++) {
+            for (let j = i + 1; j < contactPairs.length; j++) {
+                if (contactPairs[i].email === contactPairs[j].email && 
+                    contactPairs[i].phone === contactPairs[j].phone) {
+                    return true; // Found duplicates - need org names to differentiate
+                }
+            }
+        }
+        return false;
+    };
+
+    const showOrgNames = hasDuplicateContacts();
+
+    // ✅ This is the data the user originally typed into the form
     const submittedInfo = {
-        'Organization Name': contactInfo.organizationName,
         'Email': contactInfo.email,
-        'Mobile Number': contactInfo.phone,
-        'isNew': true // A flag to identify this special option
+        'Mobile Number': contactInfo.mobileNumber,
+        'Organization Name': contactInfo.organizationName, // Include for hosts
+        'isNew': true
     };
 
     const handleSelect = (selection) => {
@@ -18,20 +47,35 @@ export const ResolvingPartialMatch = ({ send, context }) => {
     };
 
     const isSelected = (option) => {
-        // Compare based on content since object references will be different
         return JSON.stringify(selectedPartialMatch) === JSON.stringify(option);
     };
+
+    // ✅ Helper function to display contact info, filling in gaps
+    // Display order based on authentication method
+    const getDisplayInfo = (alternative) => {
+        const email = alternative['Email'] || contactInfo.email;
+        const mobile = alternative['Mobile Number'] || contactInfo.mobileNumber;
+        const orgName = alternative['Organization Name'] || '';
+        
+        return { email, mobile, orgName };
+    };
+
+    // ✅ Determine display order based on authentication method
+    // If user authenticated with phone (SMS), show phone first
+    // If user authenticated with email, show email first
+    const authenticatedWithPhone = otpChannel === 'sms';
+    const authenticatedWithEmail = otpChannel === 'email';
 
     return (
         <Box>
             <Typography variant="h2" gutterBottom>Confirm Your Information</Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                We found some existing records that are similar to the information you entered. Please select the correct record or confirm you'd like to create a new one.
+                We found some existing accounts that are similar to the information you entered. Please select the correct account or confirm you'd like to create a new one.
             </Typography>
 
             <Box component="fieldset" sx={{ border: 'none', p: 0, m: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                 
-                {/* ✅ New "Create New" Option Card */}
+                {/* ✅ "Create New Account" Option */}
                 <Card variant="outlined" sx={{ '&:has(input:checked)': { borderColor: 'primary.main', borderWidth: 2 } }}>
                     <CardContent 
                         component="label" 
@@ -45,40 +89,86 @@ export const ResolvingPartialMatch = ({ send, context }) => {
                             sx={{mr: 2}} 
                         />
                         <Box>
-                            <Typography variant="h3" sx={{ fontWeight: 'bold' }}>Create a new organization</Typography>
+                            <Typography variant="h3" sx={{ fontWeight: 'bold' }}>Create a new account</Typography>
                             <Typography color="text.secondary" sx={{ mt: 0.5 }}>
                                 Use the information you just submitted:
                             </Typography>
-                            <Typography color="text.secondary" sx={{ mt: 0.5, pl: 2 }}>
-                                • Org: {submittedInfo['Organization Name']}<br/>
-                                • Email: {submittedInfo['Email']}
-                            </Typography>
+                            <Box sx={{ mt: 1, pl: 2 }}>
+                                {/* ✅ Show organization for hosts */}
+                                {isHost && submittedInfo['Organization Name'] && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+                                        {submittedInfo['Organization Name']}
+                                    </Typography>
+                                )}
+                                <Typography variant="body2" color="text.secondary">
+                                    {submittedInfo['Email']}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    {submittedInfo['Mobile Number']}
+                                </Typography>
+                            </Box>
                         </Box>
                     </CardContent>
                 </Card>
 
-                {/* Existing Partial Match Options */}
-                {(partialMatchAlternatives || []).map((alt, index) => (
-                    <Card key={index} variant="outlined" sx={{ '&:has(input:checked)': { borderColor: 'primary.main', borderWidth: 2 } }}>
-                        <CardContent 
-                            component="label" 
-                            sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', width: '100%', p: '16px !important' }}
-                        >
-                            <Radio 
-                                value={index}
-                                name="partialMatchSelection" 
-                                checked={isSelected(alt)}
-                                onChange={() => handleSelect(alt)}
-                                sx={{mr: 2}} 
-                            />
-                            <Box>
-                                <Typography variant="h3">{alt['Organization Name'] || 'Select This Option'}</Typography>
-                                {alt['Email'] && <Typography color="text.secondary" sx={{ mt: 0.5 }}>{alt['Email']}</Typography>}
-                                {alt['Mobile Number'] && <Typography color="text.secondary" sx={{ mt: 0.5 }}>{alt['Mobile Number']}</Typography>}
-                            </Box>
-                        </CardContent>
-                    </Card>
-                ))}
+                {/* ✅ Partial Match Options */}
+                {(partialMatchAlternatives || []).map((alt, index) => {
+                    const displayInfo = getDisplayInfo(alt);
+                    
+                    return (
+                        <Card key={index} variant="outlined" sx={{ '&:has(input:checked)': { borderColor: 'primary.main', borderWidth: 2 } }}>
+                            <CardContent 
+                                component="label" 
+                                sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', width: '100%', p: '16px !important' }}
+                            >
+                                <Radio 
+                                    value={index}
+                                    name="partialMatchSelection" 
+                                    checked={isSelected(alt)}
+                                    onChange={() => handleSelect(alt)}
+                                    sx={{mr: 2}} 
+                                />
+                                <Box>
+                                    {/* ✅ DISPLAY ORDER: Show what they DIDN'T authenticate with first */}
+                                    
+                                    {/* If authenticated with PHONE (SMS), show: Email → Org → Phone */}
+                                    {authenticatedWithPhone && (
+                                        <>
+                                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                                                {displayInfo.email}
+                                            </Typography>
+                                            {showOrgNames && displayInfo.orgName && (
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {displayInfo.orgName}
+                                                </Typography>
+                                            )}
+                                            <Typography variant="body2" color="text.secondary">
+                                                {displayInfo.mobile}
+                                            </Typography>
+                                        </>
+                                    )}
+                                    
+                                    {/* If authenticated with EMAIL, show: Phone → Org → Email */}
+                                    {authenticatedWithEmail && (
+                                        <>
+                                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                                                {displayInfo.mobile}
+                                            </Typography>
+                                            {showOrgNames && displayInfo.orgName && (
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {displayInfo.orgName}
+                                                </Typography>
+                                            )}
+                                            <Typography variant="body2" color="text.secondary">
+                                                {displayInfo.email}
+                                            </Typography>
+                                        </>
+                                    )}
+                                </Box>
+                            </CardContent>
+                        </Card>
+                    );
+                })}
             </Box>
 
             <Box sx={{ mt: 4, display: 'flex', justifyContent: 'space-between' }}>

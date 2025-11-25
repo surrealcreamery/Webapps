@@ -1,39 +1,70 @@
 import React from 'react';
-import { Box, Typography, Button, TextField, FormHelperText } from '@mui/material';
-// ✅ FIX: Corrected the import path to match the actual filename.
-import { PhoneInputComponent } from './PhoneInputComponent';
+import { Box, Typography, Button, TextField, FormHelperText, Stack } from '@mui/material';
+import { PhoneInputComponent } from './PhoneInputComponent'; // Ensure this path is correct
 
 export const ContactForm = ({ onBack, onSubmit, contactInfo, onFieldChange, formErrors }) => {
     return (
         <Box>
             <Typography variant="h1" component="h1" gutterBottom>
-                View Discounts
+                Order Contact Information
             </Typography>
-            <Typography sx={{ mb: 2 }}>Please enter your contact information to view bulk discounts or log in to your account.</Typography>
-            <Box component="form" noValidate sx={{ mt: 2 }}>
-                <TextField 
-                    fullWidth 
-                    margin="dense" 
-                    label="Email" 
-                    name="email" 
-                    type="email" 
-                    value={contactInfo.email}
+            <Typography sx={{ mb: 2 }}>
+                Please enter the contact information for the person who will be placing this order
+            </Typography>
+            
+            <Stack component="form" noValidate sx={{ mt: 1 }} spacing={1.5}>
+                 <TextField
+                    fullWidth
+                    label="First Name"
+                    name="firstName"
+                    value={contactInfo.firstName || ''}
+                    onChange={onFieldChange}
+                    error={!!formErrors.firstName}
+                    helperText={formErrors.firstName || ' '}
+                    required
+                 />
+
+                 <TextField
+                    fullWidth
+                    label="Last Name"
+                    name="lastName"
+                    value={contactInfo.lastName || ''}
+                    onChange={onFieldChange}
+                    error={!!formErrors.lastName}
+                    helperText={formErrors.lastName || ' '}
+                    required
+                 />
+
+                 <TextField
+                    fullWidth
+                    label="Email"
+                    name="email"
+                    type="email"
+                    value={contactInfo.email || ''}
                     onChange={onFieldChange}
                     error={!!formErrors.email}
                     helperText={formErrors.email || ' '}
-                />
-                <TextField
+                    required
+                 />
+                 <TextField
                     fullWidth
-                    margin="dense"
                     label="Mobile Number"
                     name="mobileNumber"
-                    value={contactInfo.mobileNumber}
+                    value={contactInfo.mobileNumber || ''}
                     onChange={onFieldChange}
                     InputProps={{ inputComponent: PhoneInputComponent }}
                     error={!!formErrors.mobileNumber}
-                />
-                {formErrors.mobileNumber && <FormHelperText error sx={{ ml: '14px' }}>{formErrors.mobileNumber}</FormHelperText>}
-            </Box>
+                    required
+                 />
+                 {/* Display mobile error separately if needed */}
+                 {formErrors.mobileNumber && !formErrors.firstName && !formErrors.lastName && !formErrors.email && (
+                    <FormHelperText error sx={{ ml: '14px', mt: '3px !important' }}>{formErrors.mobileNumber}</FormHelperText>
+                 )}
+                 {/* Add a general helper text space if no specific error */}
+                 {!formErrors.mobileNumber && !formErrors.firstName && !formErrors.lastName && !formErrors.email && (
+                     <Box sx={{ height: '22.5px' }} /> // Placeholder to prevent layout shift
+                 )}
+            </Stack>
             <Box sx={{ mt: 4, display: 'flex', justifyContent: 'space-between' }}>
                 <Button
                     variant="contained"
@@ -49,4 +80,3 @@ export const ContactForm = ({ onBack, onSubmit, contactInfo, onFieldChange, form
         </Box>
     );
 };
-

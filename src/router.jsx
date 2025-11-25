@@ -28,7 +28,7 @@ import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persist
 // --- APP CONFIGURATION ---
 // ✅ Set the desired application mode here.
 // Options: 'SUBSCRIPTION', 'EVENTS', 'CATERING'
-const VITE_APP_MODE = 'CATERING';
+const VITE_APP_MODE = 'EVENTS';
 
 // THEMES
 import publicTheme from '@/theme/publicTheme';
