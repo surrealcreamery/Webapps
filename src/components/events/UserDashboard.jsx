@@ -25,12 +25,34 @@ const formatTimeSlot = (slot) => {
     }
 };
 
+// ✅ NEW: Helper function to get event date from multiple possible fields
+const getEventDate = (event) => {
+    // Try multiple date field names in order of preference
+    const dateString = event['Event Date'] || event['Start Date'] || event['End Date'];
+    
+    if (!dateString) return null;
+    
+    // Handle timezone issue by replacing hyphens
+    const date = new Date(dateString.replace(/-/g, '/'));
+    return isValid(date) ? date : null;
+};
+
 const HostedEventCard = ({ event, eventDetails, onViewTransactions, onViewMarketingMaterials }) => {
     console.log("HostedEventCard received event:", event);
     console.log("HostedEventCard received eventDetails (for image):", eventDetails);
 
-    const eventDate = event['Event Date'] ? new Date(event['Event Date'].replace(/-/g, '/')) : null;
+    // ✅ FIX: Use helper function to check multiple date fields
+    const eventDate = getEventDate(event);
     const isEventInThePast = eventDate ? isPast(eventDate) : false;
+    
+    // ✅ DEBUG: Log the date calculation
+    console.log("HostedEventCard date check:", {
+        'Event Date': event['Event Date'],
+        'Start Date': event['Start Date'],
+        'End Date': event['End Date'],
+        resolvedDate: eventDate?.toISOString(),
+        isEventInThePast
+    });
     
     const first = (arr) => (Array.isArray(arr) && arr.length > 0 ? arr[0] : arr || '');
     
@@ -66,6 +88,9 @@ const HostedEventCard = ({ event, eventDetails, onViewTransactions, onViewMarket
         return null;
     };
 
+    // ✅ FIX: Get display date from multiple possible fields
+    const displayDate = event['Event Date'] || event['Start Date'];
+
     return (
         <Paper variant="outlined" sx={{ borderRadius: 2, display: 'flex', flexDirection: 'column' }}>
             {imageUrl && (
@@ -87,9 +112,10 @@ const HostedEventCard = ({ event, eventDetails, onViewTransactions, onViewMarket
                     </Typography>
                 )}
 
-                {event['Event Date'] && (
+                {/* ✅ FIX: Use displayDate which checks multiple fields */}
+                {displayDate && (
                     <Typography variant="body1" color="text.secondary">
-                        {formatDateSafe(event['Event Date'], "EEEE, MMMM do")}
+                        {formatDateSafe(displayDate, "EEEE, MMMM do")}
                     </Typography>
                 )}
                 {event['Event Time'] && (
@@ -148,18 +174,20 @@ const HostedEventCard = ({ event, eventDetails, onViewTransactions, onViewMarket
 const ParticipantEventCard = ({ event }) => {
     console.log("ParticipantEventCard received event:", event);
 
-    // For participant events, we need to calculate the event date from Start Date + Event Times
-    const startDate = event['Start Date'];
-    const eventDate = startDate ? new Date(startDate.replace(/-/g, '/')) : null;
+    // Use helper function for consistent date handling
+    const eventDate = getEventDate(event);
     const isEventInThePast = eventDate ? isPast(eventDate) : false;
     
-    const imageUrl = event['Image URL'];
+    const first = (arr) => (Array.isArray(arr) && arr.length > 0 ? arr[0] : arr || '');
+    const imageUrl = first(event['Image URL']) || event['Image URL'];
+    const eventName = first(event['Event Name']) || event['Event Name'];
     const eventTime = Array.isArray(event['Event Times']) && event['Event Times'].length > 0 
         ? event['Event Times'][0] 
-        : '';
+        : (event['Event Time'] || '');
     
     const description = event['Description'];
     const bulletPoints = event['Bullet Points'];
+    const displayDate = event['Event Date'] || event['Start Date'];
 
     // Helper to render bullet points
     const renderBulletPoints = (bp) => {
@@ -193,14 +221,14 @@ const ParticipantEventCard = ({ event }) => {
                  <Box sx={{ height: 180, backgroundColor: 'grey.200', borderTopLeftRadius: 'inherit', borderTopRightRadius: 'inherit', overflow: 'hidden' }}>
                     <img
                         src={imageUrl}
-                        alt={event['Event Name']}
+                        alt={eventName}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                 </Box>
             )}
 
             <Stack sx={{ p: 2, flexGrow: 1 }} spacing={1}>
-                <Typography variant="h3" component="h3">{event['Event Name']}</Typography>
+                <Typography variant="h3" component="h3">{eventName}</Typography>
                 
                 {isEventInThePast && (
                     <Typography variant="body2" color="error" sx={{ fontWeight: 'bold' }}>
@@ -208,9 +236,9 @@ const ParticipantEventCard = ({ event }) => {
                     </Typography>
                 )}
 
-                {startDate && (
+                {displayDate && (
                     <Typography variant="body1" color="text.secondary">
-                        {formatDateSafe(startDate, "EEEE, MMMM do")}
+                        {formatDateSafe(displayDate, "EEEE, MMMM do")}
                     </Typography>
                 )}
                 {eventTime && (
@@ -219,14 +247,12 @@ const ParticipantEventCard = ({ event }) => {
                     </Typography>
                 )}
                 
-                {/* ✅ Show full description */}
                 {description && (
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
                         {description}
                     </Typography>
                 )}
                 
-                {/* ✅ Show full bullet points */}
                 {bulletPoints && (
                     <Box sx={{ mt: 1 }}>
                         {renderBulletPoints(bulletPoints)}
@@ -246,25 +272,30 @@ export const UserDashboard = ({ events, allEvents, onScheduleNew, onViewTransact
         if (newView !== null) setView(newView);
     };
 
-    // ✅ Combine hosted and participant events into one list
-    const hostedEvents = events?.hostedEvents || [];
-    const participantEvents = events?.participantEvents || [];
+    // ✅ Combine hosted and participant events into one list, filtering out empty/invalid entries
+    // ✅ FIX: Tag each event with its source array so we know which card to render
+    const hostedEvents = (events?.hostedEvents || [])
+        .filter(e => e && e['Registered Event ID'])
+        .map(e => ({ ...e, _isHostedEvent: true }));
+    const participantEvents = (events?.participantEvents || [])
+        .filter(e => e && (e['Event ID'] || e['Registered Event ID']))
+        .map(e => ({ ...e, _isHostedEvent: false }));
     const allUserEvents = [...hostedEvents, ...participantEvents];
 
+    console.log("Hosted events (filtered):", hostedEvents);
+    console.log("Participant events (filtered):", participantEvents);
     console.log("All user events:", allUserEvents);
 
     const now = new Date();
     
-    // ✅ Filter all events by date
+    // ✅ FIX: Filter all events by date using the helper function
     const filteredEvents = allUserEvents.filter(e => {
-        // Get date from either format
-        const eventDateStr = e['Event Date'] || e['Start Date'];
+        // ✅ Use the same helper function for consistent date detection
+        const eventDate = getEventDate(e);
         
         if (view === 'All') return true;
-        if (!eventDateStr) return view === 'Active'; // If no date, show in Active
+        if (!eventDate) return view === 'Active'; // If no date, show in Active
         
-        const eventDate = new Date(eventDateStr.replace(/-/g, '/'));
-        if (!isValid(eventDate)) return false;
         return view === 'Active' ? eventDate >= now : eventDate < now;
     });
 
@@ -328,8 +359,8 @@ export const UserDashboard = ({ events, allEvents, onScheduleNew, onViewTransact
                 {filteredEvents.length > 0 ? (
                     <Stack spacing={3}>
                         {filteredEvents.map((event, index) => {
-                            // Determine if this is a hosted or participant event based on structure
-                            const isHostedEvent = !!event['Registered Event ID'];
+                            // ✅ FIX: Use the _isHostedEvent flag we added, not the Role field
+                            const isHostedEvent = event._isHostedEvent;
                             
                             if (isHostedEvent) {
                                 const first = (arr) => (Array.isArray(arr) && arr.length > 0 ? arr[0] : arr || '');
@@ -348,7 +379,7 @@ export const UserDashboard = ({ events, allEvents, onScheduleNew, onViewTransact
                             } else {
                                 return (
                                     <ParticipantEventCard 
-                                        key={event['Event ID'] || index} 
+                                        key={event['Registered Event ID'] || event['Event ID'] || index} 
                                         event={event}
                                     />
                                 );

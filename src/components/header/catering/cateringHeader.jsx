@@ -6,6 +6,14 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import Logo from '@/assets/images/svg/logo.svg';
 import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext';
 
+// Navigation items - same as other headers
+const NAV_ITEMS = [
+    { label: 'Shop', path: 'https://shop.surrealcreamery.com', external: true },
+    { label: 'Events', path: 'https://events.surrealcreamery.com', external: true },
+    { label: 'Subscriptions', path: 'https://www.dollarbobaclub.com', external: true },
+    { label: 'Catering', path: '/', external: false, isCurrentApp: true },
+];
+
 // Helper function to get initials - First + Last
 const getInitials = (contactInfo) => {
     if (!contactInfo) return '?';
@@ -73,6 +81,15 @@ const Header = () => {
     const handleLogOut = () => {
         sendToCatering({ type: 'RESET' });
     };
+    
+    const handleNavClick = (item) => {
+        if (item.external) {
+            window.location.href = item.path;
+        } else if (item.isCurrentApp) {
+            // Already on this app, navigate to root
+            sendToCatering({ type: 'GO_TO_BROWSING' });
+        }
+    };
 
     // Check if we're on the orders view page
     const isOnOrdersPage = cateringState.matches('viewingOrders');
@@ -110,108 +127,173 @@ const Header = () => {
     const avatarSize = 40; // Size for both icon and avatar
 
     return (
-        <header className="header">
-            <div className="shell">
-                <div style={{ maxWidth: '600px', margin: '0 auto', padding: '0 24px' }}>
-                    <div className="header__inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
-
-                        {/* Left column */}
-                        <div style={{ justifySelf: 'start' }}>
-                            {showBackButton && (
-                                <IconButton onClick={handleBackClick} aria-label="Go back">
-                                    <ArrowBackIcon sx={{ fontSize: '2rem', color: 'black' }} />
-                                </IconButton>
-                            )}
-                        </div>
-
-                        {/* Center column */}
-                        <div className="header__logo" style={{ justifySelf: 'center' }}>
-                            <a href="/" onClick={handleLogoClick}>
-                                <img src={Logo} alt="Surreal Creamery Logo" style={{ display: 'block', height: '128px', width: 'auto' }} />
-                            </a>
-                        </div>
-
-                        {/* Right column */}
-                        <div className="header__actions" style={{ justifySelf: 'end', display: 'flex', alignItems: 'center', gap: 1, minWidth: '48px' }}>
-
-                            {/* Show Log Out button on orders page */}
-                            {isOnOrdersPage && (
+        <>
+            {/* CSS Override for header padding */}
+            <style>{`
+                .header { padding-top: 0 !important; padding-bottom: 0 !important; }
+            `}</style>
+            
+            <header className="header" role="banner" aria-label="Site header">
+                {/* Navigation Bar - REI Style */}
+                <Box
+                    component="nav"
+                    role="navigation"
+                    aria-label="Main navigation"
+                    sx={{
+                        backgroundColor: '#000',
+                        width: '100vw',
+                        marginLeft: 'calc(-50vw + 50%)',
+                        py: 1,
+                        px: 2,
+                    }}
+                >
+                    <Box
+                        sx={{
+                            maxWidth: '600px',
+                            margin: '0 auto',
+                            display: 'flex',
+                            justifyContent: 'center',
+                            gap: 0.5,
+                            flexWrap: 'wrap',
+                        }}
+                    >
+                        {NAV_ITEMS.map((item) => {
+                            const isActive = item.isCurrentApp;
+                            return (
                                 <Button
-                                    variant="outlined"
-                                    onClick={handleLogOut}
+                                    key={item.path}
+                                    onClick={() => handleNavClick(item)}
                                     sx={{
-                                        color: 'black',
-                                        borderColor: 'black',
-                                        backgroundColor: 'white',
+                                        color: isActive ? '#000' : '#fff',
+                                        backgroundColor: isActive ? '#fff' : 'transparent',
                                         textTransform: 'none',
-                                        fontWeight: 'bold',
-                                        padding: '6px 16px',
+                                        px: 1.5,
+                                        py: 0.5,
+                                        minWidth: 'auto',
+                                        fontWeight: isActive ? 600 : 400,
+                                        borderRadius: 1,
                                         '&:hover': {
+                                            backgroundColor: isActive ? '#fff' : 'rgba(255,255,255,0.1)',
+                                        },
+                                    }}
+                                >
+                                    <Typography
+                                        sx={{
+                                            fontSize: '1.6rem !important',
+                                            fontWeight: 'inherit',
+                                        }}
+                                    >
+                                        {item.label}
+                                    </Typography>
+                                </Button>
+                            );
+                        })}
+                    </Box>
+                </Box>
+                
+                {/* Logo and Actions Row */}
+                <div className="shell">
+                    <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+                        <div className="header__inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
+
+                            {/* Left column */}
+                            <div style={{ justifySelf: 'start' }}>
+                                {showBackButton && (
+                                    <IconButton onClick={handleBackClick} aria-label="Go back">
+                                        <ArrowBackIcon sx={{ fontSize: '2rem', color: 'black' }} />
+                                    </IconButton>
+                                )}
+                            </div>
+
+                            {/* Center column */}
+                            <div className="header__logo" style={{ justifySelf: 'center' }}>
+                                <a href="/" onClick={handleLogoClick}>
+                                    <img src={Logo} alt="Surreal Creamery Logo" style={{ display: 'block', height: '128px', width: 'auto' }} />
+                                </a>
+                            </div>
+
+                            {/* Right column */}
+                            <div className="header__actions" style={{ justifySelf: 'end', display: 'flex', alignItems: 'center', gap: 1, minWidth: '48px' }}>
+
+                                {/* Show Log Out button on orders page */}
+                                {isOnOrdersPage && (
+                                    <Button
+                                        variant="outlined"
+                                        onClick={handleLogOut}
+                                        sx={{
+                                            color: 'black',
                                             borderColor: 'black',
-                                            backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                                        }
-                                    }}
-                                >
-                                    Log Out
-                                </Button>
-                            )}
+                                            backgroundColor: 'white',
+                                            textTransform: 'none',
+                                            fontWeight: 'bold',
+                                            padding: '6px 16px',
+                                            '&:hover': {
+                                                borderColor: 'black',
+                                                backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                                            }
+                                        }}
+                                    >
+                                        Log Out
+                                    </Button>
+                                )}
 
-                            {/* Conditionally render Account Icon/Avatar */}
-                            {showAccountButton && (
-                                <IconButton color="inherit" onClick={handleAccountClick} aria-label="Account">
-                                    {isAuthenticated ? (
-                                        <Avatar
-                                            style={{
-                                                backgroundColor: 'black',
-                                                color: 'white',
-                                                width: avatarSize,
-                                                height: avatarSize,
-                                                fontSize: '1.7rem',
-                                                borderRadius: '50%',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                lineHeight: 1
-                                            }}
-                                        >
-                                            {userInitials}
-                                        </Avatar>
-                                    ) : (
-                                        <AccountCircleIcon sx={{ fontSize: `${avatarSize}px`, color: 'black' }} />
-                                    )}
-                                </IconButton>
-                            )}
+                                {/* Conditionally render Account Icon/Avatar */}
+                                {showAccountButton && (
+                                    <IconButton color="inherit" onClick={handleAccountClick} aria-label="Account">
+                                        {isAuthenticated ? (
+                                            <Avatar
+                                                style={{
+                                                    backgroundColor: 'black',
+                                                    color: 'white',
+                                                    width: avatarSize,
+                                                    height: avatarSize,
+                                                    fontSize: '1.7rem',
+                                                    borderRadius: '50%',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    lineHeight: 1
+                                                }}
+                                            >
+                                                {userInitials}
+                                            </Avatar>
+                                        ) : (
+                                            <AccountCircleIcon sx={{ fontSize: `${avatarSize}px`, color: 'black' }} />
+                                        )}
+                                    </IconButton>
+                                )}
 
-                            {/* Cart Button */}
-                            {showCartButton && (
-                                <Button
-                                    variant="contained"
-                                    onClick={handleCartClick}
-                                    aria-label="View Cart"
-                                    sx={{
-                                        backgroundColor: 'black',
-                                        color: 'white',
-                                        borderRadius: '50px',
-                                        textTransform: 'none',
-                                        padding: '6px 16px',
-                                        '&:hover': {
-                                            backgroundColor: '#333',
-                                        }
-                                    }}
-                                >
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <ShoppingBagIcon sx={{ color: 'white' }} />
-                                        <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'white' }}>
-                                            {totalItems}
-                                        </Typography>
-                                    </Box>
-                                </Button>
-                            )}
+                                {/* Cart Button */}
+                                {showCartButton && (
+                                    <Button
+                                        variant="contained"
+                                        onClick={handleCartClick}
+                                        aria-label="View Cart"
+                                        sx={{
+                                            backgroundColor: 'black',
+                                            color: 'white',
+                                            borderRadius: '50px',
+                                            textTransform: 'none',
+                                            padding: '6px 16px',
+                                            '&:hover': {
+                                                backgroundColor: '#333',
+                                            }
+                                        }}
+                                    >
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            <ShoppingBagIcon sx={{ color: 'white' }} />
+                                            <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'white' }}>
+                                                {totalItems}
+                                            </Typography>
+                                        </Box>
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </header>
+            </header>
+        </>
     );
 };
 

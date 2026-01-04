@@ -67,6 +67,8 @@ npm install @mui/x-date-pickers date-fns @xstate/react xstate
 
 npm install react-google-places-autocomplete
 
+npm install react-helmet-async
+
 ## Build
 To build the project for production, run:
 

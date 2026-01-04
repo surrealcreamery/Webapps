@@ -24,11 +24,12 @@ import {
 } from '@tanstack/react-query';
 import { persistQueryClient } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
+import { HelmetProvider } from 'react-helmet-async';
 
 // --- APP CONFIGURATION ---
 // ✅ Set the desired application mode here.
-// Options: 'SUBSCRIPTION', 'EVENTS', 'CATERING'
-const VITE_APP_MODE = 'EVENTS';
+// Options: 'SUBSCRIPTION', 'EVENTS', 'CATERING', 'COMMERCE'
+const VITE_APP_MODE = 'COMMERCE';
 
 // THEMES
 import publicTheme from '@/theme/publicTheme';
@@ -36,6 +37,9 @@ import adminTheme from '@/theme/adminTheme';
 
 // --- SHARED PUBLIC COMPONENTS ---
 import Redeem from '@/pages/Redeem';
+
+// --- GTM ---
+import { initGTM } from '@/components/google-tag-manager/google-tag-manager';
 
 // --- APP-SPECIFIC COMPONENTS ---
 
@@ -53,6 +57,13 @@ import EventsHome from '@/pages/Events';
 import { LayoutProvider as CateringLayoutProvider } from '@/contexts/catering/CateringLayoutContext';
 import CateringLayout from '@/layouts/catering/cateringLayout';
 import CateringHome from '@/pages/Catering';
+
+// 4. Commerce App Components
+import { LayoutProvider as CommerceLayoutProvider } from '@/contexts/commerce/CommerceLayoutContext';
+import { ShopifyProvider } from '@/contexts/commerce/ShopifyContext_GraphQL'; // ← ADDED: Shopify integration
+import { CheckoutProvider } from '@/components/commerce/CheckoutContext'; // ← NEW: Checkout context
+import CommerceLayout from '@/layouts/commerce/commerceLayout';
+import Commerce from '@/pages/Commerce';
 
 // --- ADMIN COMPONENTS ---
 import AdminLayout from '@/layouts/admin/adminLayout';
@@ -85,23 +96,70 @@ import {
 // --- APP CONFIGURATION OBJECT ---
 const appConfigs = {
   SUBSCRIPTION: {
+    // URL: https://www.dollarbobaclub.com
     LayoutProvider: SubscriptionLayoutProvider,
     Layout: SubscriptionsLayout,
     HomePage: SubscriptionHome,
+    gtmId: null, // Add GTM ID when ready
+    ga4Id: null, // Add GA4 ID when ready
+    additionalRoutes: [],
   },
   EVENTS: {
+    // URL: https://events.surrealcreamery.com
     LayoutProvider: EventsLayoutProvider,
     Layout: EventsLayout,
     HomePage: EventsHome,
+    gtmId: null, // Add GTM ID when ready
+    ga4Id: null, // Add GA4 ID when ready
+    additionalRoutes: [
+      {
+        path: 'login',
+        element: <EventsHome />,
+      }
+    ],
   },
   CATERING: {
     LayoutProvider: CateringLayoutProvider,
     Layout: CateringLayout,
     HomePage: CateringHome,
+    gtmId: null, // Add GTM ID when ready
+    ga4Id: null, // Add GA4 ID when ready
+    additionalRoutes: [],
+  },
+  COMMERCE: {
+    // URL: tokidoki.surrealcreamery.com (or similar)
+    LayoutProvider: CommerceLayoutProvider,
+    Layout: CommerceLayout,
+    HomePage: Commerce,
+    gtmId: 'GTM-T5KTLSWV',
+    ga4Id: 'G-KK2CZRQQQ6',
+    additionalRoutes: [
+      {
+        path: 'desserts',
+        element: <Commerce />,
+      },
+      {
+        path: 'merchandise',
+        element: <Commerce />,
+      },
+      {
+        path: 'category/:categoryId',
+        element: <Commerce />,
+      },
+      {
+        path: 'product/:productId',
+        element: <Commerce />,
+      }
+    ],
   },
 };
 
 const selectedApp = appConfigs[VITE_APP_MODE];
+
+// Initialize GTM and GA4 for selected app (if configured)
+if (selectedApp.gtmId || selectedApp.ga4Id) {
+  initGTM(selectedApp.gtmId, selectedApp.ga4Id);
+}
 
 // Cache and Query Client Setup
 const cache = createCache({
@@ -177,8 +235,26 @@ function AdminRoutes() {
 }
 
 // Dynamic Public Root Layout
+// ✅ UPDATED: Added conditional ShopifyProvider for Commerce mode
 function PublicRootLayout() {
     const AppLayoutProvider = selectedApp.LayoutProvider;
+    
+    // If Commerce mode, wrap with ShopifyProvider and CheckoutProvider
+    if (VITE_APP_MODE === 'COMMERCE') {
+        return (
+            <ShopifyProvider>
+                <CheckoutProvider>
+                    <AppLayoutProvider>
+                        <ThemeProvider theme={publicTheme}>
+                            <Outlet />
+                        </ThemeProvider>
+                    </AppLayoutProvider>
+                </CheckoutProvider>
+            </ShopifyProvider>
+        );
+    }
+    
+    // For other modes, use existing structure
     return (
         <AppLayoutProvider>
             <ThemeProvider theme={publicTheme}>
@@ -209,10 +285,8 @@ const router = createBrowserRouter([
                 path: 'redeem',
                 element: <Redeem />,
             },
-            {
-                path: 'login',
-                element: <EventsHome />,
-            }
+            // ✅ Dynamically add app-specific routes
+            ...selectedApp.additionalRoutes
         ]
       },
     ]
@@ -251,13 +325,14 @@ const router = createBrowserRouter([
 // App entrypoint
 export default function AppRouter() {
   return (
-    <CacheProvider value={cache}>
-      <StyledEngineProvider injectFirst>
-        <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-      </StyledEngineProvider>
-    </CacheProvider>
+    <HelmetProvider>
+      <CacheProvider value={cache}>
+        <StyledEngineProvider injectFirst>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </StyledEngineProvider>
+      </CacheProvider>
+    </HelmetProvider>
   );
 }
-

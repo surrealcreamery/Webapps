@@ -166,6 +166,7 @@ const initialContext = {
         organizationName: '',
         email: '',
         mobileNumber: '',
+        smsOptIn: true,
     },
     formErrors: {},
     error: null,
@@ -180,6 +181,8 @@ const initialContext = {
     partialMatchAlternatives: [],
     selectedPartialMatch: null,
     sid: null,
+    lastFetchTimestamp: null,
+    newlyRegisteredEvent: null,
 };
 
 export const eventsMachine = setup({
@@ -314,7 +317,7 @@ export const eventsMachine = setup({
         const response = await fetch(LIST_REGISTERED_EVENTS_FOR_USER_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(input)
+            body: JSON.stringify({ guestId: input.guestId, sid: input.sid })
         });
         if (!response.ok) throw new Error("Could not fetch user's registered events.");
         const rawEvents = await response.json();
@@ -440,15 +443,47 @@ export const eventsMachine = setup({
         }
     },
     userDashboard: {
-        initial: 'loadingEvents',
+        initial: 'checkingCache',
         states: {
+            checkingCache: {
+                always: [
+                    // If we have a newly registered event, go straight to idle (data already added)
+                    {
+                        target: 'idle',
+                        guard: ({ context }) => !!context.newlyRegisteredEvent,
+                        actions: [
+                            assign({ newlyRegisteredEvent: null }),
+                            () => console.log('📋 Skipping fetch - using newly registered event data')
+                        ]
+                    },
+                    // If we fetched within the last 2 minutes, skip fetching
+                    {
+                        target: 'idle',
+                        guard: ({ context }) => {
+                            if (!context.lastFetchTimestamp) return false;
+                            const twoMinutesAgo = Date.now() - (2 * 60 * 1000);
+                            const isCacheValid = context.lastFetchTimestamp > twoMinutesAgo;
+                            console.log('📋 Cache check:', {
+                                lastFetch: new Date(context.lastFetchTimestamp).toISOString(),
+                                isCacheValid,
+                                hasEvents: context.registeredEvents?.hostedEvents?.length > 0 || context.registeredEvents?.participantEvents?.length > 0
+                            });
+                            return isCacheValid;
+                        },
+                        actions: () => console.log('📋 Skipping fetch - cache is still valid (< 2 min old)')
+                    },
+                    // Otherwise, fetch fresh data
+                    { target: 'loadingEvents' }
+                ]
+            },
             loadingEvents: {
                 entry: ({ context }) => {
                     console.log('📊 Entering userDashboard.loadingEvents state');
                     console.log('   Context values:', {
                         guestId: context.guestId,
                         sid: context.sid,
-                        isAuthenticated: context.isAuthenticated
+                        isAuthenticated: context.isAuthenticated,
+                        selectedEventId: context.selectedEventId
                     });
                 },
                 invoke: {
@@ -488,7 +523,11 @@ export const eventsMachine = setup({
                                     // Fallback to old format (array)
                                     console.log('⚠️ Using old API format (array)');
                                     return Array.isArray(output) ? output : [];
-                                }
+                                },
+                                // ✅ Set timestamp for cache checking
+                                lastFetchTimestamp: () => Date.now(),
+                                // ✅ Clear selectedEventId
+                                selectedEventId: null
                             }),
                             ({ event }) => {
                                 console.log('✅ Dashboard events loaded successfully');
@@ -1206,6 +1245,7 @@ export const eventsMachine = setup({
                             console.log('   time:', context.selectedTime);
                             console.log('   locationId:', context.selectedLocationId);
                             console.log('   role:', role);
+                            console.log('   smsOptIn:', context.contactInfo.smsOptIn);
                             
                             if (!context.guestId || !context.sid) {
                                 console.error('❌ MISSING REQUIRED VALUES FOR REGISTRATION!');
@@ -1228,7 +1268,8 @@ export const eventsMachine = setup({
                                     time: context.selectedTime,
                                     locationId: context.selectedLocationId,
                                     sid: context.sid,
-                                    role: role
+                                    role: role,
+                                    smsOptIn: context.contactInfo.smsOptIn === true
                                 };
                             },
                             onDone: [
@@ -1268,11 +1309,57 @@ export const eventsMachine = setup({
                                     target: '#fundraiser.userDashboard',
                                     guard: ({ event }) => event.output.outcome === 'SUCCESS',
                                     actions: [
-                                        assign({ 
-                                            isAuthenticated: true
+                                        assign(({ context }) => {
+                                            // Build the newly registered event object from context
+                                            const currentEvent = context.fundraiserEvents?.find(e => e.id === context.selectedEventId);
+                                            const selectedLocation = context.locations?.find(loc => loc.id === context.selectedLocationId);
+                                            const role = currentEvent?.Role || currentEvent?.role || 'Participant';
+                                            
+                                            // Format date for display
+                                            const localDate = new Date(context.selectedDate);
+                                            const formattedDate = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
+                                            
+                                            const newEvent = {
+                                                'Registered Event ID': `temp-${Date.now()}`, // Temporary ID until refresh
+                                                'Event ID': context.selectedEventId,
+                                                'Event Name': currentEvent?.title || currentEvent?.['Event Name'],
+                                                'Event Date': formattedDate,
+                                                'Event Time': context.selectedTime,
+                                                'Location Name': selectedLocation?.['Location Name'] || '',
+                                                'Location Address': selectedLocation?.Address || '',
+                                                'Image URL': currentEvent?.imageUrl || currentEvent?.['Image URL'],
+                                                'Description': currentEvent?.description || currentEvent?.['Description'],
+                                                'Bullet Points': currentEvent?.bulletPoints || currentEvent?.['Bullet Points'],
+                                                'Status': 'Pending',
+                                                'Role': role
+                                            };
+                                            
+                                            console.log('🎉 Registration successful! Adding event to list:', newEvent);
+                                            
+                                            // Add to the appropriate list based on role
+                                            const currentEvents = context.registeredEvents || { hostedEvents: [], participantEvents: [] };
+                                            let updatedEvents;
+                                            
+                                            if (role === 'Host') {
+                                                updatedEvents = {
+                                                    hostedEvents: [...(currentEvents.hostedEvents || []), newEvent],
+                                                    participantEvents: currentEvents.participantEvents || []
+                                                };
+                                            } else {
+                                                updatedEvents = {
+                                                    hostedEvents: currentEvents.hostedEvents || [],
+                                                    participantEvents: [...(currentEvents.participantEvents || []), newEvent]
+                                                };
+                                            }
+                                            
+                                            return {
+                                                isAuthenticated: true,
+                                                registeredEvents: updatedEvents,
+                                                newlyRegisteredEvent: newEvent,
+                                                lastFetchTimestamp: Date.now()
+                                            };
                                         }),
                                         ({ context }) => {
-                                            console.log('🎉 Registration successful! Transitioning to userDashboard...');
                                             console.log('Context at transition:', {
                                                 guestId: context.guestId,
                                                 sid: context.sid,
@@ -1281,13 +1368,9 @@ export const eventsMachine = setup({
                                             
                                             if (!context.guestId) {
                                                 console.error('❌ CRITICAL: guestId is NULL/undefined at transition!');
-                                                console.error('   This will cause dashboard to fail.');
-                                                console.error('   Full context:', context);
                                             }
                                             if (!context.sid) {
                                                 console.error('❌ CRITICAL: sid is NULL/undefined at transition!');
-                                                console.error('   This will cause dashboard to fail.');
-                                                console.error('   Full context:', context);
                                             }
                                         }
                                     ]

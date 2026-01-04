@@ -8,37 +8,31 @@ export const ResolvingPartialMatch = ({ send, context }) => {
     // ✅ Get current event to check role
     const currentEvent = machineContext.fundraiserEvents?.find(e => e.id === machineContext.selectedEventId);
     const isHost = currentEvent?.Role === 'Host';
+    const isParticipant = currentEvent?.Role === 'Participant' || !isHost;
 
     // ✅ Check if we need to show organization names to differentiate
-    // For Participants: Only show org if there are duplicates (same email+phone, different org)
-    const hasDuplicateContacts = () => {
+    // Show org names if:
+    // 1. User is a Host (always show)
+    // 2. Any alternatives have an organization name (for participants to differentiate)
+    const shouldShowOrgNames = () => {
         if (isHost) return true; // Always show for hosts
-        if (!partialMatchAlternatives || partialMatchAlternatives.length <= 1) return false;
+        if (!partialMatchAlternatives || partialMatchAlternatives.length === 0) return false;
         
-        // Check if any two alternatives have the same email AND phone
-        const contactPairs = partialMatchAlternatives.map(alt => ({
-            email: (alt['Email'] || '').toLowerCase(),
-            phone: alt['Mobile Number'] || ''
-        }));
+        // Check if any alternatives have an organization name
+        const hasAnyOrgName = partialMatchAlternatives.some(alt => 
+            alt['Organization Name'] && alt['Organization Name'].trim() !== ''
+        );
         
-        for (let i = 0; i < contactPairs.length; i++) {
-            for (let j = i + 1; j < contactPairs.length; j++) {
-                if (contactPairs[i].email === contactPairs[j].email && 
-                    contactPairs[i].phone === contactPairs[j].phone) {
-                    return true; // Found duplicates - need org names to differentiate
-                }
-            }
-        }
-        return false;
+        return hasAnyOrgName;
     };
 
-    const showOrgNames = hasDuplicateContacts();
+    const showOrgNames = shouldShowOrgNames();
 
     // ✅ This is the data the user originally typed into the form
     const submittedInfo = {
         'Email': contactInfo.email,
         'Mobile Number': contactInfo.mobileNumber,
-        'Organization Name': contactInfo.organizationName, // Include for hosts
+        'Organization Name': contactInfo.organizationName,
         'isNew': true
     };
 
@@ -51,7 +45,6 @@ export const ResolvingPartialMatch = ({ send, context }) => {
     };
 
     // ✅ Helper function to display contact info, filling in gaps
-    // Display order based on authentication method
     const getDisplayInfo = (alternative) => {
         const email = alternative['Email'] || contactInfo.email;
         const mobile = alternative['Mobile Number'] || contactInfo.mobileNumber;
@@ -60,9 +53,7 @@ export const ResolvingPartialMatch = ({ send, context }) => {
         return { email, mobile, orgName };
     };
 
-    // ✅ Determine display order based on authentication method
-    // If user authenticated with phone (SMS), show phone first
-    // If user authenticated with email, show email first
+    // ✅ Determine display order based on authentication method (for login flow)
     const authenticatedWithPhone = otpChannel === 'sms';
     const authenticatedWithEmail = otpChannel === 'email';
 
@@ -129,10 +120,25 @@ export const ResolvingPartialMatch = ({ send, context }) => {
                                     sx={{mr: 2}} 
                                 />
                                 <Box>
-                                    {/* ✅ DISPLAY ORDER: Show what they DIDN'T authenticate with first */}
-                                    
-                                    {/* If authenticated with PHONE (SMS), show: Email → Org → Phone */}
-                                    {authenticatedWithPhone && (
+                                    {/* ✅ PARTICIPANT REGISTRATION: Display order Email → Organization → Phone */}
+                                    {isParticipant && (
+                                        <>
+                                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                                                {displayInfo.email}
+                                            </Typography>
+                                            {showOrgNames && displayInfo.orgName && (
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {displayInfo.orgName}
+                                                </Typography>
+                                            )}
+                                            <Typography variant="body2" color="text.secondary">
+                                                {displayInfo.mobile}
+                                            </Typography>
+                                        </>
+                                    )}
+
+                                    {/* ✅ HOST: Show what they DIDN'T authenticate with first */}
+                                    {isHost && authenticatedWithPhone && (
                                         <>
                                             <Typography variant="body1" sx={{ fontWeight: 500 }}>
                                                 {displayInfo.email}
@@ -148,8 +154,7 @@ export const ResolvingPartialMatch = ({ send, context }) => {
                                         </>
                                     )}
                                     
-                                    {/* If authenticated with EMAIL, show: Phone → Org → Email */}
-                                    {authenticatedWithEmail && (
+                                    {isHost && authenticatedWithEmail && (
                                         <>
                                             <Typography variant="body1" sx={{ fontWeight: 500 }}>
                                                 {displayInfo.mobile}
@@ -190,4 +195,3 @@ export const ResolvingPartialMatch = ({ send, context }) => {
         </Box>
     );
 };
-

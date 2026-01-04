@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography, Button, TextField, FormHelperText } from '@mui/material';
+import { Box, Typography, Button, TextField, FormHelperText, FormControlLabel, Checkbox, Link } from '@mui/material';
 import { PhoneInputComponent } from '@/components/events/PhoneInput';
 
 export const ContactFormSection = ({ onBack, onSubmit, contactInfo, onFieldChange, formErrors, currentEvent }) => {
@@ -13,6 +13,16 @@ export const ContactFormSection = ({ onBack, onSubmit, contactInfo, onFieldChang
     // ✅ Log the role for debugging
     console.log('User role for this event:', currentEvent?.Role);
     console.log('Should show organization field?', isHost);
+
+    // Handle checkbox change
+    const handleSmsOptInChange = (event) => {
+        onFieldChange({
+            target: {
+                name: 'smsOptIn',
+                value: event.target.checked
+            }
+        });
+    };
 
     return (
         <Box>
@@ -75,6 +85,27 @@ export const ContactFormSection = ({ onBack, onSubmit, contactInfo, onFieldChang
                     error={!!formErrors.mobileNumber}
                 />
                 {formErrors.mobileNumber && <FormHelperText error sx={{ ml: '14px' }}>{formErrors.mobileNumber}</FormHelperText>}
+                
+                {/* SMS Opt-In Checkbox */}
+                <FormControlLabel
+                    control={
+                        <Checkbox
+                            checked={contactInfo.smsOptIn || false}
+                            onChange={handleSmsOptInChange}
+                            name="smsOptIn"
+                            color="primary"
+                        />
+                    }
+                    label={
+                        <Typography variant="body2" color="text.secondary">
+                            {isHost 
+                                ? "Text me my fundraiser confirmation and future updates. Msg & data rates may apply. Reply STOP to opt out."
+                                : "Text me my event confirmation and future updates. Msg & data rates may apply. Reply STOP to opt out."
+                            }
+                        </Typography>
+                    }
+                    sx={{ mt: 2, alignItems: 'flex-start' }}
+                />
             </Box>
             <Box sx={{ mt: 4, display: 'flex', justifyContent: 'space-between' }}>
                 <Button
