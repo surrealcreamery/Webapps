@@ -116,7 +116,7 @@ import 'react-phone-number-input/style.css';
 import { LayoutContext } from '@/contexts/subscriptions/SubscriptionsLayoutContext';
 
 // Import all the individual step components that this page will render.
-import StepModelSelection from '@/components/subscription/StepModelSelection.jsx';
+import StepModelSelection from '@/components/subscription/stepModelSelection.jsx';
 import StepLocationSelection from '@/components/subscription/stepLocationSelection.jsx';
 import StepPlanSelection from '@/components/subscription/stepPlanSelection.jsx';
 import StepPlanSummary from '@/components/subscription/stepPlanSummary.jsx';
