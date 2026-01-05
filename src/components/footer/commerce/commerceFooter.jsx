@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
     Box,
     Container,
@@ -16,6 +17,8 @@ import CloseIcon from '@mui/icons-material/Close';
 
 const Footer = () => {
     const [openModal, setOpenModal] = useState(null);
+    const location = useLocation();
+    const isCateringMode = location.pathname.startsWith('/catering');
 
     const handleOpenModal = (modalName) => {
         setOpenModal(modalName);
@@ -75,6 +78,17 @@ const Footer = () => {
                         >
                             Accessibility Statement
                         </Link>
+                        {isCateringMode && (
+                            <Link
+                                component="button"
+                                variant="body1"
+                                onClick={() => handleOpenModal('terms')}
+                                color="text.secondary"
+                                underline="hover"
+                            >
+                                Terms & Conditions
+                            </Link>
+                        )}
                         <Link
                             component="button"
                             variant="body1"
@@ -170,6 +184,65 @@ const Footer = () => {
                     </Container>
                 </DialogContent>
             </Dialog>
+
+            {/* Terms & Conditions Dialog (Catering) */}
+            {isCateringMode && (
+                <Dialog
+                    fullScreen
+                    open={openModal === 'terms'}
+                    onClose={handleCloseModal}
+                    sx={{ '& .MuiDialog-paper': { display: 'flex', flexDirection: 'column', maxHeight: '100vh' }}}
+                >
+                    <DialogTitle sx={{ bgcolor: 'black', color: 'white', m: 0, p: 2, flexShrink: 0 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Typography variant="h1" component="h1">
+                                Terms & Conditions
+                            </Typography>
+                            <IconButton aria-label="close" onClick={handleCloseModal} sx={{ color: 'white' }}>
+                                <CloseIcon sx={{ width: 45, height: 45 }} />
+                            </IconButton>
+                        </Box>
+                    </DialogTitle>
+                    <DialogContent dividers sx={{ flexGrow: 1, p: { xs: 2, sm: 3, md: 4 } }}>
+                        <Container maxWidth="md">
+                            <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>1. Order Minimums & Pricing</Typography>
+                            <Typography paragraph>All catering orders are subject to minimum order requirements which vary by product category.</Typography>
+                            <Typography paragraph>Prices are subject to change without notice. The price at the time of order confirmation will be honored.</Typography>
+
+                            <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>2. Order Lead Time</Typography>
+                            <Typography paragraph>Catering orders require a minimum of 48 hours advance notice.</Typography>
+                            <Typography paragraph>Large orders or orders during peak seasons may require additional lead time.</Typography>
+                            <Typography paragraph>Rush orders may be accommodated based on availability and may incur additional fees.</Typography>
+
+                            <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>3. Payment</Typography>
+                            <Typography paragraph>Full payment is required at the time of order placement.</Typography>
+                            <Typography paragraph>We accept all major credit cards and approved corporate accounts.</Typography>
+
+                            <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>4. Cancellations & Modifications</Typography>
+                            <Typography paragraph>Cancellations made more than 48 hours before the scheduled pickup/delivery date will receive a full refund.</Typography>
+                            <Typography paragraph>Cancellations made within 48 hours may be subject to a cancellation fee.</Typography>
+                            <Typography paragraph>Order modifications are subject to availability and must be requested at least 24 hours in advance.</Typography>
+
+                            <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>5. Pickup & Delivery</Typography>
+                            <Typography paragraph>Orders must be picked up at the designated time. Orders not picked up within 30 minutes may be forfeited.</Typography>
+                            <Typography paragraph>Delivery is available for an additional fee based on distance and order size.</Typography>
+                            <Typography paragraph>Customer is responsible for proper storage and handling of products after pickup or delivery.</Typography>
+
+                            <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>6. Product Quality</Typography>
+                            <Typography paragraph>All products are made fresh and should be consumed within the recommended timeframe.</Typography>
+                            <Typography paragraph>Frozen products must be kept frozen until ready to serve.</Typography>
+                            <Typography paragraph>We are not responsible for product quality issues resulting from improper storage or handling.</Typography>
+
+                            <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>7. Allergies & Dietary Restrictions</Typography>
+                            <Typography paragraph>Please inform us of any allergies or dietary restrictions at the time of ordering.</Typography>
+                            <Typography paragraph>While we take precautions, our facility handles common allergens and cross-contamination may occur.</Typography>
+
+                            <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>8. Limitation of Liability</Typography>
+                            <Typography paragraph>Surreal Creamery is not liable for any damages arising from the use of our catering services beyond the cost of the order.</Typography>
+                        </Container>
+                    </DialogContent>
+                </Dialog>
+            )}
 
             {/* Privacy Policy Dialog */}
             <Dialog

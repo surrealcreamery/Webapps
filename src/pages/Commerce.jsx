@@ -2294,7 +2294,7 @@ export default function Commerce() {
                                         '&:hover': { textDecoration: 'underline' }
                                     }}
                                 >
-                                    Home
+                                    Shop
                                 </Typography>
                                 <Typography sx={{ color: 'text.secondary' }}>/</Typography>
                                 <Typography sx={{ fontWeight: 600 }}>
@@ -2386,7 +2386,7 @@ export default function Commerce() {
                                         '&:hover': { textDecoration: 'underline' }
                                     }}
                                 >
-                                    Home
+                                    Shop
                                 </Typography>
                                 <Typography sx={{ color: 'text.secondary' }}>/</Typography>
                                 <Typography sx={{ fontWeight: 600 }}>

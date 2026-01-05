@@ -528,7 +528,7 @@ export const cateringMachine = setup({
              }
          }),
         setFulfillmentType: assign({
-            fulfillmentDetails: (({ context, event }) => ({ ...defaultFulfillment, type: event.type }))
+            fulfillmentDetails: (({ context, event }) => ({ ...defaultFulfillment, type: event.fulfillmentType }))
         }),
         selectPickupLocation: assign({
             fulfillmentDetails: (({ context, event }) => ({ ...context.fulfillmentDetails, type: 'pickup', locationId: event.locationId, address: defaultFulfillment.address }))
@@ -579,7 +579,7 @@ export const cateringMachine = setup({
     id: 'catering',
     context: {
         menu: {}, cart: [], selectedCategory: null, editingItem: null, error: null,
-        lastView: 'browsing', tempSelectedModifiers: null, isAuthenticated: false, 
+        lastView: 'browsing', tempSelectedModifiers: null, isAuthenticated: false,
         isVerified: false, // NEW: tracks OTP verification
         accountId: null,
         contactInfo: { email: '', mobileNumber: '', organizationName: '', firstName: '', lastName: '', accountType: null, accountId: null },
@@ -588,6 +588,7 @@ export const cateringMachine = setup({
         selectedPartialMatch: null, locations: [], fulfillmentDetails: defaultFulfillment,
         chosenAccountType: null,
         authMode: null,
+        cartDrawerOpen: false, // Controls cart drawer overlay
     },
     initial: 'booting',
     on: {
@@ -622,11 +623,23 @@ export const cateringMachine = setup({
         },
         GO_TO_BROWSING: {
             target: '#catering.browsing.browsingCategories',
-            actions: [assign({ selectedCategory: null, editingItem: null, lastView: 'browsing' }), 'persistState']
+            actions: [assign({ selectedCategory: null, editingItem: null, lastView: 'browsing', cartDrawerOpen: false }), 'persistState']
         },
+        // Cart drawer overlay - doesn't change state, just opens drawer
+        OPEN_CART_DRAWER: {
+            actions: assign({ cartDrawerOpen: true })
+        },
+        CLOSE_CART_DRAWER: {
+            actions: assign({ cartDrawerOpen: false })
+        },
+        // Legacy VIEW_CART - now just opens the drawer
         VIEW_CART: {
-            target: '#catering.viewingCart',
-            actions: 'persistState'
+            actions: assign({ cartDrawerOpen: true })
+        },
+        // Continue to date selection from cart drawer
+        CONTINUE_TO_DATE: {
+            target: '#catering.selectingDate',
+            actions: [assign({ cartDrawerOpen: false }), 'persistState']
         },
         TRIGGER_AUTH: {
             target: '#catering.guestCheckoutFlow',
@@ -689,24 +702,28 @@ export const cateringMachine = setup({
                         GO_BACK: { target: 'browsingCategories', actions: [assign({ selectedCategory: null, editingItem: null }), 'persistState'] },
                         EDIT_ITEM: { target: 'editingItem', actions: ['setEditingItem', 'persistState'] },
                         VIEW_ITEM: { target: 'viewingItemDetails', actions: ['setEditingItem', 'persistState'] },
+                        SELECT_CATEGORY: { target: 'browsingItems', actions: ['selectCategory', 'persistState'], guard: ({ event }) => !!event.category },
                     },
                 },
                  viewingItemDetails: {
                     on: {
                         GO_BACK: { target: 'browsingItems', actions: ['clearEditingItem', 'persistState'] },
-                        ADD_TO_CART: { target: 'browsingItems', actions: ['addToCart', 'clearEditingItem', 'persistState'] }
+                        ADD_TO_CART: { target: 'browsingItems', actions: ['addToCart', 'clearEditingItem', 'persistState'] },
+                        SELECT_CATEGORY: { target: 'browsingItems', actions: ['selectCategory', 'clearEditingItem', 'persistState'], guard: ({ event }) => !!event.category },
                     }
                 },
                  editingItem: {
                     on: {
                         GO_BACK: { target: 'browsingItems', actions: ['clearEditingItem', 'persistState'] },
-                        CONFIRM_MODIFIERS: { target: 'selectingQuantity', actions: 'assignTempModifiers' }
+                        CONFIRM_MODIFIERS: { target: 'selectingQuantity', actions: 'assignTempModifiers' },
+                        SELECT_CATEGORY: { target: 'browsingItems', actions: ['selectCategory', 'clearEditingItem', 'persistState'], guard: ({ event }) => !!event.category },
                     }
                 },
                  selectingQuantity: {
                     on: {
                         GO_BACK: { target: 'editingItem', actions: assign({ tempSelectedModifiers: null }) },
-                        ADD_TO_CART: { target: 'browsingItems', actions: ['addToCart', 'persistState'] }
+                        ADD_TO_CART: { target: 'browsingItems', actions: ['addToCart', 'persistState'] },
+                        SELECT_CATEGORY: { target: 'browsingItems', actions: ['selectCategory', assign({ tempSelectedModifiers: null, editingItem: null }), 'persistState'], guard: ({ event }) => !!event.category },
                     }
                 },
                  history: { type: 'history' }
@@ -741,7 +758,11 @@ export const cateringMachine = setup({
                 'persistState'
             ],
             on: {
-                GO_BACK: 'viewingCart',
+                // Go back opens the cart drawer instead of going to viewingCart state
+                GO_BACK: {
+                    target: '#catering.browsing.browsingCategories',
+                    actions: assign({ cartDrawerOpen: true })
+                },
                 SET_FULFILLMENT_DATE: {
                     actions: [
                         assign({
@@ -1275,8 +1296,12 @@ export const cateringMachine = setup({
         },
         checkoutPlaceholder: {
             entry: [assign({ lastView: 'checkout' }), 'persistState', () => console.log('%c[Flow] Reached Checkout Placeholder', 'color: #16a34a')],
-            on: { 
-                GO_BACK: 'viewingCart',
+            on: {
+                // Go back opens the cart drawer instead of going to viewingCart state
+                GO_BACK: {
+                    target: '#catering.browsing.browsingCategories',
+                    actions: assign({ cartDrawerOpen: true })
+                },
                 GO_TO_DATE_SELECTION: 'selectingDate'
             }
         },

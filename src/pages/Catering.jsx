@@ -1,16 +1,16 @@
 import React, { useEffect, useContext } from 'react';
-import { 
-    Box, 
-    Typography, 
-    CircularProgress, 
-    Alert, 
-    Container, 
-    Button 
+import {
+    Box,
+    Typography,
+    CircularProgress,
+    Alert,
+    Container,
+    Button
 } from '@mui/material';
 import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext';
 
 // Import all the view components
-import { CartView } from '@/components/catering/CartView';
+import { CateringCartDrawer } from '@/components/catering/CateringCartDrawer';
 import { DateSelectionView } from '@/components/catering/DateSelectionView';
 import { ItemDetailView } from '@/components/catering/ItemDetailView';
 import { ModifierSelectionView } from '@/components/catering/ModifierSelectionView';
@@ -37,8 +37,12 @@ export default function CateringMenu() {
     const {
         menu, cart, selectedCategory, editingItem, error,
         isAuthenticated, contactInfo, loginContactInfo,
-        formErrors, otpChannel, accountId
+        formErrors, otpChannel, accountId, cartDrawerOpen
     } = cateringState.context;
+
+    const handleCloseCartDrawer = () => {
+        sendToCatering({ type: 'CLOSE_CART_DRAWER' });
+    };
 
     console.log('%c[CateringMenu Page] Rendering. State is:', 'color: #16a34a', JSON.stringify(cateringState.value));
 
@@ -69,11 +73,6 @@ export default function CateringMenu() {
             !cateringState.matches('loginFlow.enteringLoginContactInfo')
         ) {
             return <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>;
-        }
-
-        // Cart view
-        if (cateringState.matches('viewingCart')) {
-            return <CartView cart={cart} sendToCatering={sendToCatering} cateringState={cateringState} />;
         }
 
         // Date selection view
@@ -307,8 +306,19 @@ export default function CateringMenu() {
     };
 
     return (
-        <Container maxWidth="sm" sx={{ pt: 0, pb: 4 }}>
-            {renderContent()}
-        </Container>
+        <>
+            <Container maxWidth="sm" sx={{ pt: 0, pb: 4 }}>
+                {renderContent()}
+            </Container>
+
+            {/* Cart Drawer Overlay */}
+            <CateringCartDrawer
+                open={cartDrawerOpen}
+                onClose={handleCloseCartDrawer}
+                cart={cart}
+                sendToCatering={sendToCatering}
+                cateringState={cateringState}
+            />
+        </>
     );
 }
