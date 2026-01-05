@@ -665,28 +665,16 @@ export const cateringMachine = setup({
             },
         },
         restoring: {
-             entry: () => console.log('[Restoring] Checking state...'),
+             // Always start at categories - user can use cart button to access saved cart
+             entry: () => console.log('[Restoring] Always starting at categories...'),
              always: [
-                 { target: '#catering.viewingOrders', guard: ({ context }) => context.isAuthenticated && context.lastView === 'account', actions: () => console.log('[Restoring] -> Account Details') },
-                 { target: '#catering.checkoutPlaceholder', guard: ({ context }) => context.lastView === 'checkout', actions: () => console.log('[Restoring] -> Checkout') },
-                 { target: '#catering.selectingDate', guard: ({ context }) => context.lastView === 'selectingDate', actions: () => console.log('[Restoring] -> Date Selection') },
-                 { target: '#catering.guestCheckoutFlow.enteringContactInfo', guard: ({ context }) => context.lastView === 'guestCheckout.enteringContactInfo', actions: () => console.log('[Restoring] -> Guest Checkout: Contact Info') },
-                 { target: '#catering.guestCheckoutFlow', guard: ({ context }) => context.lastView === 'guestCheckout', actions: () => console.log('[Restoring] -> Guest Checkout') },
-                 { target: '#catering.viewingCart', guard: ({ context }) => context.lastView === 'cart', actions: () => console.log('[Restoring] -> Cart') },
-                 { target: '#catering.browsing.browsingCategories', guard: ({ context }) => context.isAuthenticated && !context.selectedCategory, actions: () => console.log('[Restoring] -> Browsing Categories (Auth, No Cat)') },
-                 { target: '#catering.browsing.browsingItems', guard: ({ context }) => context.isAuthenticated && context.selectedCategory, actions: () => console.log('[Restoring] -> Browsing Items (Auth, Cat Set)') },
                  {
-                    target: '#catering.browsing.editingItem',
-                    guard: ({ context }) => !!context.editingItem && Array.isArray(context.editingItem.ModifierCategories) && context.editingItem.ModifierCategories.some(cat => cat.ModifierCategoryMinimum !== null),
-                    actions: () => console.log('[Restoring] -> Editing Item')
-                 },
-                 {
-                    target: '#catering.browsing.viewingItemDetails',
-                    guard: ({ context }) => !!context.editingItem && Array.isArray(context.editingItem.ModifierCategories),
-                     actions: () => console.log('[Restoring] -> Viewing Item Details')
-                 },
-                 { target: '#catering.browsing.browsingItems', guard: ({ context }) => !!context.selectedCategory, actions: () => console.log('[Restoring] -> Browsing Items (Cat Set)') },
-                 { target: '#catering.browsing.browsingCategories', actions: () => console.log('[Restoring] -> Browsing Categories (Default)') }
+                    target: '#catering.browsing.browsingCategories',
+                    actions: [
+                        assign({ selectedCategory: null, editingItem: null }),
+                        () => console.log('[Restoring] -> Browsing Categories (Always start here)')
+                    ]
+                 }
             ]
         },
         browsing: {

@@ -1,4 +1,5 @@
 import React, { useContext, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Box, Button, Typography, IconButton, Avatar } from '@mui/material';
 import ShoppingBagIcon from '@mui/icons-material/ShoppingBag';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -7,11 +8,12 @@ import Logo from '@/assets/images/svg/logo.svg';
 import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext';
 
 // Navigation items - same as other headers
+// Updated for integration with Commerce app (catering at /catering)
 const NAV_ITEMS = [
-    { label: 'Shop', path: 'https://shop.surrealcreamery.com', external: true },
+    { label: 'Shop', path: '/', external: false },
     { label: 'Events', path: 'https://events.surrealcreamery.com', external: true },
     { label: 'Subscriptions', path: 'https://www.dollarbobaclub.com', external: true },
-    { label: 'Catering', path: '/', external: false, isCurrentApp: true },
+    { label: 'Catering', path: '/catering', external: false, isCurrentApp: true },
 ];
 
 // Helper function to get initials - First + Last
@@ -44,6 +46,7 @@ const getInitials = (contactInfo) => {
 
 
 const Header = () => {
+    const navigate = useNavigate();
     const { cateringState, sendToCatering } = useContext(CateringLayoutContext);
     const { cart, isAuthenticated, contactInfo } = cateringState.context;
 
@@ -86,8 +89,11 @@ const Header = () => {
         if (item.external) {
             window.location.href = item.path;
         } else if (item.isCurrentApp) {
-            // Already on this app, navigate to root
+            // Already on this app, navigate to catering root
             sendToCatering({ type: 'GO_TO_BROWSING' });
+        } else {
+            // Internal navigation to other parts of the app (e.g., Shop)
+            navigate(item.path);
         }
     };
 

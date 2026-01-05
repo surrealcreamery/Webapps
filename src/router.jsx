@@ -56,6 +56,7 @@ import EventsHome from '@/pages/Events';
 // 3. Catering App Components
 import { LayoutProvider as CateringLayoutProvider } from '@/contexts/catering/CateringLayoutContext';
 import CateringLayout from '@/layouts/catering/cateringLayout';
+import CateringBareLayout from '@/layouts/catering/cateringBareLayout'; // For embedding in Commerce
 import CateringHome from '@/pages/Catering';
 
 // 4. Commerce App Components
@@ -149,7 +150,18 @@ const appConfigs = {
       {
         path: 'product/:productId',
         element: <Commerce />,
-      }
+      },
+      // Catering app - runs with its own state machine (uses Commerce header/footer)
+      {
+        path: 'catering',
+        element: <CateringBareLayout />,
+        children: [
+          {
+            index: true,
+            element: <CateringHome />,
+          }
+        ],
+      },
     ],
   },
 };
@@ -236,24 +248,28 @@ function AdminRoutes() {
 
 // Dynamic Public Root Layout
 // ✅ UPDATED: Added conditional ShopifyProvider for Commerce mode
+// ✅ UPDATED: Added CateringLayoutProvider for Commerce mode (so header can access catering state)
 function PublicRootLayout() {
     const AppLayoutProvider = selectedApp.LayoutProvider;
-    
-    // If Commerce mode, wrap with ShopifyProvider and CheckoutProvider
+
+    // If Commerce mode, wrap with ShopifyProvider, CheckoutProvider, and CateringLayoutProvider
+    // CateringLayoutProvider is needed at this level so the header can access catering cart/state
     if (VITE_APP_MODE === 'COMMERCE') {
         return (
             <ShopifyProvider>
                 <CheckoutProvider>
-                    <AppLayoutProvider>
-                        <ThemeProvider theme={publicTheme}>
-                            <Outlet />
-                        </ThemeProvider>
-                    </AppLayoutProvider>
+                    <CateringLayoutProvider>
+                        <AppLayoutProvider>
+                            <ThemeProvider theme={publicTheme}>
+                                <Outlet />
+                            </ThemeProvider>
+                        </AppLayoutProvider>
+                    </CateringLayoutProvider>
                 </CheckoutProvider>
             </ShopifyProvider>
         );
     }
-    
+
     // For other modes, use existing structure
     return (
         <AppLayoutProvider>
