@@ -10,13 +10,15 @@ let isAddingGifts = false;
  * Auto-adds free gifts when conditions are met
  * @param {Object} checkout - Shopify checkout object
  * @param {Function} addToCart - Function to add items to cart
+ * @param {Function} removeFromCart - Function to remove items from cart
  * @param {Object} selectedRewards - User's selected rewards { [threshold]: discountId }
  */
-export const useDiscounts = (checkout, addToCart, selectedRewards = {}) => {
+export const useDiscounts = (checkout, addToCart, removeFromCart, selectedRewards = {}) => {
     const [discounts, setDiscounts] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const addedGifts = useRef(new Set()); // Track which gifts we've already added
+    const previousSelectedRewards = useRef({}); // Track previous selections for swap logic
 
     // Fetch discounts JSON
     useEffect(() => {
@@ -78,9 +80,9 @@ export const useDiscounts = (checkout, addToCart, selectedRewards = {}) => {
     // Handles DiscountAutomaticBasic (Order Discounts) with minimumRequirement
     const getOrderDiscounts = useCallback(() => {
         if (!discounts || !Array.isArray(discounts)) return [];
-        
+
         console.log('🔍 Parsing order discounts from:', discounts.length, 'discounts');
-        
+
         const result = discounts
             .filter(d => {
                 // Must be active
@@ -88,32 +90,34 @@ export const useDiscounts = (checkout, addToCart, selectedRewards = {}) => {
                     console.log('  ❌ Skipping inactive:', d.discount?.title);
                     return false;
                 }
-                
+
                 // Check for percentage discount at customerGets.value.percentage (Order Discount)
                 // NOT customerGets.value.effect.percentage (that's Buy X Get Y)
                 const percentage = d.discount?.customerGets?.value?.percentage;
-                
+
                 // Skip if no percentage or if it's 100% (free item, not a % off discount)
                 if (percentage === undefined || percentage === null || percentage === 1) {
                     console.log('  ❌ Skipping (no percentage or 100% off):', d.discount?.title, 'percentage:', percentage);
                     return false;
                 }
-                
-                // Must have minimumRequirement (Order Discount structure)
+
+                // Must have minimumRequirement (Order Discount structure) OR customerBuys quantity
                 const minAmount = d.discount?.minimumRequirement?.greaterThanOrEqualToSubtotal?.amount;
-                if (!minAmount) {
-                    console.log('  ❌ Skipping (no minimumRequirement):', d.discount?.title);
+                const minQuantity = d.discount?.customerBuys?.value?.quantity;
+                if (!minAmount && !minQuantity) {
+                    console.log('  ❌ Skipping (no minimumRequirement or quantity):', d.discount?.title);
                     return false;
                 }
-                
-                console.log('  ✅ Found order discount:', d.discount?.title, 'percentage:', percentage, 'threshold:', minAmount);
+
+                console.log('  ✅ Found order discount:', d.discount?.title, 'percentage:', percentage, 'threshold:', minAmount, 'quantityThreshold:', minQuantity);
                 return true;
             })
             .map(d => {
                 const discount = d.discount;
                 const percentage = discount.customerGets?.value?.percentage || 0;
                 const minAmount = parseFloat(discount.minimumRequirement?.greaterThanOrEqualToSubtotal?.amount || 0);
-                
+                const minQuantity = parseInt(discount.customerBuys?.value?.quantity || 0);
+
                 return {
                     id: d.id,
                     title: discount.title,
@@ -122,10 +126,11 @@ export const useDiscounts = (checkout, addToCart, selectedRewards = {}) => {
                     endsAt: discount.endsAt,
                     percentOff: Math.round(percentage * 100), // 0.1 -> 10
                     threshold: minAmount,
+                    quantityThreshold: minQuantity, // Quantity-based threshold (e.g., "Buy 2+")
                     isActive: discount.status === 'ACTIVE'
                 };
             });
-        
+
         console.log('🎯 Order discounts result:', result);
         return result;
     }, [discounts]);
@@ -335,8 +340,57 @@ export const useDiscounts = (checkout, addToCart, selectedRewards = {}) => {
     useEffect(() => {
         if (cartItems.length === 0) {
             addedGifts.current.clear();
+            previousSelectedRewards.current = {};
         }
     }, [cartItems.length]);
+
+    // Handle swapping free items when user changes selection
+    useEffect(() => {
+        if (!discounts || !removeFromCart) return;
+
+        const freeGifts = getFreeGiftDiscounts();
+
+        // Check each threshold for selection changes
+        Object.keys(selectedRewards).forEach(async (thresholdKey) => {
+            // Skip non-numeric keys (like "3_showOptions")
+            if (thresholdKey.includes('_')) return;
+
+            const threshold = parseInt(thresholdKey);
+            const newSelectedId = selectedRewards[threshold];
+            const previousSelectedId = previousSelectedRewards.current[threshold];
+
+            // If selection changed and there was a previous selection
+            if (newSelectedId && previousSelectedId && newSelectedId !== previousSelectedId) {
+                console.log(`🔄 Reward selection changed at threshold ${threshold}: ${previousSelectedId} -> ${newSelectedId}`);
+
+                // Find the previous gift to get its variant IDs
+                const previousGift = freeGifts.find(g => g.id === previousSelectedId);
+                if (previousGift?.freeProducts) {
+                    // Find and remove the old free items from cart
+                    for (const freeProduct of previousGift.freeProducts) {
+                        const variantId = freeProduct.variantId;
+                        // Find the line item in cart with this variant
+                        const lineItem = cartItems.find(item => item.variant?.id === variantId);
+                        if (lineItem) {
+                            console.log(`🔄 Removing old free item: ${freeProduct.title}`);
+                            try {
+                                await removeFromCart(lineItem.id);
+                                // Clear from addedGifts so the new one can be added
+                                addedGifts.current.delete(previousSelectedId);
+                            } catch (err) {
+                                console.error('🔄 Error removing old free item:', err);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update previous selection tracking
+            if (newSelectedId) {
+                previousSelectedRewards.current[threshold] = newSelectedId;
+            }
+        });
+    }, [selectedRewards, discounts, cartItems, removeFromCart, getFreeGiftDiscounts]);
 
     // Get applicable discounts for display in UI
     const getApplicableDiscounts = useCallback(() => {

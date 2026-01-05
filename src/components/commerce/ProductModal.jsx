@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { 
-    Dialog, 
-    DialogContent, 
+import {
+    Dialog,
+    DialogContent,
     DialogTitle,
     DialogActions,
-    IconButton,
     Button,
-    Box, 
-    Typography, 
+    Box,
+    Typography,
     useMediaQuery,
     useTheme,
     CircularProgress
@@ -16,24 +15,24 @@ import CloseIcon from '@mui/icons-material/Close';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import StorefrontIcon from '@mui/icons-material/Storefront';
-import AddIcon from '@mui/icons-material/Add';
-import RemoveIcon from '@mui/icons-material/Remove';
 import { ProductImageCarousel } from './ProductImageCarousel';
 import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
+import { DiscountZonePlaceholder } from './DiscountZonePlaceholder';
 import { getBestDeliveryEstimate, getShippingEstimate, getEstimatedDeliveryDates } from '@/components/commerce/geolocation';
 
 // Placeholder image
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=Product';
 
-export const ProductModal = ({ 
-    open, 
-    onClose, 
+export const ProductModal = ({
+    open,
+    onClose,
     onAddToCart,
     product,
-    children
+    children,
+    discount = null
 }) => {
     const theme = useTheme();
-    const { addToCart } = useShopify();
+    const { addToCart, products: shopifyProducts } = useShopify();
     
     // Full screen on mobile (xs, sm), modal with overlay on md and up
     const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
@@ -383,79 +382,84 @@ export const ProductModal = ({
                 />
 
                 {/* Product Details */}
-                <Box sx={{ 
+                <Box sx={{
                     p: 3,
                     // Add bottom padding on mobile to account for fixed footer
                     pb: isSmallScreen ? '120px' : 3,
                 }}>
+                    {/* Product Name + Quantity Selector Row */}
                     {/* Product Name */}
-                    <Typography 
-                        variant="h4" 
-                        component="h2" 
-                        sx={{ fontWeight: 'bold', mb: 2 }}
+                    <Typography
+                        variant="h4"
+                        component="h2"
+                        sx={{ fontWeight: 'bold', mb: 1 }}
                     >
                         {productName}
                     </Typography>
 
                     {/* Price - only show if single variant or no variants */}
                     {(!product.availableVariants || product.availableVariants.length <= 1) && (
-                        <Typography 
-                            variant="h6" 
-                            color="text.secondary" 
-                            sx={{ mb: 2 }}
+                        <Typography
+                            variant="h6"
+                            color="text.secondary"
+                            sx={{ mb: 0 }}
                             aria-label={`Price: ${displayPrice || 'Price not available'}`}
                         >
                             {displayPrice || 'Price not available'}
                         </Typography>
                     )}
 
+                    {/* Zone 1: Collection/subcategory discount */}
+                    <DiscountZonePlaceholder
+                        zone={1}
+                        discount={discount}
+                        subcategoryName="Blind Boxes"
+                        products={shopifyProducts}
+                    />
+
                     {/* Quantity Selector */}
-                    <Box sx={{ mb: 3 }}>
-                        <Typography variant="body1" sx={{ mb: 1 }}>
-                            Quantity
-                        </Typography>
-                        <Box 
-                            sx={{ 
-                                display: 'inline-flex', 
-                                alignItems: 'center', 
-                                border: '1px solid', 
-                                borderColor: 'grey.300', 
-                                borderRadius: 1 
+                    <Box
+                        sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            border: '1px solid',
+                            borderColor: 'grey.300',
+                            borderRadius: 1,
+                            my: 2
+                        }}
+                    >
+                        <Button
+                            onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                            disabled={quantity <= 1}
+                            sx={{ minWidth: '40px' }}
+                            aria-label="Decrease quantity"
+                        >
+                            -
+                        </Button>
+                        <Typography
+                            sx={{
+                                px: 2,
+                                fontWeight: 'bold',
+                                minWidth: '20px',
+                                textAlign: 'center'
                             }}
                         >
-                            <IconButton 
-                                onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                                disabled={quantity <= 1}
-                                sx={{ borderRadius: 0 }}
-                                aria-label="Decrease quantity"
-                            >
-                                <RemoveIcon />
-                            </IconButton>
-                            <Typography 
-                                sx={{ 
-                                    px: 3, 
-                                    fontWeight: 'bold', 
-                                    minWidth: '40px', 
-                                    textAlign: 'center' 
-                                }}
-                            >
-                                {quantity}
-                            </Typography>
-                            <IconButton 
-                                onClick={() => setQuantity(q => q + 1)}
-                                sx={{ borderRadius: 0 }}
-                                aria-label="Increase quantity"
-                            >
-                                <AddIcon />
-                            </IconButton>
-                        </Box>
+                            {quantity}
+                        </Typography>
+                        <Button
+                            onClick={() => setQuantity(q => q + 1)}
+                            sx={{ minWidth: '40px' }}
+                            aria-label="Increase quantity"
+                        >
+                            +
+                        </Button>
                     </Box>
 
                     {/* Variant Selector (for grouped products with multiple variants) */}
                     {product.availableVariants && product.availableVariants.length > 1 && (
                         <Box sx={{ mb: 3 }} role="group" aria-labelledby="size-selector-heading">
-                            <Typography 
-                                variant="body1" 
+                            <Typography
+                                variant="body1"
                                 sx={{ mb: 1 }}
                                 id="size-selector-heading"
                             >
@@ -465,12 +469,12 @@ export const ProductModal = ({
                                 {product.availableVariants.map((variant) => {
                                     const isSelected = selectedVariantId === variant.id;
                                     // Use size title from metaobject, or fall back to parsing from title
-                                    let displayTitle = variant.sizeData?.title 
-                                        || variant.size 
+                                    let displayTitle = variant.sizeData?.title
+                                        || variant.size
                                         || variant.title
                                             .replace(/Ice Cream Cake /i, '')
                                             .replace(/ Ice Cream/i, '');
-                                    
+
                                     return (
                                         <Button
                                             key={variant.id}

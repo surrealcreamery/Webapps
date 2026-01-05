@@ -7,6 +7,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
+import { BlindBoxProgressIndicator } from '@/components/commerce/BlindBoxProgressIndicator';
 
 // Reward thresholds configuration (can be moved to Shopify metafields later)
 const REWARDS_CONFIG = {
@@ -105,7 +106,7 @@ const RewardOption = ({ option, isSelected, isLocked, onSelect, showBorder = tru
             {/* Product Info */}
             <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography sx={{ 
-                    fontSize: '1.5rem', 
+                    fontSize: '1.6rem', 
                     fontWeight: 600,
                     color: '#333',
                     lineHeight: 1.3
@@ -113,7 +114,7 @@ const RewardOption = ({ option, isSelected, isLocked, onSelect, showBorder = tru
                     {rewardName}
                 </Typography>
                 <Typography sx={{ 
-                    fontSize: '1.3rem', 
+                    fontSize: '1.6rem', 
                     color: 'text.secondary',
                     mt: 0.25
                 }}>
@@ -137,13 +138,14 @@ const RewardOption = ({ option, isSelected, isLocked, onSelect, showBorder = tru
  * Cart Side Drawer
  * Slides in from right with cart contents
  */
-export function CartDrawer({ 
-    open, 
-    onClose, 
+export function CartDrawer({
+    open,
+    onClose,
     quantityProgress,
     selectedRewards = {},
     onSelectReward,
-    orderDiscounts = []
+    orderDiscounts = [],
+    onAddBlindBox
 }) {
   const { checkout, removeFromCart, updateCartItem, goToCheckout, products } = useShopify();
 
@@ -192,36 +194,46 @@ export function CartDrawer({
   // State for showing reward selection in cart drawer
   const [showRewardSelection, setShowRewardSelection] = useState(false);
 
-  // Detect mixed cart (desserts + merchandise)
-  const { hasDesserts, hasMerchandise } = useMemo(() => {
-    let hasDesserts = false;
+  // Detect mixed cart (non-shippable desserts + merchandise)
+  const { hasNonShippableDesserts, hasShippableDesserts, hasMerchandise } = useMemo(() => {
+    let hasNonShippableDesserts = false;
+    let hasShippableDesserts = false;
     let hasMerchandise = false;
 
     lineItems.forEach(item => {
       const productType = item.variant?.product?.productType?.toLowerCase();
       const variantId = item.variant?.id;
-      const matchedProduct = products?.find(p => 
-        p.variantId === variantId || 
+      const matchedProduct = products?.find(p =>
+        p.variantId === variantId ||
         p.variants?.some(v => v.id === variantId)
       );
-      
-      const isDessert = 
-        productType === 'desserts' || 
+
+      const isDessert =
+        productType === 'desserts' ||
         productType === 'dessert' ||
         matchedProduct?.category === 'desserts' ||
         matchedProduct?.productType === 'desserts';
 
       if (isDessert) {
-        hasDesserts = true;
+        // Check if this dessert can be shipped via fulfillment_methods metafield
+        const canShip = matchedProduct?.canShip === true;
+        if (canShip) {
+          hasShippableDesserts = true;
+        } else {
+          hasNonShippableDesserts = true;
+        }
       } else {
         hasMerchandise = true;
       }
     });
 
-    return { hasDesserts, hasMerchandise };
+    return { hasNonShippableDesserts, hasShippableDesserts, hasMerchandise };
   }, [lineItems, products]);
 
-  const isMixedCart = hasDesserts && hasMerchandise;
+  // Mixed cart warning only shows if there are non-shippable desserts with merchandise
+  const isMixedCart = hasNonShippableDesserts && hasMerchandise;
+  // Show desserts-only message only if there are non-shippable desserts and no merchandise
+  const hasDessertsOnly = hasNonShippableDesserts && !hasMerchandise;
 
   const handleCheckout = () => {
     onClose();
@@ -388,7 +400,7 @@ export function CartDrawer({
                             )}
                             {discount.type === 'order' && (
                               <Box sx={{ 
-                                fontSize: '1.4rem', 
+                                fontSize: '1.6rem', 
                                 fontWeight: 700,
                                 color: discount.unlocked ? 'success.main' : '#e65100',
                                 minWidth: 36
@@ -405,7 +417,7 @@ export function CartDrawer({
                             
                             <Typography sx={{ 
                               flex: 1,
-                              fontSize: '1.4rem', 
+                              fontSize: '1.6rem', 
                               fontWeight: discount.unlocked ? 600 : (isActive ? 600 : 400),
                               color: discount.unlocked ? 'success.main' : 'text.primary'
                             }}>
@@ -442,7 +454,7 @@ export function CartDrawer({
                                   
                                   {/* Status Message */}
                                   <Typography sx={{ 
-                                    fontSize: '1.3rem', 
+                                    fontSize: '1.6rem', 
                                     color: 'text.secondary',
                                     textAlign: 'center'
                                   }}>
@@ -455,13 +467,19 @@ export function CartDrawer({
                               {discount.type === 'quantity' && (
                                 <>
                                   {/* Status Message */}
-                                  <Typography sx={{ 
-                                    fontSize: '1.3rem', 
+                                  <Typography sx={{
+                                    fontSize: '1.6rem',
                                     color: 'text.secondary',
-                                    mb: 1.5
+                                    textAlign: 'center',
+                                    mb: 0.5
                                   }}>
                                     Add {discount.remaining} more blind box{discount.remaining !== 1 ? 'es' : ''} to receive your free item
                                   </Typography>
+                                  <BlindBoxProgressIndicator
+                                    current={discount.current}
+                                    required={discount.threshold}
+                                    onClickIncomplete={onAddBlindBox}
+                                  />
                                   
                                   {/* Reward Options */}
                                   {discount.options?.map((option, optIndex) => {
@@ -481,7 +499,7 @@ export function CartDrawer({
                                           <Typography sx={{ 
                                             textAlign: 'center', 
                                             color: 'text.secondary',
-                                            fontSize: '1.2rem',
+                                            fontSize: '1.6rem',
                                             py: 0.5
                                           }}>
                                             — or —
@@ -522,7 +540,7 @@ export function CartDrawer({
                                           <Button
                                             size="small"
                                             onClick={() => onSelectReward(`${discount.threshold}_showOptions`, true)}
-                                            sx={{ fontSize: '1.2rem', textTransform: 'none' }}
+                                            sx={{ fontSize: '1.6rem', textTransform: 'none' }}
                                           >
                                             Change
                                           </Button>
@@ -537,7 +555,7 @@ export function CartDrawer({
                                   <>
                                     {discount.hasMultipleOptions && !selectedId && (
                                       <Typography sx={{ 
-                                        fontSize: '1.3rem', 
+                                        fontSize: '1.6rem', 
                                         color: '#e65100',
                                         fontWeight: 600,
                                         mb: 1,
@@ -572,7 +590,7 @@ export function CartDrawer({
                                             <Typography sx={{ 
                                               textAlign: 'center', 
                                               color: 'text.secondary',
-                                              fontSize: '1.2rem',
+                                              fontSize: '1.6rem',
                                               py: 0.5
                                             }}>
                                               — or —
@@ -588,7 +606,7 @@ export function CartDrawer({
                                         variant="outlined"
                                         size="small"
                                         onClick={() => onSelectReward(`${discount.threshold}_showOptions`, false)}
-                                        sx={{ mt: 1, fontSize: '1.2rem' }}
+                                        sx={{ mt: 1, fontSize: '1.6rem' }}
                                       >
                                         Cancel
                                       </Button>
@@ -624,8 +642,8 @@ export function CartDrawer({
                 </Alert>
               )}
 
-              {/* Desserts Only - Informational */}
-              {hasDesserts && !hasMerchandise && (
+              {/* Desserts Only - Informational (only for non-shippable desserts) */}
+              {hasDessertsOnly && (
                 <Alert 
                   severity="success" 
                   icon={<LocalShippingOutlinedIcon />}
@@ -661,18 +679,21 @@ export function CartDrawer({
                                        discountAllocations[0]?.title || 
                                        'Discount';
 
-                  // Check if this item is a dessert for badge
+                  // Check if this item is a dessert and if it can be shipped
                   const productType = variant?.product?.productType?.toLowerCase();
                   const variantId = variant?.id;
-                  const matchedProduct = products?.find(p => 
-                    p.variantId === variantId || 
+                  const matchedProduct = products?.find(p =>
+                    p.variantId === variantId ||
                     p.variants?.some(v => v.id === variantId)
                   );
-                  const isDessert = 
-                    productType === 'desserts' || 
+                  const isDessert =
+                    productType === 'desserts' ||
                     productType === 'dessert' ||
                     matchedProduct?.category === 'desserts' ||
                     matchedProduct?.productType === 'desserts';
+                  // Check if this dessert can be shipped (has shipping in fulfillment methods)
+                  const canShip = matchedProduct?.canShip === true;
+                  const isNonShippableDessert = isDessert && !canShip;
 
                   return (
                     <Box key={item.id}>
@@ -722,9 +743,9 @@ export function CartDrawer({
                               <Typography variant="body1" sx={{ fontWeight: 500, fontSize: '1.6rem' }}>
                                 {title}
                               </Typography>
-                              {isMixedCart && isDessert && (
-                                <Typography 
-                                  variant="body2" 
+                              {isMixedCart && isNonShippableDessert && (
+                                <Typography
+                                  variant="body2"
                                   sx={{ color: 'info.main', fontWeight: 500, fontSize: '1.6rem' }}
                                 >
                                   Pickup/Local Delivery Only

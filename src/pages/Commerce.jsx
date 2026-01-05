@@ -18,6 +18,8 @@ import { Section } from '@/components/commerce/Section';
 import { ProductModal } from '@/components/commerce/ProductModal';
 import { CartDrawer } from '@/components/commerce/CartDrawer';
 import { useDiscounts } from '@/components/commerce/useDiscounts';
+import { BlindBoxProgressIndicator } from '@/components/commerce/BlindBoxProgressIndicator';
+import { DiscountZonePlaceholder } from '@/components/commerce/DiscountZonePlaceholder';
 
 // Placeholder image for variants without images
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=No+Image';
@@ -49,7 +51,7 @@ const REWARDS_CONFIG = {
  */
 export default function Commerce() {
     const { commerceState, sendToCommerce } = useContext(LayoutContext);
-    const { products: shopifyProducts, loading: shopifyLoading, error: shopifyError, addToCart, categories, dessertSubcategories, merchandiseSubcategories, getCartCount, checkout } = useShopify();
+    const { products: shopifyProducts, loading: shopifyLoading, error: shopifyError, addToCart, removeFromCart, categories, dessertSubcategories, merchandiseSubcategories, getCartCount, checkout } = useShopify();
     
     // State for reward selection (for quantity-based discounts with multiple options)
     const [selectedRewards, setSelectedRewards] = useState({});
@@ -62,7 +64,7 @@ export default function Commerce() {
         }));
     };
     
-    const { freeGiftDiscounts, orderDiscounts, getApplicableDiscounts, getQuantityDiscountsByThreshold, isDiscountActive, loading: discountsLoading } = useDiscounts(checkout, addToCart, selectedRewards);
+    const { freeGiftDiscounts, orderDiscounts, getApplicableDiscounts, getQuantityDiscountsByThreshold, isDiscountActive, loading: discountsLoading } = useDiscounts(checkout, addToCart, removeFromCart, selectedRewards);
     
     // Get quantity-based discounts grouped by threshold
     const quantityDiscountGroups = getQuantityDiscountsByThreshold ? getQuantityDiscountsByThreshold() : [];
@@ -88,8 +90,10 @@ export default function Commerce() {
     const activeOrderPercentDiscount = orderDiscounts?.find(d => d.isActive);
     const isBlindBoxDiscountActive = discountsLoading ? true : !!activeOrderPercentDiscount;
     
-    // Get discount percentage from discounts file (dynamic, not hardcoded)
-    const BLIND_BOX_DISCOUNT_PERCENT = activeOrderPercentDiscount?.percentOff || 10;
+    // Get discount percentage and quantity threshold from discounts file (no fallbacks - only show if data exists)
+    const BLIND_BOX_DISCOUNT_PERCENT = activeOrderPercentDiscount?.percentOff;
+    const BLIND_BOX_QUANTITY_THRESHOLD = activeOrderPercentDiscount?.quantityThreshold;
+    const hasBlindBoxDiscount = !!(BLIND_BOX_DISCOUNT_PERCENT && BLIND_BOX_QUANTITY_THRESHOLD);
     
     const navigate = useNavigate();
     const location = useLocation();
@@ -526,7 +530,10 @@ export default function Commerce() {
             return count;
         }, 0);
     }, [checkout?.lineItems, shopifyProducts]);
-    
+
+    // Calculate how many more blind boxes needed for discount (dynamic, no hardcoding)
+    const blindBoxesNeededForDiscount = hasBlindBoxDiscount ? Math.max(0, BLIND_BOX_QUANTITY_THRESHOLD - blindBoxesInCart) : 0;
+
     // Get blind box items from cart with product details and discount info
     const blindBoxCartItems = useMemo(() => {
         if (!checkout?.lineItems) return [];
@@ -581,8 +588,8 @@ export default function Commerce() {
     // Check if the added product is a blind box
     const isBlindBoxAdded = addedProduct?.merchandiseType === 'blind_box_collectible';
     
-    // Check if discount is unlocked (2+ blind boxes)
-    const isDiscountUnlocked = blindBoxesInCart >= 2;
+    // Check if discount is unlocked (dynamic threshold from discounts file)
+    const isDiscountUnlocked = hasBlindBoxDiscount && blindBoxesInCart >= BLIND_BOX_QUANTITY_THRESHOLD;
     
     // Calculate progress toward rewards
     const cartTotal = parseFloat(checkout?.subtotalPrice?.amount || 0);
@@ -1238,7 +1245,7 @@ export default function Commerce() {
                                                         )}
                                                         {discount.type === 'order' && (
                                                             <Box sx={{ 
-                                                                fontSize: '1.4rem', 
+                                                                fontSize: '1.6rem', 
                                                                 fontWeight: 700,
                                                                 color: discount.unlocked ? 'success.main' : '#e65100',
                                                                 minWidth: 36
@@ -1255,7 +1262,7 @@ export default function Commerce() {
                                                         
                                                         <Typography sx={{ 
                                                             flex: 1,
-                                                            fontSize: '1.4rem', 
+                                                            fontSize: '1.6rem', 
                                                             fontWeight: discount.unlocked ? 600 : (isActive ? 600 : 400),
                                                             color: discount.unlocked ? 'success.main' : 'text.primary'
                                                         }}>
@@ -1289,7 +1296,7 @@ export default function Commerce() {
                                                                         }} />
                                                                     </Box>
                                                                     <Typography sx={{ 
-                                                                        fontSize: '1.3rem', 
+                                                                        fontSize: '1.6rem', 
                                                                         color: 'text.secondary',
                                                                         textAlign: 'center'
                                                                     }}>
@@ -1301,13 +1308,19 @@ export default function Commerce() {
                                                             {/* Quantity-based rewards - show locked options */}
                                                             {discount.type === 'quantity' && (
                                                                 <>
-                                                                    <Typography sx={{ 
-                                                                        fontSize: '1.3rem', 
+                                                                    <Typography sx={{
+                                                                        fontSize: '1.6rem',
                                                                         color: 'text.secondary',
-                                                                        mb: 1.5
+                                                                        textAlign: 'center',
+                                                                        mb: 0.5
                                                                     }}>
                                                                         Add {discount.remaining} more blind box{discount.remaining !== 1 ? 'es' : ''} to receive your free item
                                                                     </Typography>
+                                                                    <BlindBoxProgressIndicator
+                                                                        current={discount.current}
+                                                                        required={discount.threshold}
+                                                                        onClickIncomplete={() => setShowBlindBoxSelector(true)}
+                                                                    />
                                                                     
                                                                     {discount.options?.map((option, optIndex) => {
                                                                         const rewardName = option.freeProducts?.[0]?.variantTitle 
@@ -1377,7 +1390,7 @@ export default function Commerce() {
                                                                                     </Box>
                                                                                     <Box sx={{ flex: 1, minWidth: 0 }}>
                                                                                         <Typography sx={{ 
-                                                                                            fontSize: '1.5rem', 
+                                                                                            fontSize: '1.6rem', 
                                                                                             fontWeight: 600,
                                                                                             color: '#333',
                                                                                             lineHeight: 1.3
@@ -1385,7 +1398,7 @@ export default function Commerce() {
                                                                                             {rewardName}
                                                                                         </Typography>
                                                                                         <Typography sx={{ 
-                                                                                            fontSize: '1.3rem', 
+                                                                                            fontSize: '1.6rem', 
                                                                                             color: 'text.secondary',
                                                                                             mt: 0.25
                                                                                         }}>
@@ -1397,7 +1410,7 @@ export default function Commerce() {
                                                                                     <Typography sx={{ 
                                                                                         textAlign: 'center', 
                                                                                         color: 'text.secondary',
-                                                                                        fontSize: '1.2rem',
+                                                                                        fontSize: '1.6rem',
                                                                                         py: 0.5
                                                                                     }}>
                                                                                         — or —
@@ -1474,7 +1487,7 @@ export default function Commerce() {
                                                                                     </Box>
                                                                                     <Box sx={{ flex: 1, minWidth: 0 }}>
                                                                                         <Typography sx={{ 
-                                                                                            fontSize: '1.5rem', 
+                                                                                            fontSize: '1.6rem', 
                                                                                             fontWeight: 600,
                                                                                             color: 'success.main',
                                                                                             lineHeight: 1.3
@@ -1482,7 +1495,7 @@ export default function Commerce() {
                                                                                             {rewardName}
                                                                                         </Typography>
                                                                                         <Typography sx={{ 
-                                                                                            fontSize: '1.3rem', 
+                                                                                            fontSize: '1.6rem', 
                                                                                             color: 'text.secondary',
                                                                                             mt: 0.25
                                                                                         }}>
@@ -1494,7 +1507,7 @@ export default function Commerce() {
                                                                                     <Button
                                                                                         size="small"
                                                                                         onClick={() => handleSelectReward(`${discount.threshold}_showOptions`, true)}
-                                                                                        sx={{ fontSize: '1.2rem', textTransform: 'none' }}
+                                                                                        sx={{ fontSize: '1.6rem', textTransform: 'none' }}
                                                                                     >
                                                                                         Change
                                                                                     </Button>
@@ -1509,7 +1522,7 @@ export default function Commerce() {
                                                                     <>
                                                                         {discount.hasMultipleOptions && !selectedId && (
                                                                             <Typography sx={{ 
-                                                                                fontSize: '1.3rem', 
+                                                                                fontSize: '1.6rem', 
                                                                                 color: '#e65100',
                                                                                 fontWeight: 600,
                                                                                 mb: 1,
@@ -1587,7 +1600,7 @@ export default function Commerce() {
                                                                                         </Box>
                                                                                         <Box sx={{ flex: 1, minWidth: 0 }}>
                                                                                             <Typography sx={{ 
-                                                                                                fontSize: '1.5rem', 
+                                                                                                fontSize: '1.6rem', 
                                                                                                 fontWeight: 600,
                                                                                                 color: '#333',
                                                                                                 lineHeight: 1.3
@@ -1595,7 +1608,7 @@ export default function Commerce() {
                                                                                                 {rewardName}
                                                                                             </Typography>
                                                                                             <Typography sx={{ 
-                                                                                                fontSize: '1.3rem', 
+                                                                                                fontSize: '1.6rem', 
                                                                                                 color: 'text.secondary',
                                                                                                 mt: 0.25
                                                                                             }}>
@@ -1614,7 +1627,7 @@ export default function Commerce() {
                                                                                         <Typography sx={{ 
                                                                                             textAlign: 'center', 
                                                                                             color: 'text.secondary',
-                                                                                            fontSize: '1.2rem',
+                                                                                            fontSize: '1.6rem',
                                                                                             py: 0.5
                                                                                         }}>
                                                                                             — or —
@@ -1630,7 +1643,7 @@ export default function Commerce() {
                                                                                 variant="outlined"
                                                                                 size="small"
                                                                                 onClick={() => handleSelectReward(`${discount.threshold}_showOptions`, false)}
-                                                                                sx={{ mt: 1, fontSize: '1.2rem' }}
+                                                                                sx={{ mt: 1, fontSize: '1.6rem' }}
                                                                             >
                                                                                 Cancel
                                                                             </Button>
@@ -1648,8 +1661,8 @@ export default function Commerce() {
                             </Container>
                         </Box>
                         
-                        {/* Blind Box Collector UI - Only show when a blind box is added AND discount is active */}
-                        {isBlindBoxAdded && isBlindBoxDiscountActive ? (
+                        {/* Blind Box Collector UI - Only show when a blind box is added AND we have valid discount data */}
+                        {isBlindBoxAdded && hasBlindBoxDiscount ? (
                             <Container maxWidth="sm" sx={{ mt: 4, px: 2 }}>
                                 <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
                                     Build Your Collection
@@ -1677,12 +1690,12 @@ export default function Commerce() {
                                             </Typography>
                                         </Box>
                                     </Box>
-                                ) : blindBoxesInCart === 1 ? (
-                                    // 1 box, discount NOT yet unlocked - show potential savings
-                                    <Box sx={{ 
-                                        bgcolor: '#e8f5e9', 
-                                        borderRadius: 2, 
-                                        p: 2, 
+                                ) : (hasBlindBoxDiscount && blindBoxesInCart > 0 && blindBoxesNeededForDiscount > 0) ? (
+                                    // Has boxes but discount NOT yet unlocked - show potential savings
+                                    <Box sx={{
+                                        bgcolor: '#e8f5e9',
+                                        borderRadius: 2,
+                                        p: 2,
                                         mb: 2,
                                         display: 'flex',
                                         alignItems: 'center',
@@ -1691,7 +1704,7 @@ export default function Commerce() {
                                         <LocalOfferIcon sx={{ color: '#2e7d32', fontSize: '1.5rem' }} />
                                         <Box>
                                             <Typography variant="body2" sx={{ color: '#2e7d32', fontWeight: 600, fontSize: '1.6rem' }}>
-                                                Add 1 more for {BLIND_BOX_DISCOUNT_PERCENT}% off both!
+                                                Add {blindBoxesNeededForDiscount} more for {BLIND_BOX_DISCOUNT_PERCENT}% off!
                                             </Typography>
                                             <Typography variant="body2" sx={{ color: '#1b5e20', fontSize: '1.6rem' }}>
                                                 Save on your entire blind box order
@@ -1707,9 +1720,9 @@ export default function Commerce() {
                                 }}>
                                     {/* Show ALL blind boxes in cart */}
                                     {blindBoxCartItems.map((item, index) => {
-                                        // Calculate potential discounted price when 1 box in cart
-                                        const showPotentialDiscount = blindBoxesInCart === 1 && !item.hasDiscount;
-                                        const potentialDiscountedPrice = item.originalPrice * (1 - BLIND_BOX_DISCOUNT_PERCENT / 100);
+                                        // Calculate potential discounted price when not yet at threshold
+                                        const showPotentialDiscount = hasBlindBoxDiscount && blindBoxesNeededForDiscount > 0 && !item.hasDiscount;
+                                        const potentialDiscountedPrice = hasBlindBoxDiscount ? item.originalPrice * (1 - BLIND_BOX_DISCOUNT_PERCENT / 100) : item.originalPrice;
                                         
                                         return (
                                         <Box 
@@ -2270,13 +2283,13 @@ export default function Commerce() {
                         {/* Breadcrumb Navigation */}
                         <Container maxWidth="sm" sx={{ pt: 2, pb: 1 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Typography 
+                                <Typography
                                     onClick={() => {
                                         navigate('/');
                                         window.scrollTo(0, 0);
                                     }}
-                                    sx={{ 
-                                        color: 'text.secondary', 
+                                    sx={{
+                                        color: 'text.secondary',
                                         cursor: 'pointer',
                                         '&:hover': { textDecoration: 'underline' }
                                     }}
@@ -2289,34 +2302,12 @@ export default function Commerce() {
                                 </Typography>
                             </Box>
                         </Container>
-                        
-                        {/* Discount Banner - under breadcrumb */}
-                        {activeOrderPercentDiscount && (
-                            <Container maxWidth="sm" sx={{ px: 2, mb: 3 }}>
-                                <Box 
-                                    sx={{ 
-                                        bgcolor: '#e8f5e9',
-                                        border: '1px solid #4caf50',
-                                        borderRadius: 2,
-                                        p: 2,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 1.5
-                                    }}
-                                >
-                                    <LocalOfferIcon sx={{ color: '#2e7d32', fontSize: '1.5rem' }} />
-                                    <Typography sx={{ fontSize: '1.6rem', color: '#1b5e20', fontWeight: 500 }}>
-                                        {BLIND_BOX_DISCOUNT_PERCENT}% off orders over ${activeOrderPercentDiscount.threshold}
-                                    </Typography>
-                                </Box>
-                            </Container>
-                        )}
-                        
+
                         <Container maxWidth="sm" sx={{ mb: 4 }}>
-                            
+
                             {/* Subcategory Navigation Tiles - Click to scroll to section */}
-                            <Box 
-                                sx={{ 
+                            <Box
+                                sx={{
                                     display: 'flex',
                                     flexWrap: 'wrap',
                                     gap: 2,
@@ -2327,30 +2318,36 @@ export default function Commerce() {
                                 }}
                             >
                                 {DESSERT_SUBCATEGORIES.map((subcat) => (
-                                    <Box 
+                                    <Box
                                         key={subcat.id}
                                         onClick={() => scrollToSection(subcat.id)}
-                                        sx={{ 
-                                            cursor: 'pointer', 
-                                            width: 'calc(33.333% - 11px)', 
+                                        sx={{
+                                            cursor: 'pointer',
+                                            width: 'calc(33.333% - 11px)',
                                             '&:hover': { opacity: 0.8 }
                                         }}
                                     >
                                         <Box sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden', paddingTop: '100%', backgroundColor: 'grey.200' }}>
-                                            <img 
-                                                src={subcat.image} 
-                                                alt={subcat.title} 
-                                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} 
+                                            <img
+                                                src={subcat.image}
+                                                alt={subcat.title}
+                                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                                             />
+                                            {/* ZONE 1: Banner on subcategory tile (no discount for desserts) */}
+                                            <DiscountZonePlaceholder zone={1} variant="banner" />
                                         </Box>
                                         <Typography variant="body1" align="center" sx={{ mt: 1, fontWeight: 600 }}>
                                             {subcat.title}
                                         </Typography>
+                                        {/* ZONE 1: Below subcategory name */}
+                                        <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'center' }}>
+                                            <DiscountZonePlaceholder zone={1} variant="inline" />
+                                        </Box>
                                     </Box>
                                 ))}
                             </Box>
                         </Container>
-                        
+
                         {/* Product Sections - One per subcategory */}
                         {DESSERT_SUBCATEGORIES.map((subcat, index) => {
                             const sectionProducts = productsBySubcategory[subcat.id] || [];
@@ -2381,10 +2378,10 @@ export default function Commerce() {
                         {/* Breadcrumb Navigation */}
                         <Container maxWidth="sm" sx={{ pt: 2, pb: 1 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Typography 
+                                <Typography
                                     onClick={() => navigate('/')}
-                                    sx={{ 
-                                        color: 'text.secondary', 
+                                    sx={{
+                                        color: 'text.secondary',
                                         cursor: 'pointer',
                                         '&:hover': { textDecoration: 'underline' }
                                     }}
@@ -2397,34 +2394,12 @@ export default function Commerce() {
                                 </Typography>
                             </Box>
                         </Container>
-                        
-                        {/* Discount Banner - under breadcrumb */}
-                        {activeOrderPercentDiscount && (
-                            <Container maxWidth="sm" sx={{ px: 2, mb: 3 }}>
-                                <Box 
-                                    sx={{ 
-                                        bgcolor: '#e8f5e9',
-                                        border: '1px solid #4caf50',
-                                        borderRadius: 2,
-                                        p: 2,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 1.5
-                                    }}
-                                >
-                                    <LocalOfferIcon sx={{ color: '#2e7d32', fontSize: '1.5rem' }} />
-                                    <Typography sx={{ fontSize: '1.6rem', color: '#1b5e20', fontWeight: 500 }}>
-                                        {BLIND_BOX_DISCOUNT_PERCENT}% off orders over ${activeOrderPercentDiscount.threshold}
-                                    </Typography>
-                                </Box>
-                            </Container>
-                        )}
-                        
+
                         <Container maxWidth="sm" sx={{ mb: 4 }}>
-                            
+
                             {/* Subcategory Navigation Tiles - Click to scroll to section */}
-                            <Box 
-                                sx={{ 
+                            <Box
+                                sx={{
                                     display: 'flex',
                                     flexWrap: 'wrap',
                                     gap: 2,
@@ -2436,58 +2411,62 @@ export default function Commerce() {
                             >
                                 {MERCHANDISE_SUBCATEGORIES.map((subcat) => {
                                     const isBlindBoxTile = subcat.id === 'blind-box' || subcat.title?.toLowerCase().includes('blind box');
-                                    
+                                    // Get the free gift discount for blind boxes
+                                    const blindBoxFreeGift = isBlindBoxTile && quantityDiscountGroups.length > 0 ? {
+                                        type: 'freeItem',
+                                        quantityRequired: quantityDiscountGroups[0]?.threshold,
+                                        current: blindBoxesInCart,
+                                        remaining: Math.max(0, (quantityDiscountGroups[0]?.threshold || 3) - blindBoxesInCart),
+                                        freeItemName: 'gift',
+                                        options: quantityDiscountGroups[0]?.options || []
+                                    } : null;
+
                                     return (
-                                        <Box 
+                                        <Box
                                             key={subcat.id}
-                                            sx={{ 
+                                            sx={{
                                                 width: 'calc(50% - 8px)'
                                             }}
                                         >
                                             <Box
-                                                onClick={() => isBlindBoxTile && blindBoxesInCart >= 1 ? handleReturnToCrossSell() : scrollToSection(subcat.id)}
-                                                sx={{ 
-                                                    cursor: 'pointer', 
+                                                onClick={() => scrollToSection(subcat.id)}
+                                                sx={{
+                                                    cursor: 'pointer',
                                                     '&:hover': { opacity: 0.8 }
                                                 }}
                                             >
                                                 <Box sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden', paddingTop: '100%', backgroundColor: 'grey.200' }}>
-                                                    <img 
-                                                        src={subcat.image} 
-                                                        alt={subcat.title} 
-                                                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} 
+                                                    <img
+                                                        src={subcat.image}
+                                                        alt={subcat.title}
+                                                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                                                     />
-                                                    {/* Discount badge on blind box tile - only show if discount is active */}
-                                                    {isBlindBoxTile && isBlindBoxDiscountActive && (
-                                                        <Box
-                                                            sx={{
-                                                                position: 'absolute',
-                                                                top: 8,
-                                                                left: 8,
-                                                                bgcolor: '#2e7d32',
-                                                                color: 'white',
-                                                                px: 1,
-                                                                py: 0.5,
-                                                                borderRadius: 1,
-                                                                fontSize: '1.6rem',
-                                                                fontWeight: 700,
-                                                                boxShadow: 1
-                                                            }}
-                                                        >
-                                                            {blindBoxesInCart >= 1 
-                                                                ? `${BLIND_BOX_DISCOUNT_PERCENT}% OFF`
-                                                                : `Buy 2+, get ${BLIND_BOX_DISCOUNT_PERCENT}% off!`
-                                                            }
-                                                        </Box>
-                                                    )}
+                                                    {/* ZONE 1: Banner on subcategory tile */}
+                                                    <DiscountZonePlaceholder
+                                                        zone={1}
+                                                        variant="banner"
+                                                        discount={blindBoxFreeGift}
+                                                        subcategoryName="Blind Boxes"
+                                                        products={shopifyProducts}
+                                                    />
                                                 </Box>
                                                 <Typography variant="body1" align="center" sx={{ mt: 1, fontWeight: 600 }}>
                                                     {subcat.title}
                                                 </Typography>
+                                                {/* ZONE 1: Below subcategory name */}
+                                                <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'center' }}>
+                                                    <DiscountZonePlaceholder
+                                                        zone={1}
+                                                        variant="inline"
+                                                        discount={blindBoxFreeGift}
+                                                        subcategoryName="Blind Boxes"
+                                                        products={shopifyProducts}
+                                                    />
+                                                </Box>
                                             </Box>
-                                            
-                                            {/* Contextual offer below blind box tile - only show when 1+ in cart AND discount is active */}
-                                            {isBlindBoxTile && blindBoxesInCart >= 1 && isBlindBoxDiscountActive && (
+
+                                            {/* Contextual offer below blind box tile - only show when 1+ in cart AND we have valid discount data */}
+                                            {isBlindBoxTile && blindBoxesInCart >= 1 && hasBlindBoxDiscount && (
                                                 <Box 
                                                     onClick={handleReturnToCrossSell}
                                                     sx={{ 
@@ -2513,9 +2492,9 @@ export default function Commerce() {
                                                             color: '#1b5e20'
                                                         }}
                                                     >
-                                                        {isDiscountUnlocked 
-                                                            ? `✓ ${blindBoxesInCart} in bag` 
-                                                            : `Add 1 more for ${BLIND_BOX_DISCOUNT_PERCENT}% off!`
+                                                        {isDiscountUnlocked
+                                                            ? `✓ ${blindBoxesInCart} in bag`
+                                                            : (hasBlindBoxDiscount ? `Add ${blindBoxesNeededForDiscount} more for ${BLIND_BOX_DISCOUNT_PERCENT}% off!` : `✓ ${blindBoxesInCart} in bag`)
                                                         }
                                                     </Typography>
                                                 </Box>
@@ -2537,13 +2516,13 @@ export default function Commerce() {
                             const isBlindBoxSection = subcat.id === 'blind-box' || subcat.title?.toLowerCase().includes('blind box');
                             
                             // Offer banner for blind box section - changes based on cart state
-                            // Only show if the discount is active
-                            const blindBoxOfferBanner = isBlindBoxSection && isBlindBoxDiscountActive ? (
+                            // Only show if we have valid discount data (percent AND quantity threshold)
+                            const blindBoxOfferBanner = isBlindBoxSection && hasBlindBoxDiscount ? (
                                 isDiscountUnlocked ? (
                                     // Active discount - show clickable "continue" banner
-                                    <Box 
+                                    <Box
                                         onClick={handleReturnToCrossSell}
-                                        sx={{ 
+                                        sx={{
                                             bgcolor: '#e8f5e9',
                                             border: '2px solid #4caf50',
                                             borderRadius: 2,
@@ -2552,7 +2531,7 @@ export default function Commerce() {
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 2,
-                                            '&:hover': { 
+                                            '&:hover': {
                                                 bgcolor: '#c8e6c9',
                                                 transform: 'translateY(-2px)',
                                                 boxShadow: 2
@@ -2573,11 +2552,11 @@ export default function Commerce() {
                                             View Bag →
                                         </Typography>
                                     </Box>
-                                ) : blindBoxesInCart === 1 ? (
-                                    // 1 blind box - show clickable "almost there" banner
-                                    <Box 
+                                ) : blindBoxesInCart > 0 && blindBoxesNeededForDiscount > 0 ? (
+                                    // Has blind boxes but not enough - show clickable "almost there" banner
+                                    <Box
                                         onClick={handleReturnToCrossSell}
-                                        sx={{ 
+                                        sx={{
                                             bgcolor: '#fff8e1',
                                             border: '2px solid #ffb300',
                                             borderRadius: 2,
@@ -2586,7 +2565,7 @@ export default function Commerce() {
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 2,
-                                            '&:hover': { 
+                                            '&:hover': {
                                                 bgcolor: '#fff3c4',
                                                 transform: 'translateY(-2px)',
                                                 boxShadow: 2
@@ -2600,7 +2579,7 @@ export default function Commerce() {
                                                 Almost There!
                                             </Typography>
                                             <Typography sx={{ fontSize: '1.6rem', color: '#6d4c00' }}>
-                                                Add 1 more to unlock {BLIND_BOX_DISCOUNT_PERCENT}% off!
+                                                Add {blindBoxesNeededForDiscount} more to unlock {BLIND_BOX_DISCOUNT_PERCENT}% off!
                                             </Typography>
                                         </Box>
                                         <Typography sx={{ fontSize: '1.6rem', color: '#ff6f00', fontWeight: 600 }}>
@@ -2609,8 +2588,8 @@ export default function Commerce() {
                                     </Box>
                                 ) : (
                                     // No blind boxes - show static promo banner
-                                    <Box 
-                                        sx={{ 
+                                    <Box
+                                        sx={{
                                             bgcolor: '#e8f5e9',
                                             border: '2px solid #4caf50',
                                             borderRadius: 2,
@@ -2623,7 +2602,7 @@ export default function Commerce() {
                                         <LocalOfferIcon sx={{ fontSize: '2rem', color: '#2e7d32' }} />
                                         <Box>
                                             <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#1b5e20' }}>
-                                                {BLIND_BOX_DISCOUNT_PERCENT}% Off When You Buy 2+
+                                                {BLIND_BOX_DISCOUNT_PERCENT}% Off When You Buy {BLIND_BOX_QUANTITY_THRESHOLD}+
                                             </Typography>
                                             <Typography sx={{ fontSize: '1.6rem', color: '#2e7d32' }}>
                                                 Mix & match any blind boxes to unlock the discount!
@@ -2633,9 +2612,24 @@ export default function Commerce() {
                                 )
                             ) : null;
                             
+                            // Build discount data for blind box section
+                            const blindBoxSectionDiscount = isBlindBoxSection && quantityDiscountGroups.length > 0 ? {
+                                type: 'freeItem',
+                                title: `Buy ${quantityDiscountGroups[0]?.threshold}, get free item!`,
+                                quantityRequired: quantityDiscountGroups[0]?.threshold,
+                                current: blindBoxesInCart,
+                                remaining: Math.max(0, (quantityDiscountGroups[0]?.threshold || 3) - blindBoxesInCart),
+                                freeItemName: 'gift',
+                                options: quantityDiscountGroups[0]?.options || []
+                            } : null;
+
+                            // Zone 3 is for product-specific discounts only, not collection discounts
+                            // Collection discounts are shown in Zone 2 (sectionDiscount)
+                            const blindBoxProductDiscount = null;
+
                             return (
-                                <Box 
-                                    key={subcat.id} 
+                                <Box
+                                    key={subcat.id}
                                     id={`section-${subcat.id}`}
                                     sx={{ scrollMarginTop: '80px' }} // Offset for fixed header if any
                                 >
@@ -2646,7 +2640,11 @@ export default function Commerce() {
                                         onProductClick={handleChooseProduct}
                                         showDivider={index > 0}
                                         afterDescription={blindBoxOfferBanner}
-                                        discountPercent={isBlindBoxSection && isBlindBoxDiscountActive && blindBoxesInCart >= 1 ? BLIND_BOX_DISCOUNT_PERCENT : null}
+                                        discountPercent={isBlindBoxSection && hasBlindBoxDiscount && blindBoxesInCart >= 1 ? BLIND_BOX_DISCOUNT_PERCENT : null}
+                                        sectionDiscount={blindBoxSectionDiscount}
+                                        productDiscount={blindBoxProductDiscount}
+                                        subcategoryName={isBlindBoxSection ? "Blind Boxes" : subcat.title}
+                                        allProducts={shopifyProducts}
                                     />
                                 </Box>
                             );
@@ -2775,12 +2773,32 @@ export default function Commerce() {
                     productForModal = selectedProduct;
                 }
                 
+                // Determine if this product has a discount (blind box products get free gift discount)
+                const isBlindBoxProduct = productForModal?.merchandiseType === 'blind_box_collectible';
+                console.log('🎯 ProductModal discount check:', {
+                    merchandiseType: productForModal?.merchandiseType,
+                    isBlindBoxProduct,
+                    quantityDiscountGroups: quantityDiscountGroups.length,
+                    blindBoxesInCart
+                });
+                const modalDiscount = isBlindBoxProduct && quantityDiscountGroups.length > 0 ? {
+                    type: 'freeItem',
+                    title: `Buy ${quantityDiscountGroups[0]?.threshold}, get free item!`,
+                    quantityRequired: quantityDiscountGroups[0]?.threshold,
+                    current: blindBoxesInCart,
+                    remaining: Math.max(0, (quantityDiscountGroups[0]?.threshold || 3) - blindBoxesInCart),
+                    freeItemName: 'gift',
+                    options: quantityDiscountGroups[0]?.options || []
+                } : null;
+                console.log('🎯 Modal discount:', modalDiscount);
+
                 return (
                     <ProductModal
                         open={showProductModal}
                         product={productForModal}
                         onClose={handleCloseProductModal}
                         onAddToCart={handleAddToCart}
+                        discount={modalDiscount}
                     />
                 );
             })()}
@@ -2795,6 +2813,7 @@ export default function Commerce() {
                 selectedRewards={selectedRewards}
                 onSelectReward={handleSelectReward}
                 orderDiscounts={orderDiscounts}
+                onAddBlindBox={() => setShowBlindBoxSelector(true)}
             />
             
             {/* Blind Box Selector Modal */}
@@ -2834,7 +2853,7 @@ export default function Commerce() {
                                 Select a Blind Box
                             </Typography>
                             <Typography variant="body2" sx={{ color: '#2e7d32', fontWeight: 600, fontSize: '1.6rem' }}>
-                                {isBlindBoxDiscountActive 
+                                {hasBlindBoxDiscount
                                     ? (blindBoxCartItems.some(item => item.hasDiscount)
                                         ? `Save ${blindBoxCartItems[0]?.discountPercent || BLIND_BOX_DISCOUNT_PERCENT}%!`
                                         : `Unlock ${BLIND_BOX_DISCOUNT_PERCENT}% off all blind boxes!`)
@@ -2897,8 +2916,8 @@ export default function Commerce() {
                                             objectFit: 'cover'
                                         }}
                                     />
-                                    {/* Discount badge when 1+ in cart and discount is active */}
-                                    {blindBoxesInCart >= 1 && isBlindBoxDiscountActive && (
+                                    {/* Discount badge when 1+ in cart and we have valid discount data */}
+                                    {blindBoxesInCart >= 1 && hasBlindBoxDiscount && (
                                         <Box
                                             sx={{
                                                 position: 'absolute',
@@ -2924,7 +2943,7 @@ export default function Commerce() {
                                         {product.name}
                                     </Typography>
                                     {/* Show discounted price when adding would unlock/continue discount */}
-                                    {blindBoxesInCart >= 1 && isBlindBoxDiscountActive ? (
+                                    {blindBoxesInCart >= 1 && hasBlindBoxDiscount ? (
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                             <Typography variant="body2" sx={{ color: '#2e7d32', fontWeight: 600, fontSize: '1.6rem' }}>
                                                 ${(parseFloat(product.price?.replace('$', '') || 0) * (1 - BLIND_BOX_DISCOUNT_PERCENT / 100)).toFixed(2)}

@@ -99,29 +99,67 @@ export const ShopifyProvider = ({ children }) => {
       const cats = data.metaobjects.edges.map(edge => {
         const node = edge.node;
         const fields = {};
-        
+        let imageUrl = null;
+
+        // Helper to find field value by normalized key (handles spaces, case, underscores)
+        const normalizeKey = (key) => key.toLowerCase().replace(/[\s_-]+/g, '');
+        const findFieldValue = (targetKey) => {
+          const normalizedTarget = normalizeKey(targetKey);
+          for (const [key, value] of Object.entries(fields)) {
+            if (normalizeKey(key) === normalizedTarget) {
+              return value;
+            }
+          }
+          return null;
+        };
+
         node.fields.forEach(field => {
-          if (field.key === 'image' && field.reference?.image) {
-            fields.image = {
+          // Check for image reference fields (multiple possible structures)
+          if (field.reference?.image?.url) {
+            // Standard MediaImage reference structure
+            fields[field.key] = {
               url: field.reference.image.url,
               alt: field.reference.image.altText
             };
+            imageUrl = field.reference.image.url;
+          } else if (field.reference?.url) {
+            // Direct URL in reference
+            fields[field.key] = { url: field.reference.url };
+            imageUrl = field.reference.url;
+          } else if (field.value && typeof field.value === 'string' && field.value.startsWith('http')) {
+            // Direct URL string value
+            fields[field.key] = field.value;
+            if (field.key.toLowerCase().includes('image')) {
+              imageUrl = field.value;
+            }
           } else {
             fields[field.key] = field.value;
           }
         });
 
+        // Find title using various possible field names
+        const title = findFieldValue('product_category_title')
+          || findFieldValue('title')
+          || findFieldValue('name')
+          || fields.product_category_title
+          || fields.title
+          || fields.name
+          || node.handle;
+
+        // Debug: Log the resolved values
+        console.log(`🏷️ Category "${node.handle}" → title: "${title}", imageUrl: ${imageUrl ? 'YES' : 'NO'}, fields:`, Object.keys(fields));
+
         return {
           id: node.handle,
           gid: node.id,
           handle: node.handle,
-          title: fields.title || fields.name || node.handle,
-          description: fields.description || '',
-          image: fields.image || null,
+          title: title,
+          description: findFieldValue('product_category_description') || findFieldValue('description') || fields.description || '',
+          image: imageUrl ? { url: imageUrl } : fields.image || null,
           sortOrder: parseInt(fields.sort_order || fields.sortorder || fields['sort-order'] || fields.display_order || '999', 10)
         };
       });
-      
+
       // Sort by sortOrder
       cats.sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -188,33 +226,85 @@ export const ShopifyProvider = ({ children }) => {
       const subcategories = data.metaobjects.edges.map(edge => {
         const node = edge.node;
         const fields = {};
-        
+        let imageUrl = null;
+
+        // Helper to find field value by normalized key (handles spaces, case, underscores)
+        const normalizeKey = (key) => key.toLowerCase().replace(/[\s_-]+/g, '');
+        const findFieldValue = (targetKey) => {
+          const normalizedTarget = normalizeKey(targetKey);
+          for (const [key, value] of Object.entries(fields)) {
+            if (normalizeKey(key) === normalizedTarget) {
+              return value;
+            }
+          }
+          return null;
+        };
+
         node.fields.forEach(field => {
-          if (field.key === 'image' && field.reference?.image) {
-            fields.image = {
+          // Check for image reference fields (multiple possible structures)
+          if (field.reference?.image?.url) {
+            // Standard MediaImage reference structure
+            fields[field.key] = {
               url: field.reference.image.url,
               alt: field.reference.image.altText
             };
+            imageUrl = field.reference.image.url;
+          } else if (field.reference?.url) {
+            // Direct URL in reference
+            fields[field.key] = { url: field.reference.url };
+            imageUrl = field.reference.url;
+          } else if (field.value && typeof field.value === 'string' && field.value.startsWith('http')) {
+            // Direct URL string value
+            fields[field.key] = field.value;
+            if (field.key.toLowerCase().includes('image')) {
+              imageUrl = field.value;
+            }
           } else {
             fields[field.key] = field.value;
           }
         });
 
+        // Find title using various possible field names
+        const title = findFieldValue('product_category_title')
+          || findFieldValue('title')
+          || findFieldValue('name')
+          || fields.product_category_title
+          || fields.title
+          || fields.name
+          || node.handle;
+
+        // Debug: Log the resolved values
+        console.log(`🏷️ Dessert Subcategory "${node.handle}" → title: "${title}", imageUrl: ${imageUrl ? 'YES' : 'NO'}, fields:`, Object.keys(fields));
+
         return {
           id: node.handle,
           gid: node.id,
           handle: node.handle,
-          title: fields.title || fields.name || node.handle,
-          description: fields.description || '',
-          image: fields.image || null,
+          title: title,
+          description: findFieldValue('product_category_description') || findFieldValue('description') || fields.description || '',
+          image: imageUrl ? { url: imageUrl } : fields.image || null,
           sortOrder: parseInt(fields.sort_order || fields.sortorder || fields['sort-order'] || fields.display_order || '999', 10)
         };
       });
-      
+
       // Sort by sortOrder
       subcategories.sort((a, b) => a.sortOrder - b.sortOrder);
 
       console.log('✅ Loaded variant dessert subcategories:', subcategories);
+      // Debug: Log all subcategories' raw fields to see actual field keys
+      data.metaobjects.edges.forEach((edge, idx) => {
+        const node = edge.node;
+        console.log(`🔍 DEBUG Dessert subcategory [${idx}] "${node.handle}" raw fields:`,
+          node.fields.map(f => ({
+            key: f.key,
+            value: f.value?.substring?.(0, 50) || f.value,
+            hasReference: !!f.reference,
+            referenceType: f.reference ? Object.keys(f.reference) : null,
+            hasImageRef: !!f.reference?.image?.url,
+            imageUrl: f.reference?.image?.url?.substring?.(0, 50)
+          }))
+        );
+      });
       setDessertSubcategories(subcategories);
     } catch (err) {
       console.warn('Could not fetch variant dessert subcategories:', err);
@@ -276,25 +366,63 @@ export const ShopifyProvider = ({ children }) => {
       const subcategories = data.metaobjects.edges.map(edge => {
         const node = edge.node;
         const fields = {};
-        
+        let imageUrl = null;
+
+        // Helper to find field value by normalized key (handles spaces, case, underscores)
+        const normalizeKey = (key) => key.toLowerCase().replace(/[\s_-]+/g, '');
+        const findFieldValue = (targetKey) => {
+          const normalizedTarget = normalizeKey(targetKey);
+          for (const [key, value] of Object.entries(fields)) {
+            if (normalizeKey(key) === normalizedTarget) {
+              return value;
+            }
+          }
+          return null;
+        };
+
         node.fields.forEach(field => {
-          if (field.key === 'image' && field.reference?.image) {
-            fields.image = {
+          // Check for image reference fields (multiple possible structures)
+          if (field.reference?.image?.url) {
+            // Standard MediaImage reference structure
+            fields[field.key] = {
               url: field.reference.image.url,
               alt: field.reference.image.altText
             };
+            imageUrl = field.reference.image.url;
+          } else if (field.reference?.url) {
+            // Direct URL in reference
+            fields[field.key] = { url: field.reference.url };
+            imageUrl = field.reference.url;
+          } else if (field.value && typeof field.value === 'string' && field.value.startsWith('http')) {
+            // Direct URL string value
+            fields[field.key] = field.value;
+            if (field.key.toLowerCase().includes('image')) {
+              imageUrl = field.value;
+            }
           } else {
             fields[field.key] = field.value;
           }
         });
 
+        // Find title using various possible field names
+        const title = findFieldValue('product_category_title')
+          || findFieldValue('title')
+          || findFieldValue('name')
+          || fields.product_category_title
+          || fields.title
+          || fields.name
+          || node.handle;
+
+        // Debug: Log the resolved values
+        console.log(`🏷️ Merchandise Subcategory "${node.handle}" → title: "${title}", imageUrl: ${imageUrl ? 'YES' : 'NO'}, fields:`, Object.keys(fields));
+
         return {
           id: fields.name || node.handle,
           gid: node.id,
           handle: node.handle,
-          title: fields.title || node.handle,
-          description: fields.description || '',
-          image: fields.image || null
+          title: title,
+          description: findFieldValue('product_category_description') || findFieldValue('description') || fields.description || '',
+          image: imageUrl ? { url: imageUrl } : fields.image || null
         };
       });
 
@@ -419,6 +547,7 @@ export const ShopifyProvider = ({ children }) => {
                   { namespace: "collectible", key: "material" }
                   { namespace: "collectible", key: "height" }
                   { namespace: "custom", key: "image_metadata" }
+                  { namespace: "custom", key: "fulfillment_methods" }
                   { namespace: "dessert", key: "ingredients" }
                   { namespace: "dessert", key: "allergens" }
                 ]) {
@@ -453,6 +582,14 @@ export const ShopifyProvider = ({ children }) => {
                       fields {
                         key
                         value
+                        reference {
+                          ... on MediaImage {
+                            image {
+                              url
+                              altText
+                            }
+                          }
+                        }
                       }
                     }
                   }
@@ -566,16 +703,47 @@ export const ShopifyProvider = ({ children }) => {
     if (shopifyProduct.productCategory?.reference) {
       const ref = shopifyProduct.productCategory.reference;
       const fields = {};
+      let imageUrl = null;
+
+      // Helper to find field value by normalized key (handles spaces, case, underscores)
+      const normalizeKey = (key) => key.toLowerCase().replace(/[\s_-]+/g, '');
+      const findFieldValue = (targetKey) => {
+        const normalizedTarget = normalizeKey(targetKey);
+        for (const [key, value] of Object.entries(fields)) {
+          if (normalizeKey(key) === normalizedTarget) {
+            return value;
+          }
+        }
+        return null;
+      };
+
       ref.fields?.forEach(f => {
         fields[f.key] = f.value;
+        // Check if this field has an image reference
+        if (f.reference?.image?.url) {
+          // Store with the field key for easy access
+          fields[`${f.key}_url`] = f.reference.image.url;
+          imageUrl = f.reference.image.url; // Capture any image reference
+        }
       });
       categoryHandle = ref.handle;
+
+      // Find title using various possible field names
+      const title = findFieldValue('product_category_title')
+        || findFieldValue('title')
+        || findFieldValue('name')
+        || fields.product_category_title
+        || fields.title
+        || fields.name
+        || ref.handle;
+
       categoryData = {
         id: ref.handle,
         gid: ref.id,
         handle: ref.handle,
         type: ref.type,
-        title: fields.title || fields.name || ref.handle,
+        title: title,
+        image: imageUrl || fields.product_category_image_url || fields.image_url || null,
         ...fields
       };
     }
@@ -817,7 +985,31 @@ export const ShopifyProvider = ({ children }) => {
       // Dessert info (for desserts)
       ingredients: metafields['dessert.ingredients'] || null,
       allergens: metafields['dessert.allergens'] || null,
-      
+
+      // Fulfillment methods (e.g., "shipping", "pickup", "local_delivery")
+      // Can be a JSON array like ["shipping", "pickup"] or comma-separated string
+      fulfillmentMethods: (() => {
+        const raw = metafields['custom.fulfillment_methods'];
+        if (!raw) return null;
+        try {
+          // Try parsing as JSON array first
+          return JSON.parse(raw);
+        } catch {
+          // Fall back to comma-separated string
+          return raw.split(',').map(s => s.trim().toLowerCase());
+        }
+      })(),
+      canShip: (() => {
+        const raw = metafields['custom.fulfillment_methods'];
+        if (!raw) return null; // Unknown - no metafield set
+        try {
+          const methods = JSON.parse(raw);
+          return methods.some(m => m.toLowerCase() === 'shipping');
+        } catch {
+          return raw.toLowerCase().includes('shipping');
+        }
+      })(),
+
       // Inventory data (total only - Storefront API limitation)
       inventoryTracked: inventoryTracked,
       totalInventory: totalInventory,
