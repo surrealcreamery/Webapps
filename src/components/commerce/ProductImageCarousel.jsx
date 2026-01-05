@@ -208,13 +208,19 @@ export const ProductImageCarousel = ({
 
             {/* Thumbnail Strip */}
             {showNavigation && (
-                <Box 
-                    sx={{ 
+                <Box
+                    sx={{
                         display: 'flex',
-                        flexWrap: 'wrap',
+                        flexWrap: 'nowrap',
                         gap: 1,
                         p: 1,
                         backgroundColor: 'grey.50',
+                        overflowX: 'auto',
+                        WebkitOverflowScrolling: 'touch',
+                        '&::-webkit-scrollbar': {
+                            display: 'none',
+                        },
+                        scrollbarWidth: 'none',
                     }}
                     role="tablist"
                     aria-label="Product image thumbnails"

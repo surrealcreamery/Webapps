@@ -184,7 +184,7 @@ const Header = () => {
                         display: 'flex',
                         justifyContent: 'center',
                         gap: 0.5,
-                        flexWrap: 'wrap',
+                        flexWrap: 'nowrap',
                     }}
                 >
                     {NAV_ITEMS.map((item) => {
@@ -207,11 +207,12 @@ const Header = () => {
                                     },
                                 }}
                             >
-                                <Typography 
-                                    sx={{ 
-                                        fontSize: '1.6rem !important', 
+                                <Typography
+                                    sx={{
+                                        fontSize: { xs: '1.4rem !important', sm: '1.6rem !important' },
                                         fontWeight: isActive ? 600 : 400,
                                         lineHeight: 1.2,
+                                        whiteSpace: 'nowrap',
                                     }}
                                 >
                                     {item.label}
