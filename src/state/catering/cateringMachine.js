@@ -589,6 +589,7 @@ export const cateringMachine = setup({
         chosenAccountType: null,
         authMode: null,
         cartDrawerOpen: false, // Controls cart drawer overlay
+        packagingResetCounter: 0, // Increments when logo is clicked to reset packaging selection
     },
     initial: 'booting',
     on: {
@@ -623,7 +624,13 @@ export const cateringMachine = setup({
         },
         GO_TO_BROWSING: {
             target: '#catering.browsing.browsingCategories',
-            actions: [assign({ selectedCategory: null, editingItem: null, lastView: 'browsing', cartDrawerOpen: false }), 'persistState']
+            actions: [assign(({ context }) => ({
+                selectedCategory: null,
+                editingItem: null,
+                lastView: 'browsing',
+                cartDrawerOpen: false,
+                packagingResetCounter: context.packagingResetCounter + 1
+            })), 'persistState']
         },
         // Cart drawer overlay - doesn't change state, just opens drawer
         OPEN_CART_DRAWER: {

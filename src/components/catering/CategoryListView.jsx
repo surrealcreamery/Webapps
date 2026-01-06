@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useContext } from 'react';
 import { Box, Typography, Container, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { GiWheat } from 'react-icons/gi';
 import { FaLeaf, FaRecycle } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
+import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext';
 
 const PLACEHOLDER_IMAGE = 'https://placehold.co/300x300/e0e0e0/666666?text=Category';
 
@@ -103,12 +104,21 @@ export const DietaryBadges = ({ glutenFree, vegan, size = 'small' }) => {
     );
 };
 
-// Flavor categories
-const FLAVOR_CATEGORIES = [
-    { id: 'cake', label: 'Cake' },
-    { id: 'cheesecake', label: 'Cheesecake' },
-    { id: 'cookie', label: 'Cookie' },
-];
+// Flavor categories per packaging type
+const FLAVOR_CATEGORIES_BY_PACKAGING = {
+    'Cake Jar Boxes': [
+        { id: 'cake', label: 'Cake' },
+        { id: 'cheesecake', label: 'Cheesecake' },
+    ],
+    'Cupcake Trays': [
+        { id: 'cake', label: 'Cake' },
+        { id: 'cheesecake', label: 'Cheesecake' },
+        { id: 'cookie', label: 'Cookie' },
+    ],
+    'Cookies': [
+        { id: 'cookie', label: 'Cookie' },
+    ],
+};
 
 // Hardcoded flavors with colors, dietary info, and category
 const FLAVORS = {
@@ -121,12 +131,9 @@ const FLAVORS = {
         { name: 'La La Red Velvet', color: '#C41E3A', glutenFree: false, vegan: false },
     ],
     cheesecake: [
-        { name: "A'mour S'more", color: '#8B4513', glutenFree: false, vegan: false },
-        { name: 'Chocolate Meltdown Overload', color: '#3D1C02', glutenFree: true, vegan: true },
-        { name: 'Vanilla', color: '#F3E5AB', glutenFree: true, vegan: false },
-        { name: 'All Very Strawberry', color: '#FF6B81', glutenFree: true, vegan: true },
-        { name: 'Nom Nom Cookie', color: '#2C2C2C', glutenFree: false, vegan: false },
-        { name: 'La La Red Velvet', color: '#C41E3A', glutenFree: false, vegan: false },
+        { name: 'Strawberry', color: '#FF6B81', glutenFree: true, vegan: false },
+        { name: 'Cherry', color: '#C41E3A', glutenFree: true, vegan: false },
+        { name: 'Apple', color: '#90EE90', glutenFree: true, vegan: false },
     ],
     cookie: [
         { name: "A'mour S'more", color: '#8B4513', glutenFree: false, vegan: false },
@@ -140,25 +147,46 @@ const FLAVORS = {
 
 // Packaging options
 const PACKAGING = [
-    { name: 'Cake Jars', image: 'https://images.surrealcreamery.com/catering/packaging/cake-jars.png', sustainable: true },
-    { name: 'Cupcake Trays', image: 'https://images.surrealcreamery.com/catering/packaging/cake-tray.png', sustainable: false },
+    {
+        name: 'Cake Jar Boxes',
+        heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-jar-box.png',
+        sustainable: true,
+        glutenFree: true,
+        vegan: true,
+    },
+    {
+        name: 'Cupcake Trays',
+        heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-tray.png',
+        sustainable: false,
+        glutenFree: true,
+        vegan: true,
+    },
+    {
+        name: 'Cookies',
+        heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-tray.png',
+        sustainable: false,
+        glutenFree: true,
+        vegan: true,
+    },
 ];
 
-// Animated flavor circle component
+// Animated flavor circle component - smooth lift and fly
 const AnimatedFlavorCircle = ({ flavor, onTearAway, isPlaced }) => {
-    const [isAnimating, setIsAnimating] = useState(false);
-    const circleRef = useRef(null);
+    const [animationPhase, setAnimationPhase] = useState('idle'); // idle, lifting, flying
 
     const handleClick = () => {
-        if (isAnimating || isPlaced) return;
+        if (animationPhase !== 'idle' || isPlaced) return;
 
-        setIsAnimating(true);
+        setAnimationPhase('lifting');
 
-        // After animation completes, mark as placed
+        setTimeout(() => {
+            setAnimationPhase('flying');
+        }, 400);
+
         setTimeout(() => {
             onTearAway(flavor);
-            setIsAnimating(false);
-        }, 600);
+            setAnimationPhase('idle');
+        }, 900);
     };
 
     return (
@@ -172,92 +200,266 @@ const AnimatedFlavorCircle = ({ flavor, onTearAway, isPlaced }) => {
                 transition: 'opacity 0.3s',
             }}
         >
-            <motion.div
-                ref={circleRef}
+            <Box
                 onClick={handleClick}
-                initial={false}
-                animate={isAnimating ? {
-                    y: [0, -15, -300],
-                    x: [0, 10, 0],
-                    rotate: [0, -8, 5, 0],
-                    scale: [1, 1.15, 0.8],
-                } : {}}
-                transition={{
-                    duration: 0.6,
-                    ease: [0.25, 0.46, 0.45, 0.94],
-                    times: [0, 0.3, 1],
-                }}
-                whileHover={!isPlaced && !isAnimating ? { scale: 1.08, rotate: -3 } : {}}
-                whileTap={!isPlaced && !isAnimating ? { scale: 0.95 } : {}}
-                style={{
-                    cursor: isPlaced ? 'default' : 'pointer',
-                    zIndex: isAnimating ? 1000 : 1,
+                sx={{
                     position: 'relative',
+                    width: 80,
+                    height: 80,
+                    cursor: isPlaced ? 'default' : 'pointer',
                 }}
             >
-                {/* Image or Color Circle */}
-                {flavor.image ? (
+                {/* Shadow - grows as sticker lifts */}
+                <motion.div
+                    animate={{
+                        opacity: animationPhase === 'lifting' ? 0.4 : 0,
+                        scale: animationPhase === 'lifting' ? 1.1 : 0.9,
+                    }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
+                    style={{
+                        position: 'absolute',
+                        top: 4,
+                        left: 4,
+                        width: '100%',
+                        height: '100%',
+                        borderRadius: '50%',
+                        background: 'rgba(0,0,0,0.25)',
+                        filter: 'blur(8px)',
+                        zIndex: 0,
+                    }}
+                />
+
+                {/* The sticker */}
+                <motion.div
+                    animate={
+                        animationPhase === 'lifting' ? {
+                            y: -12,
+                            scale: 1.08,
+                        } :
+                        animationPhase === 'flying' ? {
+                            y: -350,
+                            scale: 0.5,
+                            opacity: 0,
+                        } :
+                        { y: 0, scale: 1, opacity: 1 }
+                    }
+                    whileHover={!isPlaced && animationPhase === 'idle' ? {
+                        y: -4,
+                        scale: 1.03,
+                    } : {}}
+                    transition={{
+                        duration: animationPhase === 'flying' ? 0.5 : 0.3,
+                        ease: [0.34, 1.2, 0.64, 1],
+                    }}
+                    style={{
+                        position: 'relative',
+                        zIndex: animationPhase !== 'idle' ? 1000 : 1,
+                    }}
+                >
                     <Box
                         sx={{
                             width: 80,
                             height: 80,
                             borderRadius: '50%',
                             overflow: 'hidden',
-                            boxShadow: isAnimating
-                                ? '0 12px 40px rgba(0,0,0,0.4)'
+                            boxShadow: animationPhase === 'lifting'
+                                ? '0 12px 24px rgba(0,0,0,0.25)'
                                 : '0 2px 8px rgba(0,0,0,0.15)',
                             border: '3px solid white',
                             outline: '1px solid #e0e0e0',
-                            transition: 'box-shadow 0.2s',
+                            backgroundColor: flavor.color,
+                            transition: 'box-shadow 0.3s',
                         }}
                     >
-                        <img
-                            src={flavor.image}
-                            alt={flavor.name}
-                            style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover'
-                            }}
-                        />
+                        {flavor.image && (
+                            <img
+                                src={flavor.image}
+                                alt={flavor.name}
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover'
+                                }}
+                            />
+                        )}
                     </Box>
-                ) : (
+                </motion.div>
+
+                {/* Gluten-free badge - top right (1 o'clock) */}
+                {flavor.glutenFree && (
                     <Box
                         sx={{
-                            width: 80,
-                            height: 80,
-                            borderRadius: '50%',
-                            backgroundColor: flavor.color,
-                            boxShadow: isAnimating
-                                ? '0 12px 40px rgba(0,0,0,0.4)'
-                                : '0 2px 8px rgba(0,0,0,0.15)',
-                            border: '3px solid white',
-                            outline: '1px solid #e0e0e0',
-                            transition: 'box-shadow 0.2s',
+                            position: 'absolute',
+                            top: -2,
+                            right: 2,
+                            zIndex: 10,
                         }}
-                    />
+                    >
+                        <GlutenFreeBadge size="small" />
+                    </Box>
                 )}
-            </motion.div>
-            {/* Flavor Name */}
+                {/* Vegan badge - top left (11 o'clock) */}
+                {flavor.vegan && (
+                    <Box
+                        sx={{
+                            position: 'absolute',
+                            top: -2,
+                            left: 2,
+                            zIndex: 10,
+                        }}
+                    >
+                        <VeganBadge size="small" />
+                    </Box>
+                )}
+            </Box>
+
+            <Typography
+                variant="body2"
+                sx={{ mt: 1, fontWeight: 500, textAlign: 'center', fontSize: '1.4rem' }}
+            >
+                {flavor.name}
+            </Typography>
+        </Box>
+    );
+};
+
+// Animated packaging component - smooth lift and fly
+const AnimatedPackaging = ({ item, onSelect, isSelected, isHighlighted }) => {
+    const [animationPhase, setAnimationPhase] = useState('idle'); // idle, lifting, flying
+
+    const handleClick = () => {
+        if (animationPhase !== 'idle' || isSelected) return;
+
+        setAnimationPhase('lifting');
+
+        setTimeout(() => {
+            setAnimationPhase('flying');
+        }, 400);
+
+        setTimeout(() => {
+            onSelect(item);
+            setAnimationPhase('idle');
+        }, 900);
+    };
+
+    return (
+        <Box
+            sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                cursor: isSelected ? 'default' : 'pointer',
+                opacity: isSelected ? 0.4 : 1,
+                transition: 'all 0.3s',
+                transform: isHighlighted ? 'scale(1.05)' : 'scale(1)',
+            }}
+        >
+            <Box
+                onClick={handleClick}
+                sx={{
+                    position: 'relative',
+                    width: '100%',
+                    paddingTop: '100%',
+                    cursor: isSelected ? 'default' : 'pointer',
+                }}
+            >
+                {/* Shadow - grows as card lifts */}
+                <motion.div
+                    animate={{
+                        opacity: animationPhase === 'lifting' ? 0.4 : 0,
+                        scale: animationPhase === 'lifting' ? 1.05 : 0.95,
+                    }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
+                    style={{
+                        position: 'absolute',
+                        top: 8,
+                        left: 8,
+                        width: '100%',
+                        height: '100%',
+                        borderRadius: 8,
+                        background: 'rgba(0,0,0,0.25)',
+                        filter: 'blur(12px)',
+                        zIndex: 0,
+                    }}
+                />
+
+                {/* The card */}
+                <motion.div
+                    animate={
+                        animationPhase === 'lifting' ? {
+                            y: -15,
+                            scale: 1.05,
+                        } :
+                        animationPhase === 'flying' ? {
+                            y: -350,
+                            scale: 0.4,
+                            opacity: 0,
+                        } :
+                        { y: 0, scale: 1, opacity: 1 }
+                    }
+                    whileHover={!isSelected && animationPhase === 'idle' ? {
+                        y: -6,
+                        scale: 1.02,
+                    } : {}}
+                    transition={{
+                        duration: animationPhase === 'flying' ? 0.5 : 0.3,
+                        ease: [0.34, 1.2, 0.64, 1],
+                    }}
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        zIndex: animationPhase !== 'idle' ? 1000 : 1,
+                    }}
+                >
+                    <Box
+                        sx={{
+                            width: '100%',
+                            height: '100%',
+                            borderRadius: 2,
+                            overflow: 'hidden',
+                            boxShadow: animationPhase === 'lifting'
+                                ? '0 15px 30px rgba(0,0,0,0.25)'
+                                : isHighlighted
+                                ? '0 0 0 3px #000, 0 4px 20px rgba(0,0,0,0.25)'
+                                : '0 2px 8px rgba(0,0,0,0.15)',
+                            transition: 'box-shadow 0.3s',
+                        }}
+                    >
+                        {item.image ? (
+                            <img
+                                src={item.image}
+                                alt={item.name}
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover'
+                                }}
+                            />
+                        ) : (
+                            <Box sx={{ width: '100%', height: '100%', backgroundColor: item.color }} />
+                        )}
+                    </Box>
+                </motion.div>
+            </Box>
+
             <Typography
                 variant="body2"
                 sx={{
                     mt: 1,
-                    fontWeight: 500,
+                    fontWeight: isHighlighted ? 700 : 500,
                     textAlign: 'center',
-                    fontSize: '1.4rem'
+                    fontSize: '1.4rem',
+                    transition: 'font-weight 0.3s',
                 }}
             >
-                {flavor.name}
+                {item.name}
             </Typography>
-            {/* Dietary Badges */}
-            {(flavor.glutenFree || flavor.vegan) && (
-                <Box sx={{ mt: 0.5, display: 'flex', gap: 0.5 }}>
-                    <DietaryBadges
-                        glutenFree={flavor.glutenFree}
-                        vegan={flavor.vegan}
-                        size="small"
-                    />
+            {item.sustainable && (
+                <Box sx={{ mt: 0.5 }}>
+                    <SustainableBadge size="small" />
                 </Box>
             )}
         </Box>
@@ -265,10 +467,21 @@ const AnimatedFlavorCircle = ({ flavor, onTearAway, isPlaced }) => {
 };
 
 export const CategoryListView = ({ menu, sendToCatering }) => {
+    const { cateringState } = useContext(CateringLayoutContext);
+    const { packagingResetCounter } = cateringState.context;
+
     const categories = Object.entries(menu);
     const [selectedFlavorCategory, setSelectedFlavorCategory] = useState('cake');
+    const [selectedPackaging, setSelectedPackaging] = useState(null);
     const [placedFlavors, setPlacedFlavors] = useState([]);
     const heroRef = useRef(null);
+
+    // Reset packaging selection when logo is clicked (counter increments)
+    useEffect(() => {
+        setSelectedPackaging(null);
+        setPlacedFlavors([]);
+        setSelectedFlavorCategory('cake');
+    }, [packagingResetCounter]);
 
     const handleFlavorCategoryChange = (event, newCategory) => {
         if (newCategory !== null) {
@@ -276,19 +489,53 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
         }
     };
 
-    const handleTearAway = (flavor) => {
-        // Add flavor to placed list with a random position on the hero
-        const newPlacement = {
-            ...flavor,
-            id: `${flavor.name}-${Date.now()}`,
-            x: Math.random() * 60 + 20, // 20-80% from left
-            y: Math.random() * 40 + 30, // 30-70% from top
-            rotation: Math.random() * 20 - 10, // -10 to 10 degrees
-        };
-        setPlacedFlavors(prev => [...prev, newPlacement]);
+    const handlePackagingSelect = (packaging) => {
+        setSelectedPackaging(packaging);
+        // Clear placed flavors when changing packaging
+        setPlacedFlavors([]);
+        // Set default flavor category to first available for this packaging
+        const categories = FLAVOR_CATEGORIES_BY_PACKAGING[packaging.name] || [];
+        if (categories.length > 0) {
+            setSelectedFlavorCategory(categories[0].id);
+        }
     };
 
-    const handleRemoveFromHero = (id) => {
+    const handleTearAway = (flavor) => {
+        // For Cake Jar Boxes, find the next empty slot
+        if (selectedPackaging?.name === 'Cake Jar Boxes') {
+            // Max 6 slots
+            if (placedFlavors.length >= 6) return;
+
+            // Find first empty slot index
+            const usedSlots = placedFlavors.map(f => f.slotIndex);
+            let nextSlot = 0;
+            for (let i = 0; i < 6; i++) {
+                if (!usedSlots.includes(i)) {
+                    nextSlot = i;
+                    break;
+                }
+            }
+
+            const newPlacement = {
+                ...flavor,
+                id: `${flavor.name}-${Date.now()}`,
+                slotIndex: nextSlot,
+            };
+            setPlacedFlavors(prev => [...prev, newPlacement]);
+        } else {
+            // For other packaging types, use random positioning
+            const newPlacement = {
+                ...flavor,
+                id: `${flavor.name}-${Date.now()}`,
+                x: Math.random() * 60 + 20,
+                y: Math.random() * 40 + 30,
+                rotation: Math.random() * 20 - 10,
+            };
+            setPlacedFlavors(prev => [...prev, newPlacement]);
+        }
+    };
+
+    const handleRemoveFromSlot = (id) => {
         setPlacedFlavors(prev => prev.filter(f => f.id !== id));
     };
 
@@ -325,249 +572,285 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
     return (
         <Box sx={{ backgroundColor: 'white' }}>
 
-            {/* Category Toggle */}
-            <Box sx={{ display: 'flex', justifyContent: 'center', pt: 2, mb: 3 }}>
-                <ToggleButtonGroup
-                    value={selectedFlavorCategory}
-                    exclusive
-                    onChange={handleFlavorCategoryChange}
-                    aria-label="flavor category"
-                    sx={{
-                        '& .MuiToggleButton-root': {
-                            px: 3,
-                            py: 1,
-                            textTransform: 'none',
-                            fontSize: '1.4rem',
-                            fontWeight: 500,
-                            border: '1px solid',
-                            borderColor: 'grey.300',
-                            '&.Mui-selected': {
-                                backgroundColor: 'black',
-                                color: 'white',
-                                '&:hover': {
-                                    backgroundColor: '#333',
-                                },
-                            },
-                        },
-                    }}
-                >
-                    {FLAVOR_CATEGORIES.map((category) => (
-                        <ToggleButton key={category.id} value={category.id}>
-                            {category.label}
-                        </ToggleButton>
-                    ))}
-                </ToggleButtonGroup>
-            </Box>
-
-            {/* Hero Image Placeholder */}
-            <Box
-                ref={heroRef}
-                sx={{
-                    width: '100%',
-                    height: { xs: 200, sm: 280, md: 350 },
-                    backgroundColor: '#f5f5f5',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: 2,
-                    mb: 4,
-                    overflow: 'visible',
-                    border: '2px dashed #ccc',
-                    position: 'relative',
-                }}
-            >
-                {placedFlavors.length === 0 && (
+            {/* Packaging Selection - Vertical Cards */}
+            {!selectedPackaging && (
+                <Box sx={{ pt: 2, pb: 4 }}>
                     <Typography
-                        variant="h5"
-                        color="text.secondary"
-                        sx={{ fontWeight: 500 }}
+                        variant="h4"
+                        sx={{
+                            fontWeight: 700,
+                            color: 'black',
+                            fontSize: { xs: '1.5rem', sm: '1.75rem', md: '2rem' },
+                            textAlign: 'center',
+                            mb: 1,
+                        }}
                     >
-                        Tap a flavor to add it here!
+                        Build Your Box
                     </Typography>
-                )}
+                    <Typography
+                        variant="body1"
+                        sx={{
+                            color: 'text.secondary',
+                            textAlign: 'center',
+                            mb: 3,
+                        }}
+                    >
+                        Select your packaging to get started
+                    </Typography>
 
-                {/* Placed flavor circles */}
-                <AnimatePresence>
-                    {placedFlavors.map((flavor) => (
-                        <motion.div
-                            key={flavor.id}
-                            initial={{ scale: 0, opacity: 0, y: 50 }}
-                            animate={{
-                                scale: 1,
-                                opacity: 1,
-                                y: 0,
-                                rotate: flavor.rotation
-                            }}
-                            exit={{ scale: 0, opacity: 0 }}
-                            transition={{
-                                type: 'spring',
-                                stiffness: 400,
-                                damping: 25
-                            }}
-                            whileHover={{ scale: 1.1, zIndex: 10 }}
-                            onClick={() => handleRemoveFromHero(flavor.id)}
-                            style={{
-                                position: 'absolute',
-                                left: `${flavor.x}%`,
-                                top: `${flavor.y}%`,
-                                transform: 'translate(-50%, -50%)',
-                                cursor: 'pointer',
-                                zIndex: 5,
-                            }}
-                        >
-                            {flavor.image ? (
+                    {/* Vertical stack of packaging cards */}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {PACKAGING.map((item) => (
+                            <motion.div
+                                key={item.name}
+                                whileHover={{ scale: 1.02, y: -4 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => handlePackagingSelect(item)}
+                                style={{ cursor: 'pointer' }}
+                            >
                                 <Box
                                     sx={{
-                                        width: 60,
-                                        height: 60,
-                                        borderRadius: '50%',
+                                        borderRadius: 3,
                                         overflow: 'hidden',
-                                        boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-                                        border: '3px solid white',
+                                        boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+                                        backgroundColor: '#f8f8f8',
+                                        transition: 'box-shadow 0.3s',
+                                        '&:hover': {
+                                            boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+                                        },
                                     }}
                                 >
-                                    <img
-                                        src={flavor.image}
-                                        alt={flavor.name}
-                                        style={{
+                                    {/* Hero Image */}
+                                    <Box
+                                        sx={{
                                             width: '100%',
-                                            height: '100%',
-                                            objectFit: 'cover'
+                                            height: { xs: 200, sm: 250, md: 300 },
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            backgroundColor: 'white',
+                                            p: 2,
                                         }}
-                                    />
+                                    >
+                                        {item.heroImage && (
+                                            <img
+                                                src={item.heroImage}
+                                                alt={item.name}
+                                                style={{
+                                                    maxWidth: '100%',
+                                                    maxHeight: '100%',
+                                                    objectFit: 'contain',
+                                                }}
+                                            />
+                                        )}
+                                    </Box>
+
+                                    {/* Card Footer */}
+                                    <Box
+                                        sx={{
+                                            p: 2,
+                                            backgroundColor: 'white',
+                                            borderTop: '1px solid',
+                                            borderColor: 'grey.100',
+                                        }}
+                                    >
+                                        {/* Title and Modify row */}
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                            <Typography
+                                                variant="h6"
+                                                sx={{
+                                                    fontWeight: 700,
+                                                    fontSize: '1.6rem',
+                                                }}
+                                            >
+                                                {item.name}
+                                            </Typography>
+                                            <Typography
+                                                sx={{
+                                                    fontWeight: 600,
+                                                    color: 'primary.main',
+                                                    fontSize: '1.6rem',
+                                                }}
+                                            >
+                                                Modify →
+                                            </Typography>
+                                        </Box>
+
+                                        {/* Dietary badges with labels */}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                                            {item.sustainable && (
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                    <SustainableBadge size="small" />
+                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                        Sustainable
+                                                    </Typography>
+                                                </Box>
+                                            )}
+                                            {item.glutenFree && (
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                    <GlutenFreeBadge size="small" />
+                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                        Gluten Free
+                                                    </Typography>
+                                                </Box>
+                                            )}
+                                            {item.vegan && (
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                    <VeganBadge size="small" />
+                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                        Vegan
+                                                    </Typography>
+                                                </Box>
+                                            )}
+                                        </Box>
+                                    </Box>
                                 </Box>
-                            ) : (
-                                <Box
-                                    sx={{
-                                        width: 60,
-                                        height: 60,
-                                        borderRadius: '50%',
-                                        backgroundColor: flavor.color,
-                                        boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-                                        border: '3px solid white',
-                                    }}
-                                />
-                            )}
-                        </motion.div>
-                    ))}
-                </AnimatePresence>
-            </Box>
-
-            {/* Packaging Section */}
-            <Box sx={{ pt: 2, pb: 4 }}>
-                <Typography
-                    variant="h3"
-                    component="h2"
-                    sx={{
-                        fontWeight: 700,
-                        mb: 2,
-                        fontSize: { xs: '1.75rem', md: '2.25rem' },
-                        textAlign: 'center'
-                    }}
-                >
-                    Packaging
-                </Typography>
-
-                {/* Legend */}
-                <Box
-                    sx={{
-                        display: 'flex',
-                        justifyContent: 'center',
-                        gap: 3,
-                        mb: 3
-                    }}
-                >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <SustainableBadge size="small" />
-                        <Typography variant="body2" color="text.secondary">
-                            Sustainable
-                        </Typography>
+                            </motion.div>
+                        ))}
                     </Box>
                 </Box>
+            )}
 
-                {/* Packaging Grid - 2 columns */}
-                <Box
-                    sx={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(2, 1fr)',
-                        gap: 3,
-                        maxWidth: '400px',
-                        margin: '0 auto'
-                    }}
-                >
-                    {PACKAGING.map((item) => (
-                        <Box
-                            key={item.name}
-                            sx={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                cursor: 'pointer',
-                                '&:hover': { opacity: 0.8 }
-                            }}
-                        >
-                            {/* Image or Color Square */}
-                            {item.image ? (
+            {/* Selected Packaging - Box with Slots */}
+            {selectedPackaging && selectedPackaging.name === 'Cake Jar Boxes' && (
+                <Box sx={{ py: 2, mb: 2 }}>
+                    <Typography
+                        variant="h5"
+                        sx={{
+                            fontWeight: 700,
+                            textAlign: 'center',
+                            mb: 2,
+                            fontSize: '1.6rem',
+                        }}
+                    >
+                        {selectedPackaging.name}
+                    </Typography>
+
+                    {/* 6-Slot Box - 3 columns x 2 rows */}
+                    <Box
+                        sx={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: 1.5,
+                            p: 2,
+                            backgroundColor: '#f5f0e6',
+                            borderRadius: 3,
+                            border: '3px solid #d4c4a8',
+                            maxWidth: 320,
+                            margin: '0 auto',
+                        }}
+                    >
+                        {[0, 1, 2, 3, 4, 5].map((slotIndex) => {
+                            const flavorInSlot = placedFlavors.find(f => f.slotIndex === slotIndex);
+                            return (
                                 <Box
+                                    key={slotIndex}
                                     sx={{
-                                        width: '100%',
-                                        paddingTop: '100%',
-                                        position: 'relative',
-                                        borderRadius: 2,
+                                        aspectRatio: '1',
+                                        borderRadius: '50%',
+                                        backgroundColor: flavorInSlot ? 'transparent' : '#e8e0d0',
+                                        border: flavorInSlot ? 'none' : '2px dashed #c4b89c',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
                                         overflow: 'hidden',
-                                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                                        cursor: flavorInSlot ? 'pointer' : 'default',
                                     }}
+                                    onClick={() => flavorInSlot && handleRemoveFromSlot(flavorInSlot.id)}
                                 >
-                                    <img
-                                        src={item.image}
-                                        alt={item.name}
-                                        style={{
-                                            position: 'absolute',
-                                            top: 0,
-                                            left: 0,
-                                            width: '100%',
-                                            height: '100%',
-                                            objectFit: 'cover'
-                                        }}
-                                    />
+                                    {/* Slot number when empty */}
+                                    {!flavorInSlot && (
+                                        <Typography
+                                            sx={{
+                                                fontSize: '1.6rem',
+                                                fontWeight: 600,
+                                                color: '#b8a88c',
+                                            }}
+                                        >
+                                            {slotIndex + 1}
+                                        </Typography>
+                                    )}
+                                    <AnimatePresence>
+                                        {flavorInSlot && (
+                                            <motion.div
+                                                key={flavorInSlot.id}
+                                                initial={{ scale: 0, opacity: 0, y: -50 }}
+                                                animate={{ scale: 1, opacity: 1, y: 0 }}
+                                                exit={{ scale: 0, opacity: 0 }}
+                                                transition={{
+                                                    type: 'spring',
+                                                    stiffness: 300,
+                                                    damping: 20
+                                                }}
+                                                style={{ width: '100%', height: '100%' }}
+                                            >
+                                                <Box
+                                                    sx={{
+                                                        width: '100%',
+                                                        height: '100%',
+                                                        borderRadius: '50%',
+                                                        backgroundColor: flavorInSlot.color,
+                                                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        overflow: 'hidden',
+                                                    }}
+                                                >
+                                                    {flavorInSlot.image && (
+                                                        <img
+                                                            src={flavorInSlot.image}
+                                                            alt={flavorInSlot.name}
+                                                            style={{
+                                                                width: '100%',
+                                                                height: '100%',
+                                                                objectFit: 'cover',
+                                                            }}
+                                                        />
+                                                    )}
+                                                </Box>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
                                 </Box>
-                            ) : (
-                                <Box
-                                    sx={{
-                                        width: '100%',
-                                        paddingTop: '100%',
-                                        position: 'relative',
-                                        borderRadius: 2,
-                                        backgroundColor: item.color,
-                                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                                    }}
-                                />
-                            )}
-                            {/* Packaging Name */}
-                            <Typography
-                                variant="body2"
-                                sx={{
-                                    mt: 1,
-                                    fontWeight: 500,
-                                    textAlign: 'center',
-                                    fontSize: '1.4rem'
-                                }}
-                            >
-                                {item.name}
-                            </Typography>
-                            {/* Sustainable Badge */}
-                            {item.sustainable && (
-                                <Box sx={{ mt: 0.5 }}>
-                                    <SustainableBadge size="small" />
-                                </Box>
-                            )}
-                        </Box>
-                    ))}
-                </Box>
-            </Box>
+                            );
+                        })}
+                    </Box>
 
-            {/* Flavors Section */}
-            <Box sx={{ pt: 2, pb: 4, borderTop: '1px solid', borderColor: 'divider' }}>
+                    <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{ textAlign: 'center', mt: 2, fontSize: '1.4rem' }}
+                    >
+                        {placedFlavors.length}/6 slots filled • Tap a flavor to add
+                    </Typography>
+                </Box>
+            )}
+
+            {/* Selected Packaging Header - for non-box packaging */}
+            {selectedPackaging && selectedPackaging.name !== 'Cake Jar Boxes' && (
+                <Box sx={{ py: 2, mb: 2 }}>
+                    <Typography
+                        variant="h5"
+                        sx={{
+                            fontWeight: 700,
+                            textAlign: 'center',
+                            fontSize: '1.6rem',
+                        }}
+                    >
+                        {selectedPackaging.name}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 0.5 }}>
+                        Choose your flavors
+                    </Typography>
+                </Box>
+            )}
+
+            {/* Show Toggle and Flavors only after packaging is selected */}
+            {selectedPackaging && (
+                <>
+                    {/* Flavors Section */}
+                    <Box sx={{ pt: 2, pb: 4, borderTop: '1px solid', borderColor: 'divider' }}>
                 <Typography
                     variant="h3"
                     component="h2"
@@ -587,21 +870,55 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                         display: 'flex',
                         justifyContent: 'center',
                         gap: 3,
-                        mb: 3
+                        mb: 2
                     }}
                 >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <GlutenFreeBadge size="small" />
-                        <Typography variant="body2" color="text.secondary">
-                            Gluten-Free
+                        <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                            Gluten Free
                         </Typography>
                     </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <VeganBadge size="small" />
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
                             Vegan
                         </Typography>
                     </Box>
+                </Box>
+
+                {/* Category Toggle */}
+                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
+                    <ToggleButtonGroup
+                        value={selectedFlavorCategory}
+                        exclusive
+                        onChange={handleFlavorCategoryChange}
+                        aria-label="flavor category"
+                        sx={{
+                            '& .MuiToggleButton-root': {
+                                px: 3,
+                                py: 1,
+                                textTransform: 'none',
+                                fontSize: '1.4rem',
+                                fontWeight: 500,
+                                border: '1px solid',
+                                borderColor: 'grey.300',
+                                '&.Mui-selected': {
+                                    backgroundColor: 'black',
+                                    color: 'white',
+                                    '&:hover': {
+                                        backgroundColor: '#333',
+                                    },
+                                },
+                            },
+                        }}
+                    >
+                        {(FLAVOR_CATEGORIES_BY_PACKAGING[selectedPackaging?.name] || []).map((category) => (
+                            <ToggleButton key={category.id} value={category.id}>
+                                {category.label}
+                            </ToggleButton>
+                        ))}
+                    </ToggleButtonGroup>
                 </Box>
 
                 {/* Flavors Grid - 3 columns */}
@@ -619,13 +936,21 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                             key={flavor.name}
                             flavor={flavor}
                             onTearAway={handleTearAway}
-                            isPlaced={isFlavorPlaced(flavor.name)}
+                            isPlaced={false}
                         />
-                    ))}
+                        ))}
+                    </Box>
                 </Box>
-            </Box>
+            </>
+            )}
 
-            {/* Category Grid */}
+            {/*
+            ===========================================
+            CATEGORY GRID - Currently disabled
+            ===========================================
+            This section displays categories from the JSON menu data.
+            Each category shows an image and name, clicking navigates to that category.
+
             <Box sx={{ pt: 1, pb: 2, borderTop: '1px solid', borderColor: 'divider' }}>
                 <Box
                     sx={{
@@ -693,8 +1018,15 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                     })}
                 </Box>
             </Box>
+            */}
 
-            {/* Featured Products Section */}
+            {/*
+            ===========================================
+            FEATURED PRODUCTS SECTION - Currently disabled
+            ===========================================
+            This section displays featured products from the menu.
+            Uses the ProductCard component defined below.
+
             {featuredProducts.length > 0 && (
                 <Box sx={{ py: 4, borderTop: '1px solid', borderColor: 'divider' }}>
                     <Typography
@@ -716,7 +1048,6 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                         Popular catering options
                     </Typography>
 
-                    {/* Product Grid */}
                     <Box
                         sx={{
                             display: 'grid',
@@ -738,9 +1069,16 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                     </Box>
                 </Box>
             )}
+            */}
         </Box>
     );
 };
+
+/*
+===========================================
+PRODUCT CARD COMPONENT - Currently disabled
+===========================================
+Used by the Featured Products section to display individual product cards.
 
 const ProductCard = ({ item, onClick }) => {
     const imageUrl = item['Item Image'] || 'https://placehold.co/300x300/e0e0e0/666666?text=Product';
@@ -757,7 +1095,6 @@ const ProductCard = ({ item, onClick }) => {
                 }
             }}
         >
-            {/* Product Image */}
             <Box
                 sx={{
                     position: 'relative',
@@ -785,7 +1122,6 @@ const ProductCard = ({ item, onClick }) => {
                 />
             </Box>
 
-            {/* Product Info */}
             <Typography
                 variant="body1"
                 sx={{
@@ -805,5 +1141,6 @@ const ProductCard = ({ item, onClick }) => {
         </Box>
     );
 };
+*/
 
 export default CategoryListView;
