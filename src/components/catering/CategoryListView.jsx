@@ -19,6 +19,7 @@ export const GlutenFreeBadge = ({ size = 'medium' }) => {
     return (
         <Box
             sx={{
+                position: 'relative',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -32,6 +33,17 @@ export const GlutenFreeBadge = ({ size = 'medium' }) => {
         >
             {/* Wheat icon */}
             <GiWheat size={s.iconSize} color="#F9A825" />
+            {/* Diagonal strikethrough line */}
+            <Box
+                sx={{
+                    position: 'absolute',
+                    width: '120%',
+                    height: '3px',
+                    backgroundColor: '#F9A825',
+                    transform: 'rotate(-45deg)',
+                    borderRadius: '2px',
+                }}
+            />
         </Box>
     );
 };
@@ -123,12 +135,13 @@ const FLAVOR_CATEGORIES_BY_PACKAGING = {
 // Hardcoded flavors with colors, dietary info, and category
 const FLAVORS = {
     cake: [
+        { name: 'Make Your Own Cake Jar', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/make-your-own-mini-cake-jar.png', color: '#FFD700', glutenFree: false, vegan: false },
         { name: "A'mour S'more", image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/amour-smore-mini-cake-jar.png', color: '#8B4513', glutenFree: false, vegan: false },
-        { name: 'Chocolate Meltdown Overload', color: '#3D1C02', glutenFree: true, vegan: true },
-        { name: 'Vanilla', color: '#F3E5AB', glutenFree: true, vegan: false },
-        { name: 'All Very Strawberry', color: '#FF6B81', glutenFree: true, vegan: true },
+        { name: 'Chocolate Meltdown Overload', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/chocolate-meltdown-overload-mini-cake-jar.png', color: '#3D1C02', glutenFree: true, vegan: true },
+        { name: 'I Dream of Taro', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/i-dream-of-taro-mini-cake-jar.png', color: '#9370DB', glutenFree: true, vegan: false },
+        { name: 'All Very Strawberry', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/all-very-strawberry-mini-cake-jar.png', color: '#FF6B81', glutenFree: true, vegan: true },
         { name: 'Nom Nom Cookie', color: '#2C2C2C', glutenFree: false, vegan: false },
-        { name: 'La La Red Velvet', color: '#C41E3A', glutenFree: false, vegan: false },
+        { name: 'La La Red Velvet', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/la-la-red-velvet-mini-cake-jar.png', color: '#C41E3A', glutenFree: false, vegan: false },
     ],
     cheesecake: [
         { name: 'Strawberry', color: '#FF6B81', glutenFree: true, vegan: false },
@@ -237,7 +250,7 @@ const AnimatedFlavorCircle = ({ flavor, onTearAway, isPlaced }) => {
                             scale: 1.08,
                         } :
                         animationPhase === 'flying' ? {
-                            y: -350,
+                            y: 350,
                             scale: 0.5,
                             opacity: 0,
                         } :
@@ -585,7 +598,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                             mb: 1,
                         }}
                     >
-                        Build Your Box
+                        Looking to make your next event So Surreal?
                     </Typography>
                     <Typography
                         variant="body1"
@@ -593,9 +606,10 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                             color: 'text.secondary',
                             textAlign: 'center',
                             mb: 3,
+                            fontSize: '1.4rem',
                         }}
                     >
-                        Select your packaging to get started
+                        Proudly diverse, minority, and women-owned. Let us bring your unique style to life.
                     </Typography>
 
                     {/* Vertical stack of packaging cards */}
@@ -711,119 +725,129 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                 </Box>
             )}
 
-            {/* Selected Packaging - Box with Slots */}
+            {/* Sticky Bottom Box - Fixed at bottom for Cake Jar Boxes */}
             {selectedPackaging && selectedPackaging.name === 'Cake Jar Boxes' && (
-                <Box sx={{ py: 2, mb: 2 }}>
-                    <Typography
-                        variant="h5"
-                        sx={{
-                            fontWeight: 700,
-                            textAlign: 'center',
-                            mb: 2,
-                            fontSize: '1.6rem',
-                        }}
-                    >
-                        {selectedPackaging.name}
-                    </Typography>
+                <Box
+                    sx={{
+                        position: 'fixed',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        backgroundColor: 'white',
+                        borderTop: '1px solid',
+                        borderColor: 'grey.300',
+                        boxShadow: '0 -4px 20px rgba(0,0,0,0.1)',
+                        zIndex: 1000,
+                        p: 2,
+                    }}
+                >
+                    <Box sx={{ maxWidth: 600, margin: '0 auto' }}>
+                        {/* Title and count row */}
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                            <Typography
+                                variant="h6"
+                                sx={{ fontWeight: 700, fontSize: '1.4rem' }}
+                            >
+                                {selectedPackaging.name}
+                            </Typography>
+                            <Typography
+                                variant="body2"
+                                color="text.secondary"
+                                sx={{ fontSize: '1.4rem' }}
+                            >
+                                {placedFlavors.length}/6 filled
+                            </Typography>
+                        </Box>
 
-                    {/* 6-Slot Box - 3 columns x 2 rows */}
-                    <Box
-                        sx={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(3, 1fr)',
-                            gap: 1.5,
-                            p: 2,
-                            backgroundColor: '#f5f0e6',
-                            borderRadius: 3,
-                            border: '3px solid #d4c4a8',
-                            maxWidth: 320,
-                            margin: '0 auto',
-                        }}
-                    >
-                        {[0, 1, 2, 3, 4, 5].map((slotIndex) => {
-                            const flavorInSlot = placedFlavors.find(f => f.slotIndex === slotIndex);
-                            return (
-                                <Box
-                                    key={slotIndex}
-                                    sx={{
-                                        aspectRatio: '1',
-                                        borderRadius: '50%',
-                                        backgroundColor: flavorInSlot ? 'transparent' : '#e8e0d0',
-                                        border: flavorInSlot ? 'none' : '2px dashed #c4b89c',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        overflow: 'hidden',
-                                        cursor: flavorInSlot ? 'pointer' : 'default',
-                                    }}
-                                    onClick={() => flavorInSlot && handleRemoveFromSlot(flavorInSlot.id)}
-                                >
-                                    {/* Slot number when empty */}
-                                    {!flavorInSlot && (
-                                        <Typography
-                                            sx={{
-                                                fontSize: '1.6rem',
-                                                fontWeight: 600,
-                                                color: '#b8a88c',
-                                            }}
-                                        >
-                                            {slotIndex + 1}
-                                        </Typography>
-                                    )}
-                                    <AnimatePresence>
-                                        {flavorInSlot && (
-                                            <motion.div
-                                                key={flavorInSlot.id}
-                                                initial={{ scale: 0, opacity: 0, y: -50 }}
-                                                animate={{ scale: 1, opacity: 1, y: 0 }}
-                                                exit={{ scale: 0, opacity: 0 }}
-                                                transition={{
-                                                    type: 'spring',
-                                                    stiffness: 300,
-                                                    damping: 20
+                        {/* 6-Slot Box - Compact horizontal layout */}
+                        <Box
+                            sx={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(6, 1fr)',
+                                gap: 1,
+                                p: 1.5,
+                                backgroundColor: '#f5f0e6',
+                                borderRadius: 2,
+                                border: '2px solid #d4c4a8',
+                            }}
+                        >
+                            {[0, 1, 2, 3, 4, 5].map((slotIndex) => {
+                                const flavorInSlot = placedFlavors.find(f => f.slotIndex === slotIndex);
+                                return (
+                                    <Box
+                                        key={slotIndex}
+                                        sx={{
+                                            aspectRatio: '1',
+                                            borderRadius: '50%',
+                                            backgroundColor: flavorInSlot ? 'transparent' : '#e8e0d0',
+                                            border: flavorInSlot ? 'none' : '2px dashed #c4b89c',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            overflow: 'hidden',
+                                            cursor: flavorInSlot ? 'pointer' : 'default',
+                                        }}
+                                        onClick={() => flavorInSlot && handleRemoveFromSlot(flavorInSlot.id)}
+                                    >
+                                        {/* Slot number when empty */}
+                                        {!flavorInSlot && (
+                                            <Typography
+                                                sx={{
+                                                    fontSize: '1.2rem',
+                                                    fontWeight: 600,
+                                                    color: '#b8a88c',
                                                 }}
-                                                style={{ width: '100%', height: '100%' }}
                                             >
-                                                <Box
-                                                    sx={{
-                                                        width: '100%',
-                                                        height: '100%',
-                                                        borderRadius: '50%',
-                                                        backgroundColor: flavorInSlot.color,
-                                                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        overflow: 'hidden',
-                                                    }}
-                                                >
-                                                    {flavorInSlot.image && (
-                                                        <img
-                                                            src={flavorInSlot.image}
-                                                            alt={flavorInSlot.name}
-                                                            style={{
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                objectFit: 'cover',
-                                                            }}
-                                                        />
-                                                    )}
-                                                </Box>
-                                            </motion.div>
+                                                {slotIndex + 1}
+                                            </Typography>
                                         )}
-                                    </AnimatePresence>
-                                </Box>
-                            );
-                        })}
+                                        <AnimatePresence>
+                                            {flavorInSlot && (
+                                                <motion.div
+                                                    key={flavorInSlot.id}
+                                                    initial={{ scale: 0, opacity: 0 }}
+                                                    animate={{ scale: 1, opacity: 1 }}
+                                                    exit={{ scale: 0, opacity: 0 }}
+                                                    transition={{
+                                                        type: 'spring',
+                                                        stiffness: 400,
+                                                        damping: 25
+                                                    }}
+                                                    style={{ width: '100%', height: '100%' }}
+                                                >
+                                                    <Box
+                                                        sx={{
+                                                            width: '100%',
+                                                            height: '100%',
+                                                            borderRadius: '50%',
+                                                            backgroundColor: flavorInSlot.color,
+                                                            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            overflow: 'hidden',
+                                                        }}
+                                                    >
+                                                        {flavorInSlot.image && (
+                                                            <img
+                                                                src={flavorInSlot.image}
+                                                                alt={flavorInSlot.name}
+                                                                style={{
+                                                                    width: '100%',
+                                                                    height: '100%',
+                                                                    objectFit: 'cover',
+                                                                }}
+                                                            />
+                                                        )}
+                                                    </Box>
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
+                                    </Box>
+                                );
+                            })}
+                        </Box>
                     </Box>
-
-                    <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ textAlign: 'center', mt: 2, fontSize: '1.4rem' }}
-                    >
-                        {placedFlavors.length}/6 slots filled • Tap a flavor to add
-                    </Typography>
                 </Box>
             )}
 
@@ -850,7 +874,12 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
             {selectedPackaging && (
                 <>
                     {/* Flavors Section */}
-                    <Box sx={{ pt: 2, pb: 4, borderTop: '1px solid', borderColor: 'divider' }}>
+                    <Box sx={{
+                        pt: 2,
+                        pb: selectedPackaging?.name === 'Cake Jar Boxes' ? 20 : 4,
+                        borderTop: '1px solid',
+                        borderColor: 'divider'
+                    }}>
                 <Typography
                     variant="h3"
                     component="h2"
