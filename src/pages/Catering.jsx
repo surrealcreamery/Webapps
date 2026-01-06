@@ -7,6 +7,7 @@ import {
     Container,
     Button
 } from '@mui/material';
+import { Helmet } from 'react-helmet-async';
 import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext';
 
 // Import all the view components
@@ -307,6 +308,11 @@ export default function CateringMenu() {
 
     return (
         <>
+            <Helmet>
+                <title>Catering | Surreal Creamery</title>
+                <meta name="description" content="Order catering from Surreal Creamery. Cake jars, cupcakes, and more for your events and parties." />
+            </Helmet>
+
             <Container maxWidth="sm" sx={{ pt: 0, pb: 4 }}>
                 {renderContent()}
             </Container>
