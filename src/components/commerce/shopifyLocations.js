@@ -85,18 +85,18 @@ export function getDefaultLocations() {
   return [
     {
       id: 'kips-bay',
-      name: 'Kips Bay, NYC',
-      address: '123 Main St, New York, NY 10016',
-      phone: '(212) 555-0100',
+      name: 'Kips Bay',
+      address: '570 2nd Ave, New York, NY 10016',
+      phone: '(646) 455-0093',
       latitude: 40.7450,
       longitude: -73.9781,
       shopifyLocationId: null // Get from Shopify
     },
     {
       id: 'new-brunswick',
-      name: 'New Brunswick, NJ',
-      address: '456 George St, New Brunswick, NJ 08901',
-      phone: '(732) 555-0200',
+      name: 'New Brunswick',
+      address: '100 Albany St, New Brunswick, NJ 08901',
+      phone: '(732) 354-5554',
       latitude: 40.4862,
       longitude: -74.4518,
       shopifyLocationId: null // Get from Shopify

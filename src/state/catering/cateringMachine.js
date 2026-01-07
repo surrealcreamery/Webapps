@@ -702,7 +702,10 @@ export const cateringMachine = setup({
             initial: 'browsingCategories',
             states: {
                  browsingCategories: {
-                    on: { SELECT_CATEGORY: { target: 'browsingItems', actions: ['selectCategory', 'persistState'], guard: ({ event }) => !!event.category } },
+                    on: {
+                        SELECT_CATEGORY: { target: 'browsingItems', actions: ['selectCategory', 'persistState'], guard: ({ event }) => !!event.category },
+                        ADD_TO_CART: { actions: ['addToCart', 'persistState'] },
+                    },
                 },
                  browsingItems: {
                     on: {
