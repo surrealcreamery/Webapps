@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import { Box, Typography, Container, ToggleButtonGroup, ToggleButton, Dialog, DialogContent, IconButton, Button } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { LocationModal } from '@/components/commerce/LocationModal';
 import { GiWheat } from 'react-icons/gi';
 import { FaLeaf, FaRecycle } from 'react-icons/fa';
@@ -224,175 +225,136 @@ const getNextAvailablePickup = () => {
     };
 };
 
-// Availability Notification Component with Auto-Detection
-const AvailabilityNotification = () => {
-    const [availability, setAvailability] = useState(() => getNextAvailablePickup());
-    const [selectedLocationId, setSelectedLocationId] = useState(null);
-    const [sortedLocations, setSortedLocations] = useState(STORE_LOCATIONS);
-    const [isDetecting, setIsDetecting] = useState(true);
-    const [locationModalOpen, setLocationModalOpen] = useState(false);
-
-    // Fetch user location and auto-select nearest store
-    useEffect(() => {
-        const detectLocation = async () => {
-            try {
-                const userLocation = await getLocationFromIP();
-
-                if (userLocation?.latitude && userLocation?.longitude) {
-                    // Calculate distances and sort by nearest
-                    const withDistances = STORE_LOCATIONS.map(store => {
-                        const distance = calculateDistance(
-                            userLocation.latitude,
-                            userLocation.longitude,
-                            store.latitude,
-                            store.longitude
-                        );
-                        return { ...store, distance };
-                    }).sort((a, b) => a.distance - b.distance);
-
-                    setSortedLocations(withDistances);
-                    setSelectedLocationId(withDistances[0].id); // Auto-select nearest
-                    console.log(`📍 Auto-selected nearest store: ${withDistances[0]?.name}`);
-                } else {
-                    // Fallback - select first store
-                    setSelectedLocationId(STORE_LOCATIONS[0].id);
-                }
-            } catch (error) {
-                console.error('Location detection failed:', error);
-                setSelectedLocationId(STORE_LOCATIONS[0].id);
-            } finally {
-                setIsDetecting(false);
-            }
-        };
-
-        detectLocation();
-    }, []);
-
-    // Update availability every minute
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setAvailability(getNextAvailablePickup());
-        }, 60000);
-
-        return () => clearInterval(interval);
-    }, []);
-
-    const selectedLocation = sortedLocations.find(loc => loc.id === selectedLocationId);
-
-    // Build the status and time messages separately
-    const getStatusMessage = () => {
-        if (availability.isOpenNow) {
-            return "is open now!";
-        }
-        // Extract just the "opens" part from the message
-        if (availability.message.includes('later today')) {
-            return "opens later today.";
-        }
-        if (availability.message.includes('Tomorrow')) {
-            return "opens tomorrow.";
-        }
-        // Extract day from message like "Opens Monday, Jan 6..."
-        const match = availability.message.match(/Opens ([^.]+)\./);
-        return match ? `opens ${match[1].toLowerCase()}.` : "opens soon.";
-    };
-
-    const getTimeMessage = () => {
-        if (!availability.pickupTime || !availability.deliveryTime) return '';
-
-        const formatTime = (date) => {
-            const hours = date.getHours();
-            const minutes = date.getMinutes();
-            const period = hours >= 12 ? 'pm' : 'am';
-            const displayHour = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours;
-            return `${displayHour}:${minutes.toString().padStart(2, '0')}${period}`;
-        };
-
-        const pickupStr = formatTime(availability.pickupTime);
-        const deliveryStr = formatTime(availability.deliveryTime);
-
-        if (pickupStr === deliveryStr) {
-            return `Earliest pickup or delivery is ${pickupStr} for orders placed now.`;
-        }
-        return `Earliest pickup is ${pickupStr}, delivery for ${deliveryStr} for orders placed now.`;
-    };
-
+// Flip Clock Digit Component - mimics old split-flap display
+const FlipClockDigit = ({ value }) => {
     return (
         <Box
             sx={{
-                backgroundColor: availability.isOpenNow ? '#E8F5E9' : '#FFF8E1',
-                borderRadius: 2,
-                p: 2,
-                mb: 3,
-                border: '1px solid',
-                borderColor: availability.isOpenNow ? '#A5D6A7' : '#FFE082',
+                position: 'relative',
+                width: 50,
+                height: 70,
+                backgroundColor: '#1a1a1a',
+                borderRadius: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
             }}
         >
-            {/* Line 1: Location selector + status */}
-            <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', mb: 0.5 }}>
-                <Box
-                    component="button"
-                    onClick={() => setLocationModalOpen(true)}
-                    sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        margin: 0,
-                        marginRight: '4px',
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                    }}
-                >
-                    <Typography
-                        component="span"
-                        sx={{
-                            fontSize: '1.6rem',
-                            fontWeight: 600,
-                            color: availability.isOpenNow ? '#2E7D32' : '#F57F17',
-                        }}
-                    >
-                        {selectedLocation?.name || 'Select Location'}
-                    </Typography>
-                    <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill={availability.isOpenNow ? '#2E7D32' : '#F57F17'}
-                        style={{ marginLeft: '2px' }}
-                    >
-                        <path d="M7 10l5 5 5-5z"/>
-                    </svg>
-                </Box>
-                <LocationModal
-                    open={locationModalOpen}
-                    onClose={() => setLocationModalOpen(false)}
-                    selectedLocationId={selectedLocationId}
-                    onSelectLocation={(id) => setSelectedLocationId(id)}
-                    locations={sortedLocations}
-                />
-                <Typography
-                    component="span"
-                    sx={{
-                        fontSize: '1.6rem',
-                        fontWeight: 600,
-                        color: availability.isOpenNow ? '#2E7D32' : '#F57F17',
-                    }}
-                >
-                    {getStatusMessage()}
-                </Typography>
-            </Box>
-
-            {/* Line 2: Pickup/delivery times */}
-            <Typography
+            {/* Top half */}
+            <Box
                 sx={{
-                    fontSize: '1.6rem',
-                    fontWeight: 500,
-                    color: availability.isOpenNow ? '#2E7D32' : '#F57F17',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: '50%',
+                    backgroundColor: '#2a2a2a',
+                    borderBottom: '1px solid #000',
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
                 }}
             >
-                {getTimeMessage()}
-            </Typography>
+                <Typography
+                    sx={{
+                        fontSize: '3.5rem',
+                        fontWeight: 700,
+                        color: 'white',
+                        fontFamily: '"Courier New", monospace',
+                        lineHeight: 1,
+                        transform: 'translateY(50%)',
+                    }}
+                >
+                    {value}
+                </Typography>
+            </Box>
+            {/* Bottom half */}
+            <Box
+                sx={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: '50%',
+                    backgroundColor: '#1a1a1a',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                }}
+            >
+                <Typography
+                    sx={{
+                        fontSize: '3.5rem',
+                        fontWeight: 700,
+                        color: 'white',
+                        fontFamily: '"Courier New", monospace',
+                        lineHeight: 1,
+                        transform: 'translateY(-50%)',
+                    }}
+                >
+                    {value}
+                </Typography>
+            </Box>
+            {/* Center line (flap edge) */}
+            <Box
+                sx={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: 0,
+                    right: 0,
+                    height: 2,
+                    backgroundColor: '#000',
+                    transform: 'translateY(-50%)',
+                }}
+            />
+        </Box>
+    );
+};
+
+// Flip Clock Time Display Component
+const FlipClockDisplay = ({ time }) => {
+    // time is a Date object
+    if (!time) return null;
+
+    const hours = time.getHours();
+    const minutes = time.getMinutes();
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHour = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours;
+
+    const hourStr = displayHour.toString().padStart(2, '0');
+    const minStr = minutes.toString().padStart(2, '0');
+
+    return (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+            <FlipClockDigit value={hourStr[0]} />
+            <FlipClockDigit value={hourStr[1]} />
+            <Typography sx={{ fontSize: '3rem', fontWeight: 700, color: '#1a1a1a', mx: 0.5 }}>:</Typography>
+            <FlipClockDigit value={minStr[0]} />
+            <FlipClockDigit value={minStr[1]} />
+            <Box
+                sx={{
+                    ml: 1,
+                    px: 1,
+                    py: 0.5,
+                    backgroundColor: '#1a1a1a',
+                    borderRadius: 1,
+                }}
+            >
+                <Typography
+                    sx={{
+                        fontSize: '1.4rem',
+                        fontWeight: 700,
+                        color: 'white',
+                        fontFamily: '"Courier New", monospace',
+                    }}
+                >
+                    {period}
+                </Typography>
+            </Box>
         </Box>
     );
 };
@@ -509,11 +471,11 @@ export const DietaryBadges = ({ glutenFree, vegan, size = 'small' }) => {
 // Flavor categories per packaging type
 const FLAVOR_CATEGORIES_BY_PACKAGING = {
     'Cake Jar Boxes': [
-        { id: 'cake', label: 'Cake' },
+        { id: 'cake', label: 'Cake Jars' },
         { id: 'cheesecake', label: 'Cheesecake' },
     ],
     'Cupcake Trays': [
-        { id: 'cake', label: 'Cake' },
+        { id: 'cake', label: 'Cake Jars' },
         { id: 'cheesecake', label: 'Cheesecake' },
         { id: 'cookie', label: 'Cookie' },
     ],
@@ -522,10 +484,12 @@ const FLAVOR_CATEGORIES_BY_PACKAGING = {
     ],
 };
 
+// Make Your Own Cake Jar - shown in Your Jars section
+const MAKE_YOUR_OWN_JAR = { name: 'Make Your Own Cake Jar', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/make-your-own-mini-cake-jar.png', color: '#FFD700', glutenFree: false, vegan: false };
+
 // Hardcoded flavors with colors, dietary info, and category
 const FLAVORS = {
     cake: [
-        { name: 'Make Your Own Cake Jar', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/make-your-own-mini-cake-jar.png', color: '#FFD700', glutenFree: false, vegan: false },
         { name: "A'mour S'more", image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/amour-smore-mini-cake-jar.png', color: '#8B4513', glutenFree: false, vegan: false },
         { name: 'Chocolate Meltdown Overload', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/chocolate-meltdown-overload-mini-cake-jar.png', color: '#3D1C02', glutenFree: true, vegan: true },
         { name: 'I Dream of Taro', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/i-dream-of-taro-mini-cake-jar.png', color: '#9370DB', glutenFree: true, vegan: false },
@@ -549,13 +513,36 @@ const FLAVORS = {
 };
 
 // Available customization options
-const CAKE_FLAVORS = ['Vanilla', 'Chocolate', 'Red Velvet', 'Strawberry', 'Taro', 'Espresso'];
-const FROSTINGS = ['Marshmallow', 'Tres Leches', 'Chocolate', 'Blue Vanilla', 'Strawberry', 'Cream Cheese'];
-const FROSTINGS_AMOUR_SMORE = ['Marshmallow & Chocolate']; // Only for A'mour S'more
+const CAKE_FLAVORS = [
+    { name: 'Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/cake-vanilla.png', color: '#FFF8E7' },
+    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/cake-chocolate.png', color: '#3D1C02' },
+    { name: 'Red Velvet', image: 'https://images.surrealcreamery.com/catering/make-your-own/cake-red-velvet.png', color: '#C41E3A' },
+    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/cake-strawberry.png', color: '#FF6B81' },
+    { name: 'Taro', image: 'https://images.surrealcreamery.com/catering/make-your-own/cake-taro.png', color: '#9370DB' },
+    { name: 'Espresso', image: 'https://images.surrealcreamery.com/catering/make-your-own/cake-espresso.png', color: '#C4A77D' },
+];
+const FROSTINGS = [
+    { name: 'Marshmallow', image: null, color: '#FFFFFF' },
+    { name: 'Tres Leches', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-tres-leches.png', color: '#FFF8E7' },
+    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-chocolate.png', color: '#3D1C02' },
+    { name: 'Blue Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-blue-vanilla.png', color: '#A7C7E7' },
+    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-strawberry.png', color: '#FF6B81' },
+    { name: 'Cream Cheese', image: null, color: '#FFFDD0' },
+];
+const FROSTINGS_AMOUR_SMORE = [{ name: 'Marshmallow & Chocolate', image: null, color: '#5C4033' }]; // Only for A'mour S'more
 const AVAILABLE_TOPPINGS = [
-    'Chocolate Chips', 'Chocolate Crunch', 'Chocolate Sprinkles', 'Gummy Bears',
-    'Lucky Charms Marshmallows', 'Marshmallows', "M&M's", 'Peanut Butter Chips',
-    'Rainbow Sprinkles', 'Strawberry Crunch', 'Whipped Cream', 'White Chocolate Curls'
+    { name: 'Chocolate Chips', image: null },
+    { name: 'Chocolate Crunch', image: 'https://images.surrealcreamery.com/catering/make-your-own/topping-chocolate-crunch.png' },
+    { name: 'Chocolate Sprinkles', image: null },
+    { name: 'Gummy Bears', image: null },
+    { name: 'Lucky Charms Marshmallows', image: null },
+    { name: 'Marshmallows', image: null },
+    { name: "M&M's", image: null },
+    { name: 'Peanut Butter Chips', image: null },
+    { name: 'Rainbow Sprinkles', image: null },
+    { name: 'Strawberry Crunch', image: null },
+    { name: 'Whipped Cream', image: null },
+    { name: 'White Chocolate Curls', image: null },
 ];
 const AVAILABLE_COOKIES = [
     'Biscoff', 'Chocolate Straws', 'Graham Crackers', 'Ladyfingers',
@@ -618,7 +605,7 @@ const DEFAULT_INGREDIENTS = {
 };
 
 // Jar Preview Modal Component - shows read-only view of jar with default ingredients
-const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox }) => {
+const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete }) => {
     if (!jar) return null;
 
     const defaults = DEFAULT_INGREDIENTS[jar.name] || {
@@ -661,55 +648,142 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox }) => {
             }}
         >
             <DialogContent sx={{ p: 0, flexGrow: 1, overflow: 'auto', pb: '100px' }}>
-                {/* Jar Image */}
-                <Box
-                    sx={{
-                        width: '100%',
-                        height: 300,
-                        backgroundColor: jar.color || '#f0f0f0',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        overflow: 'hidden',
-                    }}
-                >
-                    {jar.image ? (
-                        <img
-                            src={jar.image}
-                            alt={jar.name}
-                            style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover',
-                            }}
-                        />
-                    ) : (
+                {/* Jar Image - show layered frosting + toppings for custom jars */}
+                {(() => {
+                    // For custom jars, get frosting and topping images
+                    let frostingImage = null;
+                    let frostingColor = jar.color;
+                    let toppingImages = [];
+
+                    if (jar.isCustom && jar.customizations) {
+                        const frostingName = jar.customizations.frostings?.[0];
+                        const frostingObj = FROSTINGS.find(f => f.name === frostingName);
+                        frostingImage = frostingObj?.image;
+                        frostingColor = frostingObj?.color || jar.color;
+
+                        toppingImages = (jar.customizations.toppings || [])
+                            .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+                            .filter(t => t && t.image)
+                            .map(t => t.image);
+                    }
+
+                    return (
                         <Box
                             sx={{
-                                width: 180,
-                                height: 180,
-                                borderRadius: '50%',
-                                backgroundColor: jar.color,
-                                border: '4px solid white',
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                                width: '100%',
+                                height: 300,
+                                backgroundColor: frostingColor || '#f0f0f0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                overflow: 'hidden',
+                                position: 'relative',
                             }}
-                        />
-                    )}
-                </Box>
+                        >
+                            {jar.isCustom ? (
+                                <>
+                                    {/* Base layer - frosting */}
+                                    {frostingImage && (
+                                        <img
+                                            src={frostingImage}
+                                            alt="frosting"
+                                            style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                width: '100%',
+                                                height: '100%',
+                                                objectFit: 'cover',
+                                                zIndex: 0,
+                                            }}
+                                        />
+                                    )}
+                                    {/* Topping layers */}
+                                    {toppingImages.map((img, index) => (
+                                        <img
+                                            key={index}
+                                            src={img}
+                                            alt="topping"
+                                            style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                width: '100%',
+                                                height: '100%',
+                                                objectFit: 'cover',
+                                                zIndex: index + 1,
+                                            }}
+                                        />
+                                    ))}
+                                </>
+                            ) : jar.image ? (
+                                <img
+                                    src={jar.image}
+                                    alt={jar.name}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                    }}
+                                />
+                            ) : (
+                                <Box
+                                    sx={{
+                                        width: 180,
+                                        height: 180,
+                                        borderRadius: '50%',
+                                        backgroundColor: jar.color,
+                                        border: '4px solid white',
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                                    }}
+                                />
+                            )}
+                        </Box>
+                    );
+                })()}
 
                 {/* Content */}
                 <Box sx={{ p: 3, maxWidth: 600, margin: '0 auto' }}>
-                    {/* Jar Name */}
-                    <Typography
-                        variant="h4"
-                        sx={{
-                            fontWeight: 700,
-                            mb: 1,
-                            fontSize: '2rem',
-                        }}
-                    >
-                        {jar.name}
-                    </Typography>
+                    {/* Jar Name with Delete button for custom jars */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography
+                            variant="h4"
+                            sx={{
+                                fontWeight: 700,
+                                fontSize: '2rem',
+                            }}
+                        >
+                            {jar.displayName || jar.name}
+                        </Typography>
+                        {jar.isCustom && onDelete && (
+                            <Box
+                                component="button"
+                                onClick={() => {
+                                    onDelete(jar);
+                                    onClose();
+                                }}
+                                sx={{
+                                    background: 'none',
+                                    border: 'none',
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 0.5,
+                                    color: '#1976d2',
+                                    fontSize: '1.4rem',
+                                    fontWeight: 600,
+                                    '&:hover': { opacity: 0.7 },
+                                }}
+                                aria-label="Delete custom jar"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                </svg>
+                                DELETE
+                            </Box>
+                        )}
+                    </Box>
 
                     {/* Dietary and sustainability badges with labels */}
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
@@ -890,20 +964,63 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
     const [selectedToppings, setSelectedToppings] = useState([]);
     const [selectedCookies, setSelectedCookies] = useState([]);
     const [selectedSyrups, setSelectedSyrups] = useState([]);
+    const [currentStep, setCurrentStep] = useState(0);
+
+    // Steps for Make Your Own staged flow
+    const STEPS = ['cake', 'frosting', 'toppings', 'cookies', 'syrups'];
+    const isMakeYourOwn = jar?.name === 'Make Your Own Cake Jar' || jar?.isCustom;
 
     // Initialize state when jar changes
     useEffect(() => {
         if (jar) {
-            const defaults = DEFAULT_INGREDIENTS[jar.name] || {
-                cake: 'Vanilla', frostings: [], toppings: [], cookies: [], syrups: []
-            };
-            setSelectedCake(jar.customizations?.cake || defaults.cake);
-            setSelectedFrostings(jar.customizations?.frostings || [...defaults.frostings]);
-            setSelectedToppings(jar.customizations?.toppings || [...defaults.toppings]);
-            setSelectedCookies(jar.customizations?.cookies || [...(defaults.cookies || [])]);
-            setSelectedSyrups(jar.customizations?.syrups || [...(defaults.syrups || [])]);
+            // Reset step for Make Your Own
+            setCurrentStep(0);
+
+            // For "Make Your Own Cake Jar", don't pre-select anything - user must choose
+            if (jar.name === 'Make Your Own Cake Jar' && !jar.isCustom) {
+                setSelectedCake('');
+                setSelectedFrostings([]);
+                setSelectedToppings([]);
+                setSelectedCookies([]);
+                setSelectedSyrups([]);
+            } else if (jar.isCustom) {
+                // Editing existing custom jar - load its customizations
+                setSelectedCake(jar.customizations?.cake || '');
+                setSelectedFrostings(jar.customizations?.frostings || []);
+                setSelectedToppings(jar.customizations?.toppings || []);
+                setSelectedCookies(jar.customizations?.cookies || []);
+                setSelectedSyrups(jar.customizations?.syrups || []);
+            } else {
+                const defaults = DEFAULT_INGREDIENTS[jar.name] || {
+                    cake: 'Vanilla', frostings: [], toppings: [], cookies: [], syrups: []
+                };
+                setSelectedCake(jar.customizations?.cake || defaults.cake);
+                setSelectedFrostings(jar.customizations?.frostings || [...defaults.frostings]);
+                setSelectedToppings(jar.customizations?.toppings || [...defaults.toppings]);
+                setSelectedCookies(jar.customizations?.cookies || [...(defaults.cookies || [])]);
+                setSelectedSyrups(jar.customizations?.syrups || [...(defaults.syrups || [])]);
+            }
         }
     }, [jar]);
+
+    // Check if current step can proceed
+    const canContinue = () => {
+        switch (STEPS[currentStep]) {
+            case 'cake': return !!selectedCake;
+            case 'frosting': return selectedFrostings.length > 0;
+            default: return true; // Toppings, cookies, syrups are optional
+        }
+    };
+
+    const handleContinue = () => {
+        if (currentStep < STEPS.length - 1) {
+            setCurrentStep(currentStep + 1);
+        }
+    };
+
+    const handleEditStep = (stepIndex) => {
+        setCurrentStep(stepIndex);
+    };
 
     // Get available frostings based on jar type
     // A'mour S'more gets all frostings PLUS "Marshmallow & Chocolate" combo
@@ -917,15 +1034,15 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
 
     const handleFrostingSelect = (frosting) => {
         // Single select - only one frosting at a time
-        setSelectedFrostings([frosting]);
+        setSelectedFrostings([frosting.name]);
     };
 
     const handleToppingToggle = (topping) => {
         setSelectedToppings(prev => {
-            if (prev.includes(topping)) {
-                return prev.filter(t => t !== topping);
+            if (prev.includes(topping.name)) {
+                return prev.filter(t => t !== topping.name);
             } else {
-                return [...prev, topping];
+                return [...prev, topping.name];
             }
         });
     };
@@ -980,41 +1097,83 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
             }}
         >
             <DialogContent sx={{ p: 0, flexGrow: 1, overflow: 'auto', pb: '100px' }}>
-                {/* Jar Image */}
-                <Box
-                    sx={{
-                        width: '100%',
-                        height: 300,
-                        backgroundColor: jar.color || '#f0f0f0',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        overflow: 'hidden',
-                    }}
-                >
-                    {jar.image ? (
-                        <img
-                            src={jar.image}
-                            alt={jar.name}
-                            style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover',
-                            }}
-                        />
-                    ) : (
+                {/* Jar Image - show selected frosting with topping overlay for Make Your Own */}
+                {(() => {
+                    const selectedCakeObj = CAKE_FLAVORS.find(c => c.name === selectedCake);
+                    const selectedFrostingObj = FROSTINGS.find(f => f.name === selectedFrostings[0]);
+                    // Get topping images for layering
+                    const selectedToppingObjs = selectedToppings
+                        .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+                        .filter(t => t && t.image);
+
+                    // Base layer: frosting if selected, otherwise cake
+                    let baseImage = jar.image;
+                    let displayColor = jar.color;
+                    if (jar.name === 'Make Your Own Cake Jar') {
+                        if (selectedFrostingObj) {
+                            baseImage = selectedFrostingObj.image;
+                            displayColor = selectedFrostingObj.color;
+                        } else if (selectedCakeObj) {
+                            baseImage = selectedCakeObj.image;
+                            displayColor = selectedCakeObj.color;
+                        }
+                    }
+                    return (
                         <Box
                             sx={{
-                                width: 180,
-                                height: 180,
-                                borderRadius: '50%',
-                                backgroundColor: jar.color,
-                                border: '4px solid white',
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                                width: '100%',
+                                height: 300,
+                                backgroundColor: displayColor || '#f0f0f0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                overflow: 'hidden',
+                                position: 'relative',
                             }}
-                        />
-                    )}
-                </Box>
+                        >
+                            {/* Base layer - frosting or cake */}
+                            {baseImage ? (
+                                <img
+                                    src={baseImage}
+                                    alt={selectedFrostings[0] || selectedCake || jar.name}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                    }}
+                                />
+                            ) : (
+                                <Box
+                                    sx={{
+                                        width: 180,
+                                        height: 180,
+                                        borderRadius: '50%',
+                                        backgroundColor: displayColor || jar.color,
+                                        border: '4px solid white',
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                                    }}
+                                />
+                            )}
+                            {/* Topping layers - overlay on top of frosting */}
+                            {jar.name === 'Make Your Own Cake Jar' && selectedToppingObjs.map((topping, index) => (
+                                <img
+                                    key={topping.name}
+                                    src={topping.image}
+                                    alt={topping.name}
+                                    style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        zIndex: index + 1,
+                                    }}
+                                />
+                            ))}
+                        </Box>
+                    );
+                })()}
 
                 {/* Content */}
                 <Box sx={{ p: 3, maxWidth: 600, margin: '0 auto' }}>
@@ -1068,46 +1227,159 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
 
                     {/* Cake Flavor */}
                     <Box sx={{ mb: 3 }}>
+                        {/* Collapsed view for Make Your Own when past this step */}
+                        {isMakeYourOwn && currentStep > 0 ? (
+                            <Box
+                                onClick={() => handleEditStep(0)}
+                                sx={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    p: 2,
+                                    backgroundColor: 'grey.100',
+                                    borderRadius: 1,
+                                    cursor: 'pointer',
+                                    '&:hover': { backgroundColor: 'grey.200' },
+                                }}
+                            >
+                                <Box>
+                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Cake</Typography>
+                                    <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>{selectedCake}</Typography>
+                                </Box>
+                                <Typography sx={{ fontSize: '1.4rem', color: 'primary.main' }}>Edit</Typography>
+                            </Box>
+                        ) : (
+                        <>
                         <Typography
                             sx={{
                                 fontWeight: 600,
                                 fontSize: '1.6rem',
-                                mb: 1,
+                                mb: 2,
                             }}
                         >
-                            Cake
+                            {isMakeYourOwn ? 'Select Your Cake' : 'Cake'}
                         </Typography>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        <Box
+                            sx={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                gap: 2,
+                                maxWidth: '320px',
+                                margin: '0 auto',
+                            }}
+                        >
                             {CAKE_FLAVORS.map((cake) => (
                                 <Box
-                                    key={cake}
+                                    key={cake.name}
                                     component="button"
-                                    onClick={() => setSelectedCake(cake)}
+                                    onClick={() => setSelectedCake(cake.name)}
                                     sx={{
-                                        px: 2,
-                                        py: 1,
-                                        borderRadius: 2,
-                                        border: '2px solid',
-                                        borderColor: selectedCake === cake ? 'black' : 'grey.300',
-                                        backgroundColor: selectedCake === cake ? 'black' : 'white',
-                                        color: selectedCake === cake ? 'white' : 'black',
-                                        fontSize: '1.6rem',
-                                        fontWeight: 500,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        background: 'none',
+                                        border: 'none',
+                                        padding: 0,
                                         cursor: 'pointer',
-                                        transition: 'all 0.2s',
-                                        '&:hover': {
-                                            borderColor: 'black',
-                                        }
                                     }}
                                 >
-                                    {cake}
+                                    <Box
+                                        sx={{
+                                            width: 80,
+                                            height: 80,
+                                            borderRadius: '50%',
+                                            overflow: 'hidden',
+                                            border: '3px solid',
+                                            borderColor: selectedCake === cake.name ? cake.color : 'transparent',
+                                            outline: selectedCake === cake.name ? 'none' : '1px solid #e0e0e0',
+                                            backgroundColor: '#f5f5f5',
+                                            boxShadow: selectedCake === cake.name ? '0 4px 12px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.15)',
+                                            transition: 'all 0.2s',
+                                            '&:hover': {
+                                                boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
+                                                transform: 'scale(1.05)',
+                                            },
+                                        }}
+                                    >
+                                        {cake.image && (
+                                            <img
+                                                src={cake.image}
+                                                alt={cake.name}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover',
+                                                }}
+                                            />
+                                        )}
+                                    </Box>
+                                    <Typography
+                                        sx={{
+                                            mt: 1,
+                                            fontSize: '1.4rem',
+                                            fontWeight: selectedCake === cake.name ? 600 : 500,
+                                            textAlign: 'center',
+                                            color: selectedCake === cake.name ? 'black' : 'text.secondary',
+                                        }}
+                                    >
+                                        {cake.name}
+                                    </Typography>
                                 </Box>
                             ))}
                         </Box>
+                        {/* Continue button for Make Your Own */}
+                        {isMakeYourOwn && currentStep === 0 && (
+                            <Box
+                                component="button"
+                                onClick={handleContinue}
+                                disabled={!selectedCake}
+                                sx={{
+                                    mt: 3,
+                                    width: '100%',
+                                    py: 1.5,
+                                    backgroundColor: selectedCake ? 'black' : 'grey.300',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: 1,
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    cursor: selectedCake ? 'pointer' : 'not-allowed',
+                                    '&:hover': { backgroundColor: selectedCake ? '#333' : 'grey.300' },
+                                }}
+                            >
+                                Continue
+                            </Box>
+                        )}
+                        </>
+                        )}
                     </Box>
 
                     {/* Frostings */}
+                    {(!isMakeYourOwn || currentStep >= 1) && (
                     <Box sx={{ mb: 3 }}>
+                        {/* Collapsed view for Make Your Own when past this step */}
+                        {isMakeYourOwn && currentStep > 1 ? (
+                            <Box
+                                onClick={() => handleEditStep(1)}
+                                sx={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    p: 2,
+                                    backgroundColor: 'grey.100',
+                                    borderRadius: 1,
+                                    cursor: 'pointer',
+                                    '&:hover': { backgroundColor: 'grey.200' },
+                                }}
+                            >
+                                <Box>
+                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Frosting</Typography>
+                                    <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>{selectedFrostings.join(', ')}</Typography>
+                                </Box>
+                                <Typography sx={{ fontSize: '1.4rem', color: 'primary.main' }}>Edit</Typography>
+                            </Box>
+                        ) : (
+                        <>
                         <Typography
                             sx={{
                                 fontWeight: 600,
@@ -1115,39 +1387,138 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 mb: 1,
                             }}
                         >
-                            Frosting
+                            {isMakeYourOwn ? 'Select Your Frosting' : 'Frosting'}
                         </Typography>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        <Box
+                            sx={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                gap: 2,
+                                maxWidth: '320px',
+                                margin: '0 auto',
+                            }}
+                        >
                             {getAvailableFrostings().map((frosting) => (
                                 <Box
-                                    key={frosting}
+                                    key={frosting.name}
                                     component="button"
                                     onClick={() => handleFrostingSelect(frosting)}
                                     sx={{
-                                        px: 2,
-                                        py: 1,
-                                        borderRadius: 2,
-                                        border: '2px solid',
-                                        borderColor: selectedFrostings.includes(frosting) ? 'black' : 'grey.300',
-                                        backgroundColor: selectedFrostings.includes(frosting) ? 'black' : 'white',
-                                        color: selectedFrostings.includes(frosting) ? 'white' : 'black',
-                                        fontSize: '1.6rem',
-                                        fontWeight: 500,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        background: 'none',
+                                        border: 'none',
+                                        padding: 0,
                                         cursor: 'pointer',
-                                        transition: 'all 0.2s',
-                                        '&:hover': {
-                                            borderColor: 'black',
-                                        }
                                     }}
                                 >
-                                    {frosting}
+                                    <Box
+                                        sx={{
+                                            width: 80,
+                                            height: 80,
+                                            borderRadius: '50%',
+                                            overflow: 'hidden',
+                                            border: '3px solid',
+                                            borderColor: selectedFrostings.includes(frosting.name) ? frosting.color : 'transparent',
+                                            outline: selectedFrostings.includes(frosting.name) ? 'none' : '1px solid #e0e0e0',
+                                            backgroundColor: '#f5f5f5',
+                                            boxShadow: selectedFrostings.includes(frosting.name) ? '0 4px 12px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.15)',
+                                            transition: 'all 0.2s',
+                                            '&:hover': {
+                                                boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
+                                                transform: 'scale(1.05)',
+                                            },
+                                        }}
+                                    >
+                                        {frosting.image ? (
+                                            <img
+                                                src={frosting.image}
+                                                alt={frosting.name}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover',
+                                                }}
+                                            />
+                                        ) : (
+                                            <Box
+                                                sx={{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    backgroundColor: frosting.color,
+                                                }}
+                                            />
+                                        )}
+                                    </Box>
+                                    <Typography
+                                        sx={{
+                                            mt: 1,
+                                            fontSize: '1.4rem',
+                                            fontWeight: selectedFrostings.includes(frosting.name) ? 600 : 500,
+                                            textAlign: 'center',
+                                            color: selectedFrostings.includes(frosting.name) ? 'black' : 'text.secondary',
+                                        }}
+                                    >
+                                        {frosting.name}
+                                    </Typography>
                                 </Box>
                             ))}
                         </Box>
+                        {/* Continue button for Make Your Own */}
+                        {isMakeYourOwn && currentStep === 1 && (
+                            <Box
+                                component="button"
+                                onClick={handleContinue}
+                                disabled={selectedFrostings.length === 0}
+                                sx={{
+                                    mt: 3,
+                                    width: '100%',
+                                    py: 1.5,
+                                    backgroundColor: selectedFrostings.length > 0 ? 'black' : 'grey.300',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: 1,
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    cursor: selectedFrostings.length > 0 ? 'pointer' : 'not-allowed',
+                                    '&:hover': { backgroundColor: selectedFrostings.length > 0 ? '#333' : 'grey.300' },
+                                }}
+                            >
+                                Continue
+                            </Box>
+                        )}
+                        </>
+                        )}
                     </Box>
+                    )}
 
                     {/* Toppings */}
+                    {(!isMakeYourOwn || currentStep >= 2) && (
                     <Box sx={{ mb: 3 }}>
+                        {/* Collapsed view for Make Your Own when past this step */}
+                        {isMakeYourOwn && currentStep > 2 ? (
+                            <Box
+                                onClick={() => handleEditStep(2)}
+                                sx={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    p: 2,
+                                    backgroundColor: 'grey.100',
+                                    borderRadius: 1,
+                                    cursor: 'pointer',
+                                    '&:hover': { backgroundColor: 'grey.200' },
+                                }}
+                            >
+                                <Box>
+                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Toppings</Typography>
+                                    <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>{selectedToppings.length > 0 ? selectedToppings.join(', ') : 'None'}</Typography>
+                                </Box>
+                                <Typography sx={{ fontSize: '1.4rem', color: 'primary.main' }}>Edit</Typography>
+                            </Box>
+                        ) : (
+                        <>
                         <Typography
                             sx={{
                                 fontWeight: 600,
@@ -1155,15 +1526,15 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 mb: 1,
                             }}
                         >
-                            Toppings <Typography component="span" sx={{ fontSize: '1.6rem', color: 'text.secondary', fontWeight: 400 }}>(max 3)</Typography>
+                            {isMakeYourOwn ? 'Add Topping (Optional)' : 'Topping'} <Typography component="span" sx={{ fontSize: '1.6rem', color: 'text.secondary', fontWeight: 400 }}>(max 1)</Typography>
                         </Typography>
                         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
                             {AVAILABLE_TOPPINGS.map((topping) => {
-                                const isSelected = selectedToppings.includes(topping);
-                                const isDisabled = !isSelected && selectedToppings.length >= 3;
+                                const isSelected = selectedToppings.includes(topping.name);
+                                const isDisabled = !isSelected && selectedToppings.length >= 1;
                                 return (
                                     <Box
-                                        key={topping}
+                                        key={topping.name}
                                         component="button"
                                         onClick={() => !isDisabled && handleToppingToggle(topping)}
                                         sx={{
@@ -1209,15 +1580,64 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                                 </svg>
                                             )}
                                         </Box>
-                                        {topping}
+                                        {topping.name}
                                     </Box>
                                 );
                             })}
                         </Box>
+                        {/* Continue button for Make Your Own */}
+                        {isMakeYourOwn && currentStep === 2 && (
+                            <Box
+                                component="button"
+                                onClick={handleContinue}
+                                sx={{
+                                    mt: 3,
+                                    width: '100%',
+                                    py: 1.5,
+                                    backgroundColor: 'black',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: 1,
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    '&:hover': { backgroundColor: '#333' },
+                                }}
+                            >
+                                Continue
+                            </Box>
+                        )}
+                        </>
+                        )}
                     </Box>
+                    )}
 
                     {/* Cookies */}
+                    {(!isMakeYourOwn || currentStep >= 3) && (
                     <Box sx={{ mb: 3 }}>
+                        {/* Collapsed view for Make Your Own when past this step */}
+                        {isMakeYourOwn && currentStep > 3 ? (
+                            <Box
+                                onClick={() => handleEditStep(3)}
+                                sx={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    p: 2,
+                                    backgroundColor: 'grey.100',
+                                    borderRadius: 1,
+                                    cursor: 'pointer',
+                                    '&:hover': { backgroundColor: 'grey.200' },
+                                }}
+                            >
+                                <Box>
+                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Cookies</Typography>
+                                    <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>{selectedCookies.length > 0 ? selectedCookies.join(', ') : 'None'}</Typography>
+                                </Box>
+                                <Typography sx={{ fontSize: '1.4rem', color: 'primary.main' }}>Edit</Typography>
+                            </Box>
+                        ) : (
+                        <>
                         <Typography
                             sx={{
                                 fontWeight: 600,
@@ -1225,7 +1645,7 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 mb: 1,
                             }}
                         >
-                            Cookies
+                            {isMakeYourOwn ? 'Add Cookies (Optional)' : 'Cookies'}
                         </Typography>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                             {AVAILABLE_COOKIES.map((cookie) => (
@@ -1254,9 +1674,35 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 </Box>
                             ))}
                         </Box>
+                        {/* Continue button for Make Your Own */}
+                        {isMakeYourOwn && currentStep === 3 && (
+                            <Box
+                                component="button"
+                                onClick={handleContinue}
+                                sx={{
+                                    mt: 3,
+                                    width: '100%',
+                                    py: 1.5,
+                                    backgroundColor: 'black',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: 1,
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    '&:hover': { backgroundColor: '#333' },
+                                }}
+                            >
+                                Continue
+                            </Box>
+                        )}
+                        </>
+                        )}
                     </Box>
+                    )}
 
                     {/* Syrups */}
+                    {(!isMakeYourOwn || currentStep >= 4) && (
                     <Box sx={{ mb: 3 }}>
                         <Typography
                             sx={{
@@ -1265,7 +1711,7 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 mb: 1,
                             }}
                         >
-                            Syrups
+                            {isMakeYourOwn ? 'Add Syrups (Optional)' : 'Syrups'}
                         </Typography>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                             {AVAILABLE_SYRUPS.map((syrup) => (
@@ -1295,11 +1741,12 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                             ))}
                         </Box>
                     </Box>
+                    )}
 
                     </Box>
             </DialogContent>
 
-            {/* Sticky Footer with Close and Add to Box Buttons */}
+            {/* Sticky Footer with Navigation and Add to Box Buttons */}
             <Box
                 sx={{
                     position: 'fixed',
@@ -1341,28 +1788,39 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                         <CloseIcon />
                     </Box>
 
-                    {/* Add to Box Button */}
-                    <Box
-                        component="button"
-                        onClick={handleSave}
-                        sx={{
-                            flex: 1,
-                            py: 2,
-                            px: 4,
-                            backgroundColor: 'black',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: 1,
-                            fontSize: '1.6rem',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            '&:hover': {
-                                backgroundColor: '#333',
-                            },
-                        }}
-                    >
-                        Add to Box
-                    </Box>
+                    {/* Add to Box / Update Button - only show on last step for Make Your Own */}
+                    {(!isMakeYourOwn || currentStep === 4) && (
+                    (() => {
+                        const isEditing = jar?.isCustom;
+                        const isDisabled = isMakeYourOwn && (!selectedCake || selectedFrostings.length === 0);
+                        const buttonText = isEditing ? 'Update Custom Cake Jar' : 'Add to Box';
+
+                        return (
+                            <Box
+                                component="button"
+                                onClick={handleSave}
+                                disabled={isDisabled}
+                                sx={{
+                                    flex: 1,
+                                    py: 2,
+                                    px: 4,
+                                    backgroundColor: isDisabled ? 'grey.300' : 'black',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: 1,
+                                    fontSize: '1.6rem',
+                                    fontWeight: 700,
+                                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                    '&:hover': {
+                                        backgroundColor: isDisabled ? 'grey.300' : '#333',
+                                    },
+                                }}
+                            >
+                                {buttonText}
+                            </Box>
+                        );
+                    })()
+                    )}
                 </Box>
             </Box>
         </Dialog>
@@ -1428,11 +1886,41 @@ const PACKAGING = [
 ];
 
 // Animated flavor circle component - opens customization modal on click
-const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced }) => {
+const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced, onDelete }) => {
     const handleClick = () => {
-        if (isPlaced) return;
+        // Custom jars can always be clicked (to edit them), regular jars are blocked when placed
+        if (isPlaced && !flavor.isCustom) return;
         onSelect(flavor);
     };
+
+    const handleDelete = (e) => {
+        e.stopPropagation();
+        if (onDelete) onDelete(flavor);
+    };
+
+    // For custom jars, get frosting and topping images
+    const getCustomJarImages = () => {
+        if (!flavor.isCustom || !flavor.customizations) return { frostingImage: null, frostingColor: null, toppingImages: [] };
+
+        const frostingName = flavor.customizations.frostings?.[0];
+        const frostingObj = FROSTINGS.find(f => f.name === frostingName);
+
+        const toppingImages = (flavor.customizations.toppings || [])
+            .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+            .filter(t => t && t.image)
+            .map(t => t.image);
+
+        return {
+            frostingImage: frostingObj?.image,
+            frostingColor: frostingObj?.color,
+            toppingImages,
+        };
+    };
+
+    const { frostingImage, frostingColor, toppingImages } = getCustomJarImages();
+
+    // Custom jars can always be clicked, so they shouldn't look as disabled
+    const showAsDisabled = isPlaced && !flavor.isCustom;
 
     return (
         <Box
@@ -1440,8 +1928,8 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced }) => {
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                cursor: isPlaced ? 'default' : 'pointer',
-                opacity: isPlaced ? 0.4 : 1,
+                cursor: showAsDisabled ? 'default' : 'pointer',
+                opacity: showAsDisabled ? 0.4 : 1,
                 transition: 'opacity 0.3s',
             }}
         >
@@ -1451,16 +1939,16 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced }) => {
                     position: 'relative',
                     width: 80,
                     height: 80,
-                    cursor: isPlaced ? 'default' : 'pointer',
+                    cursor: showAsDisabled ? 'default' : 'pointer',
                 }}
             >
                 {/* The flavor circle */}
                 <motion.div
-                    whileHover={!isPlaced ? {
+                    whileHover={!showAsDisabled ? {
                         y: -4,
                         scale: 1.05,
                     } : {}}
-                    whileTap={!isPlaced ? {
+                    whileTap={!showAsDisabled ? {
                         scale: 0.95,
                     } : {}}
                     transition={{
@@ -1481,23 +1969,64 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced }) => {
                             boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                             border: '3px solid white',
                             outline: '1px solid #e0e0e0',
-                            backgroundColor: flavor.color,
+                            backgroundColor: flavor.isCustom ? (frostingColor || flavor.color) : flavor.color,
                             transition: 'box-shadow 0.3s',
+                            position: 'relative',
                             '&:hover': {
                                 boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
                             }
                         }}
                     >
-                        {flavor.image && (
-                            <img
-                                src={flavor.image}
-                                alt={flavor.name}
-                                style={{
-                                    width: '100%',
-                                    height: '100%',
-                                    objectFit: 'cover'
-                                }}
-                            />
+                        {/* For custom jars, show layered frosting + toppings */}
+                        {flavor.isCustom ? (
+                            <>
+                                {/* Base layer - frosting */}
+                                {frostingImage && (
+                                    <img
+                                        src={frostingImage}
+                                        alt="frosting"
+                                        style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: 'cover',
+                                            zIndex: 0,
+                                        }}
+                                    />
+                                )}
+                                {/* Topping layers */}
+                                {toppingImages.map((img, index) => (
+                                    <img
+                                        key={index}
+                                        src={img}
+                                        alt="topping"
+                                        style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: 'cover',
+                                            zIndex: index + 1,
+                                        }}
+                                    />
+                                ))}
+                            </>
+                        ) : (
+                            /* Regular jar - single image */
+                            flavor.image && (
+                                <img
+                                    src={flavor.image}
+                                    alt={flavor.name}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover'
+                                    }}
+                                />
+                            )
                         )}
                     </Box>
                 </motion.div>
@@ -1530,12 +2059,68 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced }) => {
                 )}
             </Box>
 
-            <Typography
-                variant="body2"
-                sx={{ mt: 1, fontWeight: 500, textAlign: 'center', fontSize: '1.4rem' }}
-            >
-                {flavor.name}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: 1 }}>
+                <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 500, textAlign: 'center', fontSize: '1.6rem' }}
+                >
+                    {flavor.displayName || flavor.name}
+                </Typography>
+                {/* Delete button for custom jars */}
+                {flavor.isCustom && onDelete && (
+                    <Box
+                        component="button"
+                        onClick={handleDelete}
+                        sx={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'grey.500',
+                            '&:hover': { color: 'error.main' },
+                        }}
+                        aria-label="Delete custom jar"
+                    >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                        </svg>
+                    </Box>
+                )}
+            </Box>
+
+            {/* Ingredients list for custom jars */}
+            {flavor.isCustom && flavor.customizations && (
+                <Box sx={{ mt: 0.5, textAlign: 'center' }}>
+                    {flavor.customizations.cake && (
+                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
+                            {flavor.customizations.cake} Cake
+                        </Typography>
+                    )}
+                    {flavor.customizations.frostings?.length > 0 && (
+                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
+                            {flavor.customizations.frostings.map(f => `${f} Frosting`).join(', ')}
+                        </Typography>
+                    )}
+                    {flavor.customizations.toppings?.length > 0 && (
+                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
+                            {flavor.customizations.toppings.join(', ')}
+                        </Typography>
+                    )}
+                    {flavor.customizations.cookies?.length > 0 && (
+                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
+                            {flavor.customizations.cookies.join(', ')}
+                        </Typography>
+                    )}
+                    {flavor.customizations.syrups?.length > 0 && (
+                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
+                            {flavor.customizations.syrups.join(', ')}
+                        </Typography>
+                    )}
+                </Box>
+            )}
         </Box>
     );
 };
@@ -1734,6 +2319,22 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
     const [selectedFlavorCategory, setSelectedFlavorCategory] = useState(
         initialPersistedState?.selectedFlavorCategory || 'cake'
     );
+    const [customJars, setCustomJars] = useState(() => {
+        // Load custom jars from localStorage
+        try {
+            const saved = localStorage.getItem('cateringCustomJars');
+            if (!saved) return [];
+            const parsed = JSON.parse(saved);
+            // Migrate old jars that don't have displayName
+            return parsed.map((jar, index) => ({
+                ...jar,
+                displayName: jar.displayName || `Custom Jar ${index + 1}`,
+                isCustom: true,
+            }));
+        } catch {
+            return [];
+        }
+    });
     const [selectedPackaging, setSelectedPackaging] = useState(
         initialPersistedState?.selectedPackaging || null
     );
@@ -1743,9 +2344,28 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
     const [selectedJarForModal, setSelectedJarForModal] = useState(null);
     const [previewModalOpen, setPreviewModalOpen] = useState(false);
     const [customizeModalOpen, setCustomizeModalOpen] = useState(false);
-    const [showDateTimeSelection, setShowDateTimeSelection] = useState(false);
+    // Inline Make Your Own / Edit Jar state
+    const [makeYourOwnActive, setMakeYourOwnActive] = useState(false);
+    const [makeYourOwnStep, setMakeYourOwnStep] = useState(0); // 0=cake, 1=frosting, 2=topping, 3=cookie, 4=syrup
+    const [makeYourOwnSelections, setMakeYourOwnSelections] = useState({
+        cake: null,
+        frosting: null,
+        topping: null,
+        cookie: null,
+        syrup: null,
+    });
+    const [editingJar, setEditingJar] = useState(null); // The jar being customized (null = Make Your Own)
     const [selectedDate, setSelectedDate] = useState(null);
     const [selectedTime, setSelectedTime] = useState(null);
+    const [showAvailabilityPage, setShowAvailabilityPage] = useState(false);
+    const [pendingPackagingItem, setPendingPackagingItem] = useState(null);
+    const [availabilitySelectedOption, setAvailabilitySelectedOption] = useState(null); // 'browsing' or 'earliest'
+    const [showAdvancedDateSelection, setShowAdvancedDateSelection] = useState(false);
+    const [selectedLocation, setSelectedLocation] = useState(() => {
+        return localStorage.getItem('selectedLocation') || 'kips-bay';
+    });
+    const [locationModalOpen, setLocationModalOpen] = useState(false);
+    const [advancedPackagingItem, setAdvancedPackagingItem] = useState(null);
     const heroRef = useRef(null);
     const isInitialMount = useRef(true);
     const prevResetCounter = useRef(packagingResetCounter);
@@ -1758,6 +2378,11 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
             selectedFlavorCategory,
         });
     }, [selectedPackaging, placedFlavors, selectedFlavorCategory]);
+
+    // Persist custom jars to localStorage
+    useEffect(() => {
+        localStorage.setItem('cateringCustomJars', JSON.stringify(customJars));
+    }, [customJars]);
 
     // Reset packaging selection when logo is clicked (counter increments)
     // Skip initial mount to preserve loaded state
@@ -1782,8 +2407,103 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
         }
     };
 
-    const handlePackagingSelect = (packaging) => {
+    // Handle location change
+    const handleLocationChange = (locationId) => {
+        setSelectedLocation(locationId);
+        localStorage.setItem('selectedLocation', locationId);
+    };
+
+    // Open the availability page when clicking Explore
+    const handleExploreClick = (packaging) => {
+        setPendingPackagingItem(packaging);
+        setAvailabilitySelectedOption('quickest'); // Pre-select quickest option
+        setShowAvailabilityPage(true);
+    };
+
+    const handleCloseAvailabilityPage = () => {
+        setShowAvailabilityPage(false);
+        setPendingPackagingItem(null);
+        setAvailabilitySelectedOption(null);
+    };
+
+    const handleAvailabilityContinue = () => {
+        const availability = getNextAvailablePickup();
+        if (availabilitySelectedOption === 'quickest') {
+            // Quickest order - go directly to selecting cake jars with earliest time
+            handlePackagingSelect(pendingPackagingItem, {
+                date: availability.pickupTime,
+                time: `${availability.pickupTime.getHours().toString().padStart(2, '0')}:${availability.pickupTime.getMinutes().toString().padStart(2, '0')}`
+            });
+            setShowAvailabilityPage(false);
+            setPendingPackagingItem(null);
+            setAvailabilitySelectedOption(null);
+        } else if (availabilitySelectedOption === 'future') {
+            // Future customizations - go to date/time selection page
+            handleAdvancedCustomization(pendingPackagingItem);
+            setShowAvailabilityPage(false);
+            setPendingPackagingItem(null);
+            setAvailabilitySelectedOption(null);
+        }
+    };
+
+    // Handle advanced customization - show date/time selection page
+    const handleAdvancedCustomization = (packaging) => {
+        setAdvancedPackagingItem(packaging);
+        setShowAdvancedDateSelection(true);
+        setSelectedDate(null);
+        setSelectedTime(null);
+    };
+
+    const handleBackFromAdvancedDateSelection = () => {
+        setShowAdvancedDateSelection(false);
+        setAdvancedPackagingItem(null);
+        setSelectedDate(null);
+        setSelectedTime(null);
+    };
+
+    const handleAdvancedDateChange = (newDate) => {
+        setSelectedDate(newDate);
+        setSelectedTime(null);
+    };
+
+    const handleAdvancedTimeSelect = (time) => {
+        setSelectedTime(time);
+    };
+
+    const handleAdvancedContinue = () => {
+        if (advancedPackagingItem && selectedDate && selectedTime) {
+            handlePackagingSelect(advancedPackagingItem, { date: selectedDate, time: selectedTime });
+            setShowAdvancedDateSelection(false);
+            setAdvancedPackagingItem(null);
+        }
+    };
+
+    // Generate time slots for advanced selection
+    const generateTimeSlots = () => {
+        const slots = [];
+        for (let hour = 8; hour <= 20; hour++) {
+            for (let minute = 0; minute < 60; minute += 30) {
+                if (hour === 20 && minute > 0) break;
+                const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                const period = hour >= 12 ? 'pm' : 'am';
+                const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+                const displayMinute = minute.toString().padStart(2, '0');
+                const displayTime = `${displayHour}:${displayMinute}${period}`;
+                slots.push({ value: timeString, label: displayTime });
+            }
+        }
+        return slots;
+    };
+
+    const handlePackagingSelect = (packaging, dateTimeInfo) => {
         setSelectedPackaging(packaging);
+        // Store the selected date/time from the modal
+        if (dateTimeInfo?.date) {
+            setSelectedDate(dateTimeInfo.date);
+        }
+        if (dateTimeInfo?.time) {
+            setSelectedTime(dateTimeInfo.time);
+        }
         // Clear placed flavors when changing packaging
         setPlacedFlavors([]);
         // Set default flavor category to first available for this packaging
@@ -1793,17 +2513,65 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
         }
     };
 
-    const handleRemoveFromSlot = (id) => {
-        setPlacedFlavors(prev => prev.filter(f => f.id !== id));
+    const handleRemoveFromSlot = (slotIndex) => {
+        setPlacedFlavors(prev => prev.filter(f => f.slotIndex !== slotIndex));
+    };
+
+    const handleDeleteCustomJar = (jar) => {
+        // Remove from customJars list
+        setCustomJars(prev => prev.filter(j => j.id !== jar.id));
+        // Remove from box if placed
+        setPlacedFlavors(prev => prev.filter(f => f.id !== jar.id));
     };
 
     const handleOpenJarModal = (flavor) => {
         // Create a temporary jar object for the modal
-        setSelectedJarForModal({
+        const jarObj = {
             ...flavor,
-            id: `${flavor.name}-${Date.now()}`,
-        });
-        setPreviewModalOpen(true);
+            id: flavor.id || `${flavor.name}-${Date.now()}`,
+        };
+        setSelectedJarForModal(jarObj);
+
+        // Make Your Own goes to inline flow on page
+        if (flavor.name === 'Make Your Own Cake Jar' && !flavor.isCustom) {
+            // Reset selections and activate inline Make Your Own
+            setMakeYourOwnSelections({
+                cake: null,
+                frosting: null,
+                topping: null,
+                cookie: null,
+                syrup: null,
+            });
+            setMakeYourOwnStep(0);
+            setEditingJar(null);
+            setMakeYourOwnActive(true);
+        } else if (flavor.isCustom) {
+            // Custom jars (Custom Jar 1, etc.) - use staged flow with pre-filled values
+            const jarCustomizations = flavor.customizations || {};
+            setMakeYourOwnSelections({
+                cake: jarCustomizations.cake || null,
+                frosting: jarCustomizations.frostings?.[0] || null,
+                topping: jarCustomizations.toppings?.[0] || null,
+                cookie: jarCustomizations.cookies?.[0] || null,
+                syrup: jarCustomizations.syrups?.[0] || null,
+            });
+            setMakeYourOwnStep(0);
+            setEditingJar(flavor);
+            setMakeYourOwnActive(true);
+        } else {
+            // Regular jars (A'mour S'more, etc.) - use staged flow with pre-filled defaults
+            const jarDefaults = flavor.customizations || flavor.defaults || {};
+            setMakeYourOwnSelections({
+                cake: jarDefaults.cake || null,
+                frosting: jarDefaults.frostings?.[0] || null,
+                topping: jarDefaults.toppings?.[0] || null,
+                cookie: jarDefaults.cookies?.[0] || null,
+                syrup: jarDefaults.syrups?.[0] || null,
+            });
+            setMakeYourOwnStep(0);
+            setEditingJar(flavor);
+            setMakeYourOwnActive(true);
+        }
     };
 
     const handleClosePreviewModal = () => {
@@ -1822,49 +2590,152 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
         setSelectedJarForModal(null);
     };
 
-    // Show date/time selection when user clicks Continue
-    const handleContinueToDateTime = () => {
-        if (!isBoxComplete) return;
-        setShowDateTimeSelection(true);
-        setSelectedDate(null);
-        setSelectedTime(null);
+    // Inline Make Your Own handlers
+    const handleMakeYourOwnSelect = (type, value) => {
+        setMakeYourOwnSelections(prev => ({ ...prev, [type]: value }));
     };
 
-    const handleBackFromDateTime = () => {
-        setShowDateTimeSelection(false);
-        setSelectedDate(null);
-        setSelectedTime(null);
-    };
-
-    const handleDateChange = (newDate) => {
-        setSelectedDate(newDate);
-        setSelectedTime(null); // Reset time when date changes
-    };
-
-    const handleTimeSelect = (time) => {
-        setSelectedTime(time);
-    };
-
-    // Generate time slots in 30-minute increments from 8am to 8pm
-    const generateTimeSlots = () => {
-        const slots = [];
-        for (let hour = 8; hour <= 20; hour++) {
-            for (let minute = 0; minute < 60; minute += 30) {
-                if (hour === 20 && minute > 0) break; // Stop at 8:00pm
-                const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-                const period = hour >= 12 ? 'pm' : 'am';
-                const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
-                const displayMinute = minute.toString().padStart(2, '0');
-                const displayTime = `${displayHour}:${displayMinute}${period}`;
-                slots.push({ value: timeString, label: displayTime });
-            }
+    const handleMakeYourOwnContinue = () => {
+        if (makeYourOwnStep < 4) {
+            setMakeYourOwnStep(prev => prev + 1);
         }
-        return slots;
     };
 
-    // Handle adding completed box to cart with date/time
+    const handleMakeYourOwnBack = () => {
+        if (makeYourOwnStep > 0) {
+            setMakeYourOwnStep(prev => prev - 1);
+        } else {
+            // Exit Make Your Own mode
+            setMakeYourOwnActive(false);
+        }
+    };
+
+    const handleMakeYourOwnAddToBox = () => {
+        if (editingJar) {
+            const newCustomizations = {
+                cake: makeYourOwnSelections.cake,
+                frostings: makeYourOwnSelections.frosting ? [makeYourOwnSelections.frosting] : [],
+                toppings: makeYourOwnSelections.topping ? [makeYourOwnSelections.topping] : [],
+                cookies: makeYourOwnSelections.cookie ? [makeYourOwnSelections.cookie] : [],
+                syrups: makeYourOwnSelections.syrup ? [makeYourOwnSelections.syrup] : [],
+            };
+            const newColor = FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color || editingJar.color;
+
+            // If editing a custom jar, update the original jar in customJars
+            if (editingJar.isCustom) {
+                const updatedJar = {
+                    ...editingJar,
+                    color: newColor,
+                    customizations: newCustomizations,
+                };
+
+                // Update the original custom jar
+                setCustomJars(prev => prev.map(jar =>
+                    jar.id === editingJar.id ? updatedJar : jar
+                ));
+
+                // Also update any existing placements of this jar in the box
+                setPlacedFlavors(prev => prev.map(f =>
+                    f.id === editingJar.id ? { ...f, color: newColor, customizations: newCustomizations } : f
+                ));
+
+                // Add another copy to the box if there's room
+                setPlacedFlavors(prev => {
+                    if (prev.length >= 6) return prev;
+
+                    const usedSlots = prev.map(f => f.slotIndex);
+                    let nextSlot = 0;
+                    for (let i = 0; i < 6; i++) {
+                        if (!usedSlots.includes(i)) {
+                            nextSlot = i;
+                            break;
+                        }
+                    }
+
+                    return [...prev, { ...updatedJar, placementId: `${updatedJar.id}-slot-${nextSlot}`, slotIndex: nextSlot }];
+                });
+            } else {
+                // Editing a regular jar (A'mour S'more, etc.) - add customized version to box
+                const customizedJar = {
+                    ...editingJar,
+                    id: `${editingJar.name}-${Date.now()}`,
+                    color: newColor,
+                    customizations: newCustomizations,
+                };
+
+                // Add to box if there's room
+                setPlacedFlavors(prev => {
+                    if (prev.length >= 6) return prev;
+
+                    const usedSlots = prev.map(f => f.slotIndex);
+                    let nextSlot = 0;
+                    for (let i = 0; i < 6; i++) {
+                        if (!usedSlots.includes(i)) {
+                            nextSlot = i;
+                            break;
+                        }
+                    }
+
+                    return [...prev, { ...customizedJar, slotIndex: nextSlot }];
+                });
+            }
+        } else {
+            // Make Your Own - create new custom jar
+            const newCustomJar = {
+                id: `custom-jar-${Date.now()}`,
+                name: 'Make Your Own Cake Jar',
+                image: null,
+                color: FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color || '#FFD700',
+                glutenFree: false,
+                vegan: false,
+                isCustom: true,
+                customizations: {
+                    cake: makeYourOwnSelections.cake,
+                    frostings: makeYourOwnSelections.frosting ? [makeYourOwnSelections.frosting] : [],
+                    toppings: makeYourOwnSelections.topping ? [makeYourOwnSelections.topping] : [],
+                    cookies: makeYourOwnSelections.cookie ? [makeYourOwnSelections.cookie] : [],
+                    syrups: makeYourOwnSelections.syrup ? [makeYourOwnSelections.syrup] : [],
+                },
+            };
+
+            // Add to custom jars list
+            setCustomJars(prev => {
+                const newNumber = prev.length + 1;
+                const jarWithName = { ...newCustomJar, displayName: `Custom Jar ${newNumber}` };
+                return [...prev, jarWithName];
+            });
+
+            // Add to box if there's room
+            setPlacedFlavors(prev => {
+                if (prev.length >= 6) return prev;
+
+                const usedSlots = prev.map(f => f.slotIndex);
+                let nextSlot = 0;
+                for (let i = 0; i < 6; i++) {
+                    if (!usedSlots.includes(i)) {
+                        nextSlot = i;
+                        break;
+                    }
+                }
+
+                const customJarNumber = customJars.length + 1;
+                const jarWithSlot = {
+                    ...newCustomJar,
+                    displayName: `Custom Jar ${customJarNumber}`,
+                    slotIndex: nextSlot
+                };
+                return [...prev, jarWithSlot];
+            });
+        }
+
+        // Exit Make Your Own mode and clear editing state
+        setMakeYourOwnActive(false);
+        setEditingJar(null);
+    };
+
+    // Handle adding completed box to cart with date/time (already selected from availability modal)
     const handleAddBoxToCart = () => {
-        if (!isBoxComplete || !selectedDate || !selectedTime) return;
+        if (!isBoxComplete) return;
 
         // Create a cart item for the Cake Jar Box
         const boxItem = {
@@ -1895,7 +2766,6 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
         });
 
         // Reset everything
-        setShowDateTimeSelection(false);
         setSelectedDate(null);
         setSelectedTime(null);
         setPlacedFlavors([]);
@@ -1908,35 +2778,97 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
     };
 
     const handleSaveJarCustomizations = (updatedJar) => {
-        // For Cake Jar Boxes, find the next empty slot and add the jar
-        if (selectedPackaging?.name === 'Cake Jar Boxes') {
-            // Max 6 slots
-            if (placedFlavors.length >= 6) return;
+        // Check if this is an existing custom jar being edited
+        if (updatedJar.isCustom) {
+            // Update existing custom jar in the customJars list
+            setCustomJars(prev => prev.map(jar =>
+                jar.id === updatedJar.id
+                    ? { ...updatedJar }
+                    : jar
+            ));
 
-            // Find first empty slot index
-            const usedSlots = placedFlavors.map(f => f.slotIndex);
-            let nextSlot = 0;
-            for (let i = 0; i < 6; i++) {
-                if (!usedSlots.includes(i)) {
-                    nextSlot = i;
-                    break;
-                }
+            // Always add another copy to the box (user can fill box with same custom jar)
+            if (selectedPackaging?.name === 'Cake Jar Boxes') {
+                setPlacedFlavors(prev => {
+                    if (prev.length >= 6) return prev; // Box is full
+
+                    const usedSlots = prev.map(f => f.slotIndex);
+                    let nextSlot = 0;
+                    for (let i = 0; i < 6; i++) {
+                        if (!usedSlots.includes(i)) {
+                            nextSlot = i;
+                            break;
+                        }
+                    }
+
+                    // Create a new placement with unique ID for each slot
+                    const newPlacement = {
+                        ...updatedJar,
+                        placementId: `${updatedJar.id}-slot-${nextSlot}`,
+                        slotIndex: nextSlot
+                    };
+                    return [...prev, newPlacement];
+                });
             }
+        } else if (updatedJar.name === 'Make Your Own Cake Jar') {
+            // Creating a new custom jar from "Make Your Own"
+            const customJarNumber = customJars.length + 1;
+            const customJar = {
+                ...updatedJar,
+                id: `custom-jar-${Date.now()}`,
+                displayName: `Custom Jar ${customJarNumber}`,
+                isCustom: true,
+            };
 
-            const newPlacement = {
-                ...updatedJar,
-                slotIndex: nextSlot,
-            };
-            setPlacedFlavors(prev => [...prev, newPlacement]);
+            // Add to custom jars list
+            setCustomJars(prev => [...prev, customJar]);
+
+            // For Cake Jar Boxes, add to slot
+            if (selectedPackaging?.name === 'Cake Jar Boxes') {
+                if (placedFlavors.length >= 6) return;
+
+                const usedSlots = placedFlavors.map(f => f.slotIndex);
+                let nextSlot = 0;
+                for (let i = 0; i < 6; i++) {
+                    if (!usedSlots.includes(i)) {
+                        nextSlot = i;
+                        break;
+                    }
+                }
+
+                setPlacedFlavors(prev => [...prev, { ...customJar, slotIndex: nextSlot }]);
+            }
         } else {
-            // For other packaging types, use random positioning
-            const newPlacement = {
-                ...updatedJar,
-                x: Math.random() * 60 + 20,
-                y: Math.random() * 40 + 30,
-                rotation: Math.random() * 20 - 10,
-            };
-            setPlacedFlavors(prev => [...prev, newPlacement]);
+            // For Cake Jar Boxes, find the next empty slot and add the jar
+            if (selectedPackaging?.name === 'Cake Jar Boxes') {
+                // Max 6 slots
+                if (placedFlavors.length >= 6) return;
+
+                // Find first empty slot index
+                const usedSlots = placedFlavors.map(f => f.slotIndex);
+                let nextSlot = 0;
+                for (let i = 0; i < 6; i++) {
+                    if (!usedSlots.includes(i)) {
+                        nextSlot = i;
+                        break;
+                    }
+                }
+
+                const newPlacement = {
+                    ...updatedJar,
+                    slotIndex: nextSlot,
+                };
+                setPlacedFlavors(prev => [...prev, newPlacement]);
+            } else {
+                // For other packaging types, use random positioning
+                const newPlacement = {
+                    ...updatedJar,
+                    x: Math.random() * 60 + 20,
+                    y: Math.random() * 40 + 30,
+                    rotation: Math.random() * 20 - 10,
+                };
+                setPlacedFlavors(prev => [...prev, newPlacement]);
+            }
         }
     };
 
@@ -1946,8 +2878,8 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
     const isBoxComplete = selectedPackaging?.name === 'Cake Jar Boxes' && placedFlavors.length === 6;
 
     // Check if a flavor is already placed
-    const isFlavorPlaced = (flavorName) => {
-        return placedFlavors.some(f => f.name === flavorName);
+    const isFlavorPlaced = (flavorId) => {
+        return placedFlavors.some(f => f.id === flavorId);
     };
 
     // Get all products from all categories for featured section
@@ -1972,6 +2904,481 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
             }
         }, 50);
     };
+
+    // Show Availability Page (earliest pickup/delivery selection)
+    if (showAvailabilityPage) {
+        const availability = getNextAvailablePickup();
+        const currentLocationName = STORE_LOCATIONS.find(loc => loc.id === selectedLocation)?.name || 'Select Location';
+
+        return (
+            <Box sx={{ backgroundColor: 'white', minHeight: '100vh', pb: '100px' }}>
+                {/* Location Selector Header */}
+                <Box
+                    sx={{
+                        py: 2,
+                        px: 3,
+                        borderBottom: '1px solid',
+                        borderColor: 'grey.200',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                    }}
+                    onClick={() => setLocationModalOpen(true)}
+                >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>
+                            {currentLocationName}
+                        </Typography>
+                        <KeyboardArrowDownIcon sx={{ fontSize: 24, color: 'text.secondary' }} />
+                    </Box>
+                </Box>
+
+                <Box sx={{ p: 3, maxWidth: 600, margin: '0 auto' }}>
+                    {/* Earliest Pickup & Delivery Times */}
+                    <Box sx={{ textAlign: 'center', mb: 3 }}>
+                        <Typography
+                            sx={{
+                                fontSize: '1.6rem',
+                                fontWeight: 600,
+                                color: 'text.secondary',
+                                mb: 1,
+                            }}
+                        >
+                            Earliest Pickup Today
+                        </Typography>
+                        <Box sx={{ mb: 2 }}>
+                            <FlipClockDisplay time={availability.pickupTime} />
+                        </Box>
+
+                        <Typography
+                            sx={{
+                                fontSize: '1.6rem',
+                                fontWeight: 600,
+                                color: 'text.secondary',
+                                mb: 1,
+                            }}
+                        >
+                            Earliest Delivery Today
+                        </Typography>
+                        <Box>
+                            <FlipClockDisplay time={availability.deliveryTime} />
+                        </Box>
+                    </Box>
+
+                    {/* Option 1: Quickest Order Delivery Time (pre-selected) */}
+                    <Box
+                        component="button"
+                        onClick={() => setAvailabilitySelectedOption('quickest')}
+                        sx={{
+                            width: '100%',
+                            p: 2,
+                            mb: 2,
+                            backgroundColor: 'white',
+                            border: '2px solid',
+                            borderColor: availabilitySelectedOption === 'quickest' ? 'black' : 'grey.300',
+                            borderRadius: 2,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 2,
+                            textAlign: 'left',
+                            transition: 'all 0.2s',
+                            '&:hover': {
+                                borderColor: availabilitySelectedOption === 'quickest' ? 'black' : 'grey.500',
+                            },
+                        }}
+                    >
+                        {/* Radio Button */}
+                        <Box
+                            sx={{
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                border: '2px solid',
+                                borderColor: availabilitySelectedOption === 'quickest' ? 'black' : 'grey.400',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                mt: 0.5,
+                            }}
+                        >
+                            {availabilitySelectedOption === 'quickest' && (
+                                <Box
+                                    sx={{
+                                        width: 12,
+                                        height: 12,
+                                        borderRadius: '50%',
+                                        backgroundColor: 'black',
+                                    }}
+                                />
+                            )}
+                        </Box>
+                        {/* Content */}
+                        <Box sx={{ flex: 1 }}>
+                            <Typography
+                                sx={{
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    color: 'text.primary',
+                                    mb: 0.5,
+                                }}
+                            >
+                                Quickest Order Delivery Time
+                            </Typography>
+                            <Typography
+                                sx={{
+                                    fontSize: '1.6rem',
+                                    color: 'text.secondary',
+                                }}
+                            >
+                                Some customization options will not be available
+                            </Typography>
+                        </Box>
+                    </Box>
+
+                    {/* Option 2: Customizations for Future Orders */}
+                    <Box
+                        component="button"
+                        onClick={() => setAvailabilitySelectedOption('future')}
+                        sx={{
+                            width: '100%',
+                            p: 2,
+                            backgroundColor: 'white',
+                            border: '2px solid',
+                            borderColor: availabilitySelectedOption === 'future' ? 'black' : 'grey.300',
+                            borderRadius: 2,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: 2,
+                            textAlign: 'left',
+                            transition: 'all 0.2s',
+                            '&:hover': {
+                                borderColor: availabilitySelectedOption === 'future' ? 'black' : 'grey.500',
+                            },
+                        }}
+                    >
+                        {/* Radio Button */}
+                        <Box
+                            sx={{
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                border: '2px solid',
+                                borderColor: availabilitySelectedOption === 'future' ? 'black' : 'grey.400',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                mt: 0.5,
+                            }}
+                        >
+                            {availabilitySelectedOption === 'future' && (
+                                <Box
+                                    sx={{
+                                        width: 12,
+                                        height: 12,
+                                        borderRadius: '50%',
+                                        backgroundColor: 'black',
+                                    }}
+                                />
+                            )}
+                        </Box>
+                        {/* Content */}
+                        <Box sx={{ flex: 1 }}>
+                            <Typography
+                                sx={{
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    color: 'text.primary',
+                                    mb: 0.5,
+                                }}
+                            >
+                                Customizations for Future Orders
+                            </Typography>
+                            <Typography
+                                sx={{
+                                    fontSize: '1.6rem',
+                                    color: 'text.secondary',
+                                }}
+                            >
+                                Custom options such as logos, jars, packaging, charms or accessories will be available based on selected date and time
+                            </Typography>
+                        </Box>
+                    </Box>
+                </Box>
+
+                {/* Sticky Footer */}
+                <Box
+                    sx={{
+                        position: 'fixed',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        p: 2,
+                        borderTop: '1px solid',
+                        borderColor: 'grey.300',
+                        backgroundColor: 'white',
+                        zIndex: 1300,
+                        paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+                    }}
+                >
+                    <Box sx={{ maxWidth: 600, margin: '0 auto', display: 'flex', gap: 1 }}>
+                        {/* Close Button */}
+                        <Box
+                            component="button"
+                            onClick={handleCloseAvailabilityPage}
+                            sx={{
+                                px: 2,
+                                py: 1.5,
+                                backgroundColor: 'white',
+                                color: 'grey.700',
+                                border: '1px solid',
+                                borderColor: 'grey.300',
+                                borderRadius: 1,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                '&:hover': {
+                                    backgroundColor: 'grey.100',
+                                    borderColor: 'grey.400',
+                                },
+                            }}
+                            aria-label="Close"
+                        >
+                            <CloseIcon />
+                        </Box>
+
+                        {/* Continue Button */}
+                        <Box
+                            component="button"
+                            onClick={handleAvailabilityContinue}
+                            disabled={!availabilitySelectedOption}
+                            sx={{
+                                flex: 1,
+                                py: 2,
+                                px: 4,
+                                backgroundColor: !availabilitySelectedOption ? 'grey.300' : 'black',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: 1,
+                                fontSize: '1.6rem',
+                                fontWeight: 700,
+                                cursor: !availabilitySelectedOption ? 'not-allowed' : 'pointer',
+                                '&:hover': {
+                                    backgroundColor: !availabilitySelectedOption ? 'grey.300' : '#333',
+                                },
+                            }}
+                        >
+                            Continue
+                        </Box>
+                    </Box>
+                </Box>
+
+                {/* Location Modal */}
+                <LocationModal
+                    open={locationModalOpen}
+                    onClose={() => setLocationModalOpen(false)}
+                    selectedLocationId={selectedLocation}
+                    onSelectLocation={handleLocationChange}
+                    locations={STORE_LOCATIONS}
+                />
+            </Box>
+        );
+    }
+
+    // Show Advanced Date/Time Selection Page (not modal)
+    if (showAdvancedDateSelection) {
+        return (
+            <Box sx={{ backgroundColor: 'white', minHeight: '100vh', pb: '100px' }}>
+                <Box sx={{ p: 3, maxWidth: 600, margin: '0 auto' }}>
+                    {/* Title */}
+                    <Typography
+                        variant="h4"
+                        sx={{
+                            fontWeight: 700,
+                            mb: 2,
+                            fontSize: '2rem',
+                            textAlign: 'center',
+                        }}
+                    >
+                        {!selectedDate
+                            ? 'Select a Date'
+                            : `Select a Time for ${format(selectedDate, 'EEEE, MMMM do')}`}
+                    </Typography>
+
+                    {/* Step 1: Show calendar until date is selected */}
+                    {!selectedDate && (
+                        <>
+                            <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', mb: 3, textAlign: 'center' }}>
+                                Choose your preferred pickup or delivery date for advanced customizations.
+                            </Typography>
+
+                            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                                <LocalizationProvider dateAdapter={AdapterDateFns}>
+                                    <DateCalendar
+                                        value={selectedDate}
+                                        onChange={handleAdvancedDateChange}
+                                        referenceDate={new Date()}
+                                        disablePast
+                                        shouldDisableDate={(date) => {
+                                            if (isToday(date)) return true;
+                                            const maxDate = addDays(new Date(), 90);
+                                            return date > maxDate;
+                                        }}
+                                        slots={{ day: CustomDay }}
+                                        sx={{
+                                            width: '100%',
+                                            maxWidth: 400,
+                                            '& .MuiPickersDay-root': { fontSize: '1.6rem', width: '3.5rem', height: '3.5rem' },
+                                            '& .MuiDayCalendar-weekDayLabel': { fontSize: '1.6rem', fontWeight: 'bold', width: '3.5rem', height: '3.5rem' },
+                                            '& .MuiPickersCalendarHeader-root svg': { width: '2rem', height: '2rem' },
+                                            '& .MuiPickersCalendarHeader-label': { fontSize: '1.6rem' },
+                                        }}
+                                    />
+                                </LocalizationProvider>
+                            </Box>
+                        </>
+                    )}
+
+                    {/* Step 2: Show time slots after date is selected */}
+                    {selectedDate && (
+                        <>
+                            <Box
+                                sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(3, 1fr)',
+                                    gap: 1,
+                                    maxWidth: 400,
+                                    margin: '0 auto',
+                                }}
+                            >
+                                {generateTimeSlots().map((slot) => (
+                                    <Box
+                                        key={slot.value}
+                                        component="button"
+                                        onClick={() => handleAdvancedTimeSelect(slot.value)}
+                                        sx={{
+                                            py: 1.5,
+                                            px: 1,
+                                            border: '2px solid',
+                                            borderColor: selectedTime === slot.value ? 'black' : 'grey.300',
+                                            borderRadius: 2,
+                                            backgroundColor: selectedTime === slot.value ? 'black' : 'white',
+                                            color: selectedTime === slot.value ? 'white' : 'text.primary',
+                                            fontSize: '1.6rem',
+                                            fontWeight: 500,
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            '&:hover': {
+                                                borderColor: 'black',
+                                            }
+                                        }}
+                                    >
+                                        {slot.label}
+                                    </Box>
+                                ))}
+                            </Box>
+
+                            {/* Back to date selection */}
+                            <Box sx={{ mt: 3, textAlign: 'center' }}>
+                                <Box
+                                    component="button"
+                                    onClick={() => setSelectedDate(null)}
+                                    sx={{
+                                        py: 1.5,
+                                        px: 3,
+                                        backgroundColor: 'grey.100',
+                                        color: 'text.primary',
+                                        border: 'none',
+                                        borderRadius: 2,
+                                        fontSize: '1.6rem',
+                                        fontWeight: 500,
+                                        cursor: 'pointer',
+                                        '&:hover': {
+                                            backgroundColor: 'grey.200',
+                                        }
+                                    }}
+                                >
+                                    ← Change Date
+                                </Box>
+                            </Box>
+                        </>
+                    )}
+                </Box>
+
+                {/* Sticky Footer */}
+                <Box
+                    sx={{
+                        position: 'fixed',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        p: 2,
+                        borderTop: '1px solid',
+                        borderColor: 'grey.300',
+                        backgroundColor: 'white',
+                        zIndex: 1000,
+                        paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+                    }}
+                >
+                    <Box sx={{ maxWidth: 600, margin: '0 auto', display: 'flex', gap: 1 }}>
+                        {/* Back Button */}
+                        <Box
+                            component="button"
+                            onClick={handleBackFromAdvancedDateSelection}
+                            sx={{
+                                px: 2,
+                                py: 1.5,
+                                backgroundColor: 'white',
+                                color: 'grey.700',
+                                border: '1px solid',
+                                borderColor: 'grey.300',
+                                borderRadius: 1,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                '&:hover': {
+                                    backgroundColor: 'grey.100',
+                                    borderColor: 'grey.400',
+                                },
+                            }}
+                            aria-label="Back"
+                        >
+                            <CloseIcon />
+                        </Box>
+
+                        {/* Continue Button */}
+                        <Box
+                            component="button"
+                            onClick={handleAdvancedContinue}
+                            disabled={!selectedDate || !selectedTime}
+                            sx={{
+                                flex: 1,
+                                py: 2,
+                                px: 4,
+                                backgroundColor: (!selectedDate || !selectedTime) ? 'grey.300' : 'black',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: 1,
+                                fontSize: '1.6rem',
+                                fontWeight: 700,
+                                cursor: (!selectedDate || !selectedTime) ? 'not-allowed' : 'pointer',
+                                '&:hover': {
+                                    backgroundColor: (!selectedDate || !selectedTime) ? 'grey.300' : '#333',
+                                },
+                            }}
+                        >
+                            Continue
+                        </Box>
+                    </Box>
+                </Box>
+            </Box>
+        );
+    }
 
     return (
         <Box sx={{ backgroundColor: 'white' }}>
@@ -2003,9 +3410,6 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                         Proudly diverse, minority, veteran, and women-owned. Let us bring your unique style to life.
                     </Typography>
 
-                    {/* Availability Notification */}
-                    <AvailabilityNotification />
-
                     {/* Vertical stack of packaging cards */}
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                         {PACKAGING.map((item) => (
@@ -2013,7 +3417,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                 key={item.name}
                                 whileHover={{ scale: 1.02, y: -4 }}
                                 whileTap={{ scale: 0.98 }}
-                                onClick={() => handlePackagingSelect(item)}
+                                onClick={() => handleExploreClick(item)}
                                 style={{ cursor: 'pointer' }}
                             >
                                 <Box
@@ -2119,8 +3523,8 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                 </Box>
             )}
 
-            {/* Sticky Bottom Box - Fixed at bottom for Cake Jar Boxes */}
-            {selectedPackaging && selectedPackaging.name === 'Cake Jar Boxes' && (
+            {/* Sticky Bottom Box - Fixed at bottom for Cake Jar Boxes (hidden during Make Your Own flow) */}
+            {selectedPackaging && selectedPackaging.name === 'Cake Jar Boxes' && !makeYourOwnActive && (
                 <Box
                     sx={{
                         position: 'fixed',
@@ -2136,35 +3540,11 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                     }}
                 >
                     <Box sx={{ maxWidth: 600, margin: '0 auto' }}>
-                        {isBoxComplete && showDateTimeSelection ? (
-                            /* Add to Cart button when date/time is being selected */
+                        {isBoxComplete ? (
+                            /* Add to Cart button when box is complete */
                             <Box
                                 component="button"
                                 onClick={handleAddBoxToCart}
-                                disabled={!selectedDate || !selectedTime}
-                                sx={{
-                                    width: '100%',
-                                    py: 2,
-                                    px: 4,
-                                    backgroundColor: (!selectedDate || !selectedTime) ? 'grey.300' : 'black',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: 2,
-                                    fontSize: '1.6rem',
-                                    fontWeight: 700,
-                                    cursor: (!selectedDate || !selectedTime) ? 'not-allowed' : 'pointer',
-                                    '&:hover': {
-                                        backgroundColor: (!selectedDate || !selectedTime) ? 'grey.300' : '#333',
-                                    },
-                                }}
-                            >
-                                Add to Cart
-                            </Box>
-                        ) : isBoxComplete ? (
-                            /* Continue button when box is complete - opens date/time selection */
-                            <Box
-                                component="button"
-                                onClick={handleContinueToDateTime}
                                 sx={{
                                     width: '100%',
                                     py: 2,
@@ -2181,7 +3561,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                     },
                                 }}
                             >
-                                Continue
+                                Add to Cart
                             </Box>
                         ) : (
                             <>
@@ -2232,7 +3612,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                     overflow: 'visible',
                                                     cursor: flavorInSlot ? 'pointer' : 'default',
                                                 }}
-                                                onClick={() => flavorInSlot && handleRemoveFromSlot(flavorInSlot.id)}
+                                                onClick={() => flavorInSlot && handleRemoveFromSlot(flavorInSlot.slotIndex)}
                                             >
                                                 {/* Slot number when empty */}
                                                 {!flavorInSlot && (
@@ -2260,31 +3640,91 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                             }}
                                                             style={{ width: '100%', height: '100%', position: 'relative' }}
                                                         >
-                                                            <Box
-                                                                sx={{
-                                                                    width: '100%',
-                                                                    height: '100%',
-                                                                    borderRadius: '50%',
-                                                                    backgroundColor: flavorInSlot.color,
-                                                                    boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
-                                                                    overflow: 'hidden',
-                                                                }}
-                                                            >
-                                                                {flavorInSlot.image && (
-                                                                    <img
-                                                                        src={flavorInSlot.image}
-                                                                        alt={flavorInSlot.name}
-                                                                        style={{
+                                                            {(() => {
+                                                                // For custom jars, get frosting and topping images
+                                                                let frostingImage = null;
+                                                                let frostingColor = flavorInSlot.color;
+                                                                let toppingImages = [];
+
+                                                                if (flavorInSlot.isCustom && flavorInSlot.customizations) {
+                                                                    const frostingName = flavorInSlot.customizations.frostings?.[0];
+                                                                    const frostingObj = FROSTINGS.find(f => f.name === frostingName);
+                                                                    frostingImage = frostingObj?.image;
+                                                                    frostingColor = frostingObj?.color || flavorInSlot.color;
+
+                                                                    toppingImages = (flavorInSlot.customizations.toppings || [])
+                                                                        .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+                                                                        .filter(t => t && t.image)
+                                                                        .map(t => t.image);
+                                                                }
+
+                                                                return (
+                                                                    <Box
+                                                                        sx={{
                                                                             width: '100%',
                                                                             height: '100%',
-                                                                            objectFit: 'cover',
+                                                                            borderRadius: '50%',
+                                                                            backgroundColor: frostingColor || flavorInSlot.color,
+                                                                            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            overflow: 'hidden',
+                                                                            position: 'relative',
                                                                         }}
-                                                                    />
-                                                                )}
-                                                            </Box>
+                                                                    >
+                                                                        {flavorInSlot.isCustom ? (
+                                                                            <>
+                                                                                {/* Base layer - frosting */}
+                                                                                {frostingImage && (
+                                                                                    <img
+                                                                                        src={frostingImage}
+                                                                                        alt="frosting"
+                                                                                        style={{
+                                                                                            position: 'absolute',
+                                                                                            top: 0,
+                                                                                            left: 0,
+                                                                                            width: '100%',
+                                                                                            height: '100%',
+                                                                                            objectFit: 'cover',
+                                                                                            zIndex: 0,
+                                                                                        }}
+                                                                                    />
+                                                                                )}
+                                                                                {/* Topping layers */}
+                                                                                {toppingImages.map((img, index) => (
+                                                                                    <img
+                                                                                        key={index}
+                                                                                        src={img}
+                                                                                        alt="topping"
+                                                                                        style={{
+                                                                                            position: 'absolute',
+                                                                                            top: 0,
+                                                                                            left: 0,
+                                                                                            width: '100%',
+                                                                                            height: '100%',
+                                                                                            objectFit: 'cover',
+                                                                                            zIndex: index + 1,
+                                                                                        }}
+                                                                                    />
+                                                                                ))}
+                                                                            </>
+                                                                        ) : (
+                                                                            flavorInSlot.image && (
+                                                                                <img
+                                                                                    src={flavorInSlot.image}
+                                                                                    alt={flavorInSlot.name}
+                                                                                    style={{
+                                                                                        width: '100%',
+                                                                                        height: '100%',
+                                                                                        objectFit: 'cover',
+                                                                                    }}
+                                                                                />
+                                                                            )
+                                                                        )}
+                                                                    </Box>
+                                                                );
+                                                            })()}
                                                             {/* Dietary badges for this jar */}
                                                             {flavorInSlot.glutenFree && (
                                                                 <Box sx={{ position: 'absolute', top: -6, right: -2, zIndex: 10 }}>
@@ -2331,155 +3771,14 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
             {/* Show Toggle and Flavors only after packaging is selected */}
             {selectedPackaging && (
                 <>
-                    {/* Flavors Section OR Completed Box List OR Date/Time Selection */}
+                    {/* Flavors Section OR Completed Box List */}
                     <Box sx={{
                         pt: 2,
                         pb: selectedPackaging?.name === 'Cake Jar Boxes' ? 12 : 4,
                         borderTop: '1px solid',
                         borderColor: 'divider'
                     }}>
-                        {isBoxComplete && showDateTimeSelection ? (
-                            /* Date/Time Selection View */
-                            <>
-                                <Typography
-                                    variant="h3"
-                                    component="h2"
-                                    sx={{
-                                        fontWeight: 700,
-                                        mb: 2,
-                                        fontSize: { xs: '1.75rem', md: '2.25rem' },
-                                        textAlign: 'center'
-                                    }}
-                                >
-                                    {!selectedDate
-                                        ? 'Select a Date'
-                                        : `Select a Time for ${format(selectedDate, 'EEEE, MMMM do')}`}
-                                </Typography>
-
-                                {/* Step 1: Show calendar until date is selected */}
-                                {!selectedDate && (
-                                    <>
-                                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', mb: 3, textAlign: 'center' }}>
-                                            Orders must be placed at least 24 hours in advance.
-                                        </Typography>
-
-                                        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                            <LocalizationProvider dateAdapter={AdapterDateFns}>
-                                                <DateCalendar
-                                                    value={selectedDate}
-                                                    onChange={handleDateChange}
-                                                    referenceDate={new Date()}
-                                                    disablePast
-                                                    shouldDisableDate={(date) => {
-                                                        if (isToday(date)) return true;
-                                                        const maxDate = addDays(new Date(), 90);
-                                                        return date > maxDate;
-                                                    }}
-                                                    slots={{ day: CustomDay }}
-                                                    sx={{
-                                                        width: '100%',
-                                                        maxWidth: 400,
-                                                        '& .MuiPickersDay-root': { fontSize: '1.6rem', width: '3.5rem', height: '3.5rem' },
-                                                        '& .MuiDayCalendar-weekDayLabel': { fontSize: '1.6rem', fontWeight: 'bold', width: '3.5rem', height: '3.5rem' },
-                                                        '& .MuiPickersCalendarHeader-root svg': { width: '2rem', height: '2rem' },
-                                                        '& .MuiPickersCalendarHeader-label': { fontSize: '1.6rem' },
-                                                    }}
-                                                />
-                                            </LocalizationProvider>
-                                        </Box>
-
-                                        {/* Back button */}
-                                        <Box sx={{ mt: 3, textAlign: 'center' }}>
-                                            <Box
-                                                component="button"
-                                                onClick={handleBackFromDateTime}
-                                                sx={{
-                                                    py: 1.5,
-                                                    px: 3,
-                                                    backgroundColor: 'grey.100',
-                                                    color: 'text.primary',
-                                                    border: 'none',
-                                                    borderRadius: 2,
-                                                    fontSize: '1.6rem',
-                                                    fontWeight: 500,
-                                                    cursor: 'pointer',
-                                                    '&:hover': {
-                                                        backgroundColor: 'grey.200',
-                                                    }
-                                                }}
-                                            >
-                                                ← Back to Box
-                                            </Box>
-                                        </Box>
-                                    </>
-                                )}
-
-                                {/* Step 2: Show time slots after date is selected */}
-                                {selectedDate && (
-                                    <>
-                                        <Box
-                                            sx={{
-                                                display: 'grid',
-                                                gridTemplateColumns: 'repeat(3, 1fr)',
-                                                gap: 1,
-                                                maxWidth: 400,
-                                                margin: '0 auto',
-                                            }}
-                                        >
-                                            {generateTimeSlots().map((slot) => (
-                                                <Box
-                                                    key={slot.value}
-                                                    component="button"
-                                                    onClick={() => handleTimeSelect(slot.value)}
-                                                    sx={{
-                                                        py: 1.5,
-                                                        px: 1,
-                                                        border: '2px solid',
-                                                        borderColor: selectedTime === slot.value ? 'black' : 'grey.300',
-                                                        borderRadius: 2,
-                                                        backgroundColor: selectedTime === slot.value ? 'black' : 'white',
-                                                        color: selectedTime === slot.value ? 'white' : 'text.primary',
-                                                        fontSize: '1.6rem',
-                                                        fontWeight: 500,
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.2s',
-                                                        '&:hover': {
-                                                            borderColor: 'black',
-                                                        }
-                                                    }}
-                                                >
-                                                    {slot.label}
-                                                </Box>
-                                            ))}
-                                        </Box>
-
-                                        {/* Back to date selection */}
-                                        <Box sx={{ mt: 3, textAlign: 'center' }}>
-                                            <Box
-                                                component="button"
-                                                onClick={() => setSelectedDate(null)}
-                                                sx={{
-                                                    py: 1.5,
-                                                    px: 3,
-                                                    backgroundColor: 'grey.100',
-                                                    color: 'text.primary',
-                                                    border: 'none',
-                                                    borderRadius: 2,
-                                                    fontSize: '1.6rem',
-                                                    fontWeight: 500,
-                                                    cursor: 'pointer',
-                                                    '&:hover': {
-                                                        backgroundColor: 'grey.200',
-                                                    }
-                                                }}
-                                            >
-                                                ← Change Date
-                                            </Box>
-                                        </Box>
-                                    </>
-                                )}
-                            </>
-                        ) : isBoxComplete ? (
+                        {isBoxComplete ? (
                             /* Completed Box - Show list of selected jars */
                             <>
                                 <Typography
@@ -2544,8 +3843,26 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                             fontWeight: 600,
                                                         }}
                                                     >
-                                                        {flavor.name}
+                                                        {flavor.isCustom ? flavor.displayName : flavor.name}
                                                     </Typography>
+                                                    {/* Show ingredients for custom jars */}
+                                                    {flavor.isCustom && flavor.customizations && (
+                                                        <Typography
+                                                            sx={{
+                                                                fontSize: '1.2rem',
+                                                                color: 'text.secondary',
+                                                                mt: 0.25,
+                                                            }}
+                                                        >
+                                                            {[
+                                                                flavor.customizations.cake,
+                                                                ...(flavor.customizations.frostings || []),
+                                                                ...(flavor.customizations.toppings || []),
+                                                                ...(flavor.customizations.cookies || []),
+                                                                ...(flavor.customizations.syrups || []),
+                                                            ].filter(Boolean).join(', ')}
+                                                        </Typography>
+                                                    )}
                                                     <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
                                                         {flavor.glutenFree && <GlutenFreeBadge size="small" />}
                                                         {flavor.vegan && <VeganBadge size="small" />}
@@ -2555,7 +3872,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                 {/* Remove button */}
                                                 <Box
                                                     component="button"
-                                                    onClick={() => handleRemoveFromSlot(flavor.id)}
+                                                    onClick={() => handleRemoveFromSlot(flavor.slotIndex)}
                                                     sx={{
                                                         background: 'none',
                                                         border: 'none',
@@ -2577,20 +3894,376 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                         ) : (
                             /* Flavor picker when box is not complete */
                             <>
-                                <Typography
-                                    variant="h3"
-                                    component="h2"
-                                    sx={{
-                                        fontWeight: 700,
-                                        mb: 2,
-                                        fontSize: { xs: '1.75rem', md: '2.25rem' },
-                                        textAlign: 'center'
-                                    }}
-                                >
-                                    Add a Cake Jar
-                                </Typography>
+                                {makeYourOwnActive ? (
+                                    /* Inline Make Your Own UI */
+                                    <Box sx={{ pb: '80px' }}>
+                                        <Typography
+                                            variant="h3"
+                                            component="h2"
+                                            sx={{
+                                                fontWeight: 700,
+                                                mb: 4,
+                                                fontSize: { xs: '1.75rem', md: '2.25rem' },
+                                                textAlign: 'center'
+                                            }}
+                                        >
+                                            {editingJar ? (editingJar.isCustom ? 'Update Your Custom Cake Jar' : editingJar.name) : 'Make Your Own Cake Jar'}
+                                        </Typography>
 
-                                {/* Legend */}
+                                        {/* Dynamic Preview Image - updates based on selections */}
+                                        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>
+                                            {(() => {
+                                                // Get selected items
+                                                const selectedCake = CAKE_FLAVORS.find(c => c.name === makeYourOwnSelections.cake);
+                                                const selectedFrosting = FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting);
+                                                const selectedTopping = AVAILABLE_TOPPINGS.find(t => t.name === makeYourOwnSelections.topping);
+
+                                                // Determine what to show
+                                                let bgColor = '#f5f0e6';
+                                                let baseImage = editingJar?.image || MAKE_YOUR_OWN_JAR.image;
+                                                let showFrosting = false;
+                                                let showTopping = false;
+
+                                                if (selectedCake) {
+                                                    baseImage = selectedCake.image;
+                                                    bgColor = selectedCake.color;
+                                                }
+                                                if (selectedFrosting) {
+                                                    baseImage = selectedFrosting.image;
+                                                    bgColor = selectedFrosting.color;
+                                                    showFrosting = true;
+                                                }
+                                                if (selectedTopping && selectedTopping.image) {
+                                                    showTopping = true;
+                                                }
+
+                                                return (
+                                                    <Box
+                                                        sx={{
+                                                            width: 180,
+                                                            height: 180,
+                                                            borderRadius: '50%',
+                                                            overflow: 'hidden',
+                                                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                                            border: '3px solid white',
+                                                            backgroundColor: bgColor,
+                                                            position: 'relative',
+                                                        }}
+                                                    >
+                                                        {/* Base layer - cake or frosting */}
+                                                        {baseImage && (
+                                                            <img
+                                                                src={baseImage}
+                                                                alt="Preview"
+                                                                style={{
+                                                                    position: 'absolute',
+                                                                    top: 0,
+                                                                    left: 0,
+                                                                    width: '100%',
+                                                                    height: '100%',
+                                                                    objectFit: 'cover',
+                                                                    zIndex: 0,
+                                                                }}
+                                                            />
+                                                        )}
+                                                        {/* Topping overlay */}
+                                                        {showTopping && selectedTopping?.image && (
+                                                            <img
+                                                                src={selectedTopping.image}
+                                                                alt="Topping"
+                                                                style={{
+                                                                    position: 'absolute',
+                                                                    top: 0,
+                                                                    left: 0,
+                                                                    width: '100%',
+                                                                    height: '100%',
+                                                                    objectFit: 'cover',
+                                                                    zIndex: 1,
+                                                                }}
+                                                            />
+                                                        )}
+                                                    </Box>
+                                                );
+                                            })()}
+                                        </Box>
+
+                                        {/* Step 0: Select Cake */}
+                                        {makeYourOwnStep === 0 && (
+                                            <Box>
+                                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 2, textAlign: 'center' }}>
+                                                    Select Your Cake
+                                                </Typography>
+                                                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, maxWidth: '350px', margin: '0 auto' }}>
+                                                    {CAKE_FLAVORS.map((cake) => (
+                                                        <Box
+                                                            key={cake.name}
+                                                            onClick={() => handleMakeYourOwnSelect('cake', cake.name)}
+                                                            sx={{
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                alignItems: 'center',
+                                                                cursor: 'pointer',
+                                                            }}
+                                                        >
+                                                            <Box
+                                                                sx={{
+                                                                    width: 80,
+                                                                    height: 80,
+                                                                    borderRadius: '50%',
+                                                                    overflow: 'hidden',
+                                                                    border: makeYourOwnSelections.cake === cake.name ? `3px solid ${cake.color}` : '3px solid white',
+                                                                    boxShadow: makeYourOwnSelections.cake === cake.name ? `0 0 0 2px ${cake.color}` : '0 2px 8px rgba(0,0,0,0.15)',
+                                                                    transition: 'all 0.2s',
+                                                                }}
+                                                            >
+                                                                <img src={cake.image} alt={cake.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                            </Box>
+                                                            <Typography sx={{ fontSize: '1.4rem', mt: 1, textAlign: 'center' }}>{cake.name}</Typography>
+                                                        </Box>
+                                                    ))}
+                                                </Box>
+                                            </Box>
+                                        )}
+
+                                        {/* Step 1: Select Frosting */}
+                                        {makeYourOwnStep === 1 && (
+                                            <Box>
+                                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 2, textAlign: 'center' }}>
+                                                    Select Your Frosting
+                                                </Typography>
+                                                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, maxWidth: '350px', margin: '0 auto' }}>
+                                                    {FROSTINGS.map((frosting) => (
+                                                        <Box
+                                                            key={frosting.name}
+                                                            onClick={() => handleMakeYourOwnSelect('frosting', frosting.name)}
+                                                            sx={{
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                alignItems: 'center',
+                                                                cursor: 'pointer',
+                                                            }}
+                                                        >
+                                                            <Box
+                                                                sx={{
+                                                                    width: 80,
+                                                                    height: 80,
+                                                                    borderRadius: '50%',
+                                                                    overflow: 'hidden',
+                                                                    backgroundColor: frosting.color,
+                                                                    border: makeYourOwnSelections.frosting === frosting.name ? `3px solid ${frosting.color}` : '3px solid white',
+                                                                    boxShadow: makeYourOwnSelections.frosting === frosting.name ? `0 0 0 2px ${frosting.color}` : '0 2px 8px rgba(0,0,0,0.15)',
+                                                                    transition: 'all 0.2s',
+                                                                }}
+                                                            >
+                                                                {frosting.image && <img src={frosting.image} alt={frosting.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                                                            </Box>
+                                                            <Typography sx={{ fontSize: '1.4rem', mt: 1, textAlign: 'center' }}>{frosting.name}</Typography>
+                                                        </Box>
+                                                    ))}
+                                                </Box>
+                                            </Box>
+                                        )}
+
+                                        {/* Step 2: Select Topping (Optional) */}
+                                        {makeYourOwnStep === 2 && (
+                                            <Box>
+                                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 2, textAlign: 'center' }}>
+                                                    Add Topping <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>(Optional)</Typography>
+                                                </Typography>
+                                                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, maxWidth: '350px', margin: '0 auto' }}>
+                                                    {AVAILABLE_TOPPINGS.map((topping) => (
+                                                        <Box
+                                                            key={topping.name}
+                                                            component="button"
+                                                            onClick={() => handleMakeYourOwnSelect('topping', makeYourOwnSelections.topping === topping.name ? null : topping.name)}
+                                                            sx={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 1,
+                                                                px: 1.5,
+                                                                py: 1,
+                                                                border: makeYourOwnSelections.topping === topping.name ? '2px solid black' : '1px solid #e0e0e0',
+                                                                borderRadius: 2,
+                                                                backgroundColor: makeYourOwnSelections.topping === topping.name ? '#f5f5f5' : 'white',
+                                                                cursor: 'pointer',
+                                                                fontSize: '1.4rem',
+                                                                textAlign: 'left',
+                                                            }}
+                                                        >
+                                                            {topping.name}
+                                                        </Box>
+                                                    ))}
+                                                </Box>
+                                            </Box>
+                                        )}
+
+                                        {/* Step 3: Select Cookie (Optional) */}
+                                        {makeYourOwnStep === 3 && (
+                                            <Box>
+                                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 2, textAlign: 'center' }}>
+                                                    Add Cookie <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>(Optional)</Typography>
+                                                </Typography>
+                                                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, maxWidth: '350px', margin: '0 auto' }}>
+                                                    {AVAILABLE_COOKIES.map((cookie) => (
+                                                        <Box
+                                                            key={cookie}
+                                                            component="button"
+                                                            onClick={() => handleMakeYourOwnSelect('cookie', makeYourOwnSelections.cookie === cookie ? null : cookie)}
+                                                            sx={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 1,
+                                                                px: 1.5,
+                                                                py: 1,
+                                                                border: makeYourOwnSelections.cookie === cookie ? '2px solid black' : '1px solid #e0e0e0',
+                                                                borderRadius: 2,
+                                                                backgroundColor: makeYourOwnSelections.cookie === cookie ? '#f5f5f5' : 'white',
+                                                                cursor: 'pointer',
+                                                                fontSize: '1.4rem',
+                                                                textAlign: 'left',
+                                                            }}
+                                                        >
+                                                            {cookie}
+                                                        </Box>
+                                                    ))}
+                                                </Box>
+                                            </Box>
+                                        )}
+
+                                        {/* Step 4: Select Syrup (Optional) */}
+                                        {makeYourOwnStep === 4 && (
+                                            <Box>
+                                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 2, textAlign: 'center' }}>
+                                                    Add Syrup <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>(Optional)</Typography>
+                                                </Typography>
+                                                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, maxWidth: '350px', margin: '0 auto' }}>
+                                                    {AVAILABLE_SYRUPS.map((syrup) => (
+                                                        <Box
+                                                            key={syrup}
+                                                            component="button"
+                                                            onClick={() => handleMakeYourOwnSelect('syrup', makeYourOwnSelections.syrup === syrup ? null : syrup)}
+                                                            sx={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 1,
+                                                                px: 1.5,
+                                                                py: 1,
+                                                                border: makeYourOwnSelections.syrup === syrup ? '2px solid black' : '1px solid #e0e0e0',
+                                                                borderRadius: 2,
+                                                                backgroundColor: makeYourOwnSelections.syrup === syrup ? '#f5f5f5' : 'white',
+                                                                cursor: 'pointer',
+                                                                fontSize: '1.4rem',
+                                                                textAlign: 'left',
+                                                            }}
+                                                        >
+                                                            {syrup}
+                                                        </Box>
+                                                    ))}
+                                                </Box>
+                                            </Box>
+                                        )}
+
+                                        {/* Sticky Continue/Add to Box Button */}
+                                        <Box
+                                            sx={{
+                                                position: 'fixed',
+                                                bottom: 0,
+                                                left: 0,
+                                                right: 0,
+                                                p: 2,
+                                                backgroundColor: 'white',
+                                                borderTop: '1px solid #e0e0e0',
+                                                zIndex: 100,
+                                            }}
+                                        >
+                                            <Box sx={{ display: 'flex', gap: 1.5, maxWidth: '400px', margin: '0 auto' }}>
+                                                {/* X button to exit */}
+                                                <Box
+                                                    component="button"
+                                                    onClick={() => { setMakeYourOwnActive(false); setEditingJar(null); }}
+                                                    sx={{
+                                                        py: 1.5,
+                                                        px: 2,
+                                                        backgroundColor: 'white',
+                                                        color: 'black',
+                                                        border: '2px solid #e0e0e0',
+                                                        borderRadius: 2,
+                                                        fontSize: '1.6rem',
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        '&:hover': {
+                                                            borderColor: '#999',
+                                                        },
+                                                    }}
+                                                    aria-label="Exit Make Your Own"
+                                                >
+                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                                                    </svg>
+                                                </Box>
+                                                {makeYourOwnStep < 4 ? (
+                                                    <Box
+                                                        component="button"
+                                                        onClick={handleMakeYourOwnContinue}
+                                                        disabled={(makeYourOwnStep === 0 && !makeYourOwnSelections.cake) || (makeYourOwnStep === 1 && !makeYourOwnSelections.frosting)}
+                                                        sx={{
+                                                            flex: 1,
+                                                            py: 1.5,
+                                                            px: 3,
+                                                            backgroundColor: ((makeYourOwnStep === 0 && !makeYourOwnSelections.cake) || (makeYourOwnStep === 1 && !makeYourOwnSelections.frosting)) ? '#ccc' : 'black',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: 2,
+                                                            fontSize: '1.6rem',
+                                                            fontWeight: 600,
+                                                            cursor: ((makeYourOwnStep === 0 && !makeYourOwnSelections.cake) || (makeYourOwnStep === 1 && !makeYourOwnSelections.frosting)) ? 'not-allowed' : 'pointer',
+                                                        }}
+                                                    >
+                                                        Continue
+                                                    </Box>
+                                                ) : (
+                                                    <Box
+                                                        component="button"
+                                                        onClick={handleMakeYourOwnAddToBox}
+                                                        sx={{
+                                                            flex: 1,
+                                                            py: 1.5,
+                                                            px: 3,
+                                                            backgroundColor: 'black',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: 2,
+                                                            fontSize: '1.6rem',
+                                                            fontWeight: 600,
+                                                            cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        {editingJar ? 'Update Cake Jar' : 'Add to Box'}
+                                                    </Box>
+                                                )}
+                                            </Box>
+                                        </Box>
+                                    </Box>
+                                ) : (
+                                    /* Normal flavor picker */
+                                    <>
+                                        <Typography
+                                            variant="h3"
+                                            component="h2"
+                                            sx={{
+                                                fontWeight: 700,
+                                                mb: 2,
+                                                fontSize: { xs: '1.75rem', md: '2.25rem' },
+                                                textAlign: 'center'
+                                            }}
+                                        >
+                                            Add a Cake Jar
+                                        </Typography>
+
+                                        {/* Legend */}
                                 <Box
                                     sx={{
                                         display: 'flex',
@@ -2613,15 +4286,18 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                     </Box>
                                 </Box>
 
-                                {/* Category Toggle */}
-                                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
-                                    <ToggleButtonGroup
-                                        value={selectedFlavorCategory}
-                                        exclusive
-                                        onChange={handleFlavorCategoryChange}
-                                        aria-label="flavor category"
-                                        sx={{
-                                            '& .MuiToggleButton-root': {
+                                {/* Category Anchor Links */}
+                                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3, flexWrap: 'wrap', gap: 1 }}>
+                                    {/* Your Jars link - only show when custom jars exist */}
+                                    {customJars.length > 0 && (
+                                        <Box
+                                            component="a"
+                                            href="#your-jars-section"
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                document.getElementById('your-jars-section')?.scrollIntoView({ behavior: 'smooth' });
+                                            }}
+                                            sx={{
                                                 px: 3,
                                                 py: 1,
                                                 textTransform: 'none',
@@ -2629,43 +4305,137 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                 fontWeight: 500,
                                                 border: '1px solid',
                                                 borderColor: 'grey.300',
-                                                '&.Mui-selected': {
-                                                    backgroundColor: 'black',
-                                                    color: 'white',
-                                                    '&:hover': {
-                                                        backgroundColor: '#333',
-                                                    },
+                                                borderRadius: 1,
+                                                textDecoration: 'none',
+                                                color: 'black',
+                                                backgroundColor: 'white',
+                                                cursor: 'pointer',
+                                                '&:hover': {
+                                                    backgroundColor: 'grey.100',
                                                 },
-                                            },
-                                        }}
-                                    >
-                                        {(FLAVOR_CATEGORIES_BY_PACKAGING[selectedPackaging?.name] || []).map((category) => (
-                                            <ToggleButton key={category.id} value={category.id}>
-                                                {category.label}
-                                            </ToggleButton>
-                                        ))}
-                                    </ToggleButtonGroup>
-                                </Box>
-
-                                {/* Flavors Grid - 3 columns */}
-                                <Box
-                                    sx={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(3, 1fr)',
-                                        gap: 3,
-                                        maxWidth: '400px',
-                                        margin: '0 auto'
-                                    }}
-                                >
-                                    {currentFlavors.map((flavor) => (
-                                        <AnimatedFlavorCircle
-                                            key={flavor.name}
-                                            flavor={flavor}
-                                            onSelect={handleOpenJarModal}
-                                            isPlaced={false}
-                                        />
+                                            }}
+                                        >
+                                            Your Jars
+                                        </Box>
+                                    )}
+                                    {(FLAVOR_CATEGORIES_BY_PACKAGING[selectedPackaging?.name] || []).map((category) => (
+                                        <Box
+                                            key={category.id}
+                                            component="a"
+                                            href={`#${category.id}-section`}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                document.getElementById(`${category.id}-section`)?.scrollIntoView({ behavior: 'smooth' });
+                                            }}
+                                            sx={{
+                                                px: 3,
+                                                py: 1,
+                                                textTransform: 'none',
+                                                fontSize: '1.4rem',
+                                                fontWeight: 500,
+                                                border: '1px solid',
+                                                borderColor: 'grey.300',
+                                                borderRadius: 1,
+                                                textDecoration: 'none',
+                                                color: 'black',
+                                                backgroundColor: 'white',
+                                                cursor: 'pointer',
+                                                '&:hover': {
+                                                    backgroundColor: 'grey.100',
+                                                },
+                                            }}
+                                        >
+                                            {category.label}
+                                        </Box>
                                     ))}
                                 </Box>
+
+                                {/* Your Jars Section - only show when user has custom jars */}
+                                {customJars.length > 0 && (
+                                    <Box id="your-jars-section" sx={{ mb: 4 }}>
+                                        <Typography
+                                            sx={{
+                                                fontSize: '1.6rem',
+                                                fontWeight: 700,
+                                                mb: 2,
+                                                textAlign: 'center',
+                                            }}
+                                        >
+                                            Your Jars
+                                        </Typography>
+                                        <Box
+                                            sx={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                                gap: 3,
+                                                maxWidth: '400px',
+                                                margin: '0 auto'
+                                            }}
+                                        >
+                                            {/* Make Your Own Cake Jar - moves here when custom jars exist */}
+                                            <AnimatedFlavorCircle
+                                                key="make-your-own"
+                                                flavor={MAKE_YOUR_OWN_JAR}
+                                                onSelect={handleOpenJarModal}
+                                                isPlaced={false}
+                                            />
+                                            {/* User's custom jars */}
+                                            {customJars.map((jar) => (
+                                                <AnimatedFlavorCircle
+                                                    key={jar.id}
+                                                    flavor={jar}
+                                                    onSelect={handleOpenJarModal}
+                                                    isPlaced={isFlavorPlaced(jar.id)}
+                                                />
+                                            ))}
+                                        </Box>
+                                    </Box>
+                                )}
+
+                                {/* All Flavor Sections */}
+                                {(FLAVOR_CATEGORIES_BY_PACKAGING[selectedPackaging?.name] || []).map((category) => (
+                                    <Box key={category.id} id={`${category.id}-section`} sx={{ mb: 4 }}>
+                                        <Typography
+                                            sx={{
+                                                fontSize: '1.6rem',
+                                                fontWeight: 700,
+                                                mb: 2,
+                                                textAlign: 'center',
+                                            }}
+                                        >
+                                            {category.label}
+                                        </Typography>
+                                        <Box
+                                            sx={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                                gap: 3,
+                                                maxWidth: '400px',
+                                                margin: '0 auto'
+                                            }}
+                                        >
+                                            {/* Make Your Own - show in Cake Jars section when no custom jars yet */}
+                                            {category.id === 'cake' && customJars.length === 0 && (
+                                                <AnimatedFlavorCircle
+                                                    key="make-your-own"
+                                                    flavor={MAKE_YOUR_OWN_JAR}
+                                                    onSelect={handleOpenJarModal}
+                                                    isPlaced={false}
+                                                />
+                                            )}
+                                            {(FLAVORS[category.id] || []).map((flavor) => (
+                                                <AnimatedFlavorCircle
+                                                    key={flavor.name}
+                                                    flavor={flavor}
+                                                    onSelect={handleOpenJarModal}
+                                                    isPlaced={false}
+                                                />
+                                            ))}
+                                        </Box>
+                                    </Box>
+                                ))}
+                                    </>
+                                )}
                             </>
                         )}
                     </Box>
@@ -2806,6 +4576,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                 jar={selectedJarForModal}
                 onCustomize={handleOpenCustomizeModal}
                 onAddToBox={handleSaveJarCustomizations}
+                onDelete={handleDeleteCustomJar}
             />
 
             {/* Jar Customization Modal - editable ingredients */}
@@ -2815,7 +4586,6 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                 jar={selectedJarForModal}
                 onSave={handleSaveJarCustomizations}
             />
-
         </Box>
     );
 };
