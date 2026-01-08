@@ -725,19 +725,25 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
             <DialogContent sx={{ p: 0, flexGrow: 1, overflow: 'auto', pb: '100px' }}>
                 {/* Jar Image - show layered frosting + toppings for custom jars */}
                 {(() => {
-                    // For custom jars, get frosting and topping images
+                    // For custom jars/cookies, get frosting and topping images
                     let frostingImage = null;
                     let frostingColor = jar.color;
                     let toppingImages = [];
+                    const isCustomCookie = jar.id?.startsWith('custom-cookie-');
 
                     if (jar.isCustom && jar.customizations) {
                         const frostingName = jar.customizations.frostings?.[0];
-                        const frostingObj = FROSTINGS.find(f => f.name === frostingName);
+                        // Use cookie frostings for custom cookies, jar frostings for jars
+                        const frostingObj = isCustomCookie
+                            ? COOKIE_FROSTINGS.find(f => f.name === frostingName)
+                            : FROSTINGS.find(f => f.name === frostingName);
                         frostingImage = frostingObj?.image;
                         frostingColor = frostingObj?.color || jar.color;
 
+                        // Use cookie toppings for custom cookies, jar toppings for jars
+                        const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : AVAILABLE_TOPPINGS;
                         toppingImages = (jar.customizations.toppings || [])
-                            .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+                            .map(t => toppingsArray.find(top => top.name === t))
                             .filter(t => t && t.image)
                             .map(t => t.image);
                     }
@@ -2075,15 +2081,21 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced, onDelete }) => {
         if (onDelete) onDelete(flavor);
     };
 
-    // For custom jars, get frosting and topping images
+    // For custom jars/cookies, get frosting and topping images
     const getCustomJarImages = () => {
         if (!flavor.isCustom || !flavor.customizations) return { frostingImage: null, frostingColor: null, toppingImages: [] };
 
+        const isCustomCookie = flavor.id?.startsWith('custom-cookie-');
         const frostingName = flavor.customizations.frostings?.[0];
-        const frostingObj = FROSTINGS.find(f => f.name === frostingName);
+        // Use cookie frostings for custom cookies, jar frostings for jars
+        const frostingObj = isCustomCookie
+            ? COOKIE_FROSTINGS.find(f => f.name === frostingName)
+            : FROSTINGS.find(f => f.name === frostingName);
 
+        // Use cookie toppings for custom cookies, jar toppings for jars
+        const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : AVAILABLE_TOPPINGS;
         const toppingImages = (flavor.customizations.toppings || [])
-            .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+            .map(t => toppingsArray.find(top => top.name === t))
             .filter(t => t && t.image)
             .map(t => t.image);
 
@@ -2883,12 +2895,17 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 });
             }
         } else {
-            // Make Your Own - create new custom jar
-            const newCustomJar = {
-                id: `custom-jar-${Date.now()}`,
-                name: 'Make Your Own Cake Jar',
+            // Make Your Own - create new custom jar or cookie
+            const isCookies = selectedPackaging?.name === 'Cookies';
+            const frostingColor = isCookies
+                ? COOKIE_FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color
+                : FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color;
+
+            const newCustomItem = {
+                id: isCookies ? `custom-cookie-${Date.now()}` : `custom-jar-${Date.now()}`,
+                name: isCookies ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar',
                 image: null,
-                color: FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color || '#FFD700',
+                color: frostingColor || '#FFD700',
                 glutenFree: false,
                 vegan: false,
                 isCustom: true,
@@ -2901,11 +2918,16 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 },
             };
 
-            // Add to custom jars list
+            // Add to custom jars/cookies list
             setCustomJars(prev => {
-                const newNumber = prev.length + 1;
-                const jarWithName = { ...newCustomJar, displayName: `Custom Jar ${newNumber}` };
-                return [...prev, jarWithName];
+                // Count existing items of the same type
+                const existingCount = prev.filter(item =>
+                    isCookies ? item.id?.startsWith('custom-cookie-') : item.id?.startsWith('custom-jar-')
+                ).length;
+                const newNumber = existingCount + 1;
+                const displayName = isCookies ? `Custom Cookie ${newNumber}` : `Custom Jar ${newNumber}`;
+                const itemWithName = { ...newCustomItem, displayName };
+                return [...prev, itemWithName];
             });
 
             // Add to box if there's room
@@ -2921,13 +2943,18 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                     }
                 }
 
-                const customJarNumber = customJars.length + 1;
-                const jarWithSlot = {
-                    ...newCustomJar,
-                    displayName: `Custom Jar ${customJarNumber}`,
+                // Count existing custom items of the same type
+                const existingCount = customJars.filter(item =>
+                    isCookies ? item.id?.startsWith('custom-cookie-') : item.id?.startsWith('custom-jar-')
+                ).length;
+                const customNumber = existingCount + 1;
+                const displayName = isCookies ? `Custom Cookie ${customNumber}` : `Custom Jar ${customNumber}`;
+                const itemWithSlot = {
+                    ...newCustomItem,
+                    displayName,
                     slotIndex: nextSlot
                 };
-                return [...prev, jarWithSlot];
+                return [...prev, itemWithSlot];
             });
         }
 
@@ -3871,19 +3898,25 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             style={{ width: '100%', height: '100%', position: 'relative' }}
                                                         >
                                                             {(() => {
-                                                                // For custom jars, get frosting and topping images
+                                                                // For custom jars/cookies, get frosting and topping images
                                                                 let frostingImage = null;
                                                                 let frostingColor = flavorInSlot.color;
                                                                 let toppingImages = [];
+                                                                const isCustomCookie = flavorInSlot.id?.startsWith('custom-cookie-');
 
                                                                 if (flavorInSlot.isCustom && flavorInSlot.customizations) {
                                                                     const frostingName = flavorInSlot.customizations.frostings?.[0];
-                                                                    const frostingObj = FROSTINGS.find(f => f.name === frostingName);
+                                                                    // Use cookie frostings for custom cookies, jar frostings for jars
+                                                                    const frostingObj = isCustomCookie
+                                                                        ? COOKIE_FROSTINGS.find(f => f.name === frostingName)
+                                                                        : FROSTINGS.find(f => f.name === frostingName);
                                                                     frostingImage = frostingObj?.image;
                                                                     frostingColor = frostingObj?.color || flavorInSlot.color;
 
+                                                                    // Use cookie toppings for custom cookies, jar toppings for jars
+                                                                    const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : AVAILABLE_TOPPINGS;
                                                                     toppingImages = (flavorInSlot.customizations.toppings || [])
-                                                                        .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+                                                                        .map(t => toppingsArray.find(top => top.name === t))
                                                                         .filter(t => t && t.image)
                                                                         .map(t => t.image);
                                                                 }
