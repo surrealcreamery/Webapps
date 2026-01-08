@@ -55,7 +55,7 @@ const states = [
     'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
 ];
 
-export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateringState }) => {
+export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateringState, onEditCakeJarBox }) => {
     const { locations, fulfillmentDetails, isAuthenticated } = cateringState.context;
     const { type, locationId, address } = fulfillmentDetails;
 
@@ -224,19 +224,29 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
                                     }
                                     const hasDiscount = applicableDiscount !== null;
                                     const imageUrl = item['Item Image'] || PLACEHOLDER_IMAGE;
+                                    const isCakeJarBox = item.jars && item.jars.length > 0;
+
+                                    const handleEditCakeJarBox = () => {
+                                        if (isCakeJarBox && onEditCakeJarBox) {
+                                            onEditCakeJarBox(cartItem.id, item.jars);
+                                            onClose();
+                                        }
+                                    };
 
                                     return (
                                         <Box key={cartItem.id}>
                                             <Box sx={{ display: 'flex', gap: 2 }}>
                                                 {/* Product Image */}
                                                 <Box
+                                                    onClick={isCakeJarBox ? handleEditCakeJarBox : undefined}
                                                     sx={{
                                                         width: 80,
                                                         height: 80,
                                                         flexShrink: 0,
                                                         borderRadius: 2,
                                                         overflow: 'hidden',
-                                                        bgcolor: 'grey.100'
+                                                        bgcolor: 'grey.100',
+                                                        cursor: isCakeJarBox ? 'pointer' : 'default',
                                                     }}
                                                 >
                                                     <img
@@ -256,7 +266,16 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
                                                 {/* Product Details */}
                                                 <Box sx={{ flex: 1 }}>
                                                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                        <Typography variant="body1" sx={{ fontWeight: 500, fontSize: '1.6rem' }}>
+                                                        <Typography
+                                                            variant="body1"
+                                                            onClick={isCakeJarBox ? handleEditCakeJarBox : undefined}
+                                                            sx={{
+                                                                fontWeight: 500,
+                                                                fontSize: '1.6rem',
+                                                                cursor: isCakeJarBox ? 'pointer' : 'default',
+                                                                '&:hover': isCakeJarBox ? { textDecoration: 'underline' } : {},
+                                                            }}
+                                                        >
                                                             {item['Item Name'] || 'Unknown Item'}
                                                         </Typography>
                                                         <Button
@@ -328,6 +347,55 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
                                                                     })}
                                                             </Box>
                                                         )}
+
+                                                    {/* Individual Jars for Cake Jar Box */}
+                                                    {item.jars && item.jars.length > 0 && (
+                                                        <Box sx={{ mt: 1.5 }}>
+                                                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'text.secondary', mb: 1 }}>
+                                                                Selected Jars:
+                                                            </Typography>
+                                                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                                                {item.jars.map((jar, index) => (
+                                                                    <Box
+                                                                        key={index}
+                                                                        sx={{
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            gap: 1,
+                                                                        }}
+                                                                    >
+                                                                        <Box
+                                                                            sx={{
+                                                                                width: 24,
+                                                                                height: 24,
+                                                                                borderRadius: '50%',
+                                                                                backgroundColor: jar.color || '#f5f0e6',
+                                                                                overflow: 'hidden',
+                                                                                flexShrink: 0,
+                                                                                border: '1px solid white',
+                                                                                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                                                                            }}
+                                                                        >
+                                                                            {jar.image && (
+                                                                                <img
+                                                                                    src={jar.image}
+                                                                                    alt={jar.name}
+                                                                                    style={{
+                                                                                        width: '100%',
+                                                                                        height: '100%',
+                                                                                        objectFit: 'cover',
+                                                                                    }}
+                                                                                />
+                                                                            )}
+                                                                        </Box>
+                                                                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
+                                                                            {jar.displayName || jar.name}
+                                                                        </Typography>
+                                                                    </Box>
+                                                                ))}
+                                                            </Box>
+                                                        </Box>
+                                                    )}
 
                                                     {/* Quantity and Total */}
                                                     <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

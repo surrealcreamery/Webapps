@@ -480,12 +480,25 @@ const FLAVOR_CATEGORIES_BY_PACKAGING = {
         { id: 'cookie', label: 'Cookie' },
     ],
     'Cookies': [
-        { id: 'cookie', label: 'Cookie' },
+        { id: 'basecookie', label: 'Cookie' },
+        { id: 'frosted', label: 'Frosted Cookie' },
     ],
 };
 
 // Make Your Own Cake Jar - shown in Your Jars section
 const MAKE_YOUR_OWN_JAR = { name: 'Make Your Own Cake Jar', image: 'https://images.surrealcreamery.com/catering/mini-cake-jars/make-your-own-mini-cake-jar.png', color: '#FFD700', glutenFree: false, vegan: false };
+
+// Make Your Own Cookie - shown in Your Cookies section
+const MAKE_YOUR_OWN_COOKIE = { name: 'Make Your Own Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-sugar-cookie.png', color: '#F5DEB3', glutenFree: false, vegan: false };
+
+// Base cookie options for Make Your Own Cookie
+const BASE_COOKIES = [
+    { name: 'Sugar Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-sugar-cookie.png', color: '#F5DEB3' },
+    { name: "M&M Cookie", image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-M&M.png', color: '#FFD700' },
+    { name: 'Red Velvet Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-red-velvet.png', color: '#C41E3A' },
+    { name: "S'mores Cookie", image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-smores.png', color: '#8B4513' },
+    { name: 'Chocolate Chip Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-chocolate-chip.png', color: '#D2691E' },
+];
 
 // Hardcoded flavors with colors, dietary info, and category
 const FLAVORS = {
@@ -502,13 +515,64 @@ const FLAVORS = {
         { name: 'Cherry', color: '#C41E3A', glutenFree: true, vegan: false },
         { name: 'Apple', color: '#90EE90', glutenFree: true, vegan: false },
     ],
-    cookie: [
-        { name: "A'mour S'more", color: '#8B4513', glutenFree: false, vegan: false },
-        { name: 'Chocolate Meltdown Overload', color: '#3D1C02', glutenFree: true, vegan: true },
-        { name: 'Vanilla', color: '#F3E5AB', glutenFree: true, vegan: false },
-        { name: 'All Very Strawberry', color: '#FF6B81', glutenFree: true, vegan: true },
-        { name: 'Nom Nom Cookie', color: '#2C2C2C', glutenFree: false, vegan: false },
-        { name: 'La La Red Velvet', color: '#C41E3A', glutenFree: false, vegan: false },
+    basecookie: [
+        {
+            name: 'Sugar Cookie',
+            image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-sugar-cookie.png',
+            color: '#F5DEB3',
+            glutenFree: false,
+            vegan: false,
+            isBaseCookie: true,
+            ingredients: ['Flour', 'Butter', 'Sugar (Granulated)', 'Eggs', 'Vanilla Extract', 'Baking Soda', 'Salt'],
+            allergens: ['Wheat', 'Dairy', 'Eggs'],
+        },
+        {
+            name: "M&M Cookie",
+            image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-M&M.png',
+            color: '#FFD700',
+            glutenFree: false,
+            vegan: false,
+            isBaseCookie: true,
+            ingredients: ['Flour', 'Butter', 'Sugar (Brown & Granulated)', 'Eggs', 'Vanilla Extract', 'Baking Soda', 'Salt', "M&M's Candy"],
+            allergens: ['Wheat', 'Dairy', 'Eggs', 'Soy'],
+        },
+        {
+            name: 'Red Velvet Cookie',
+            image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-red-velvet.png',
+            color: '#C41E3A',
+            glutenFree: false,
+            vegan: false,
+            isBaseCookie: true,
+            ingredients: ['Flour', 'Butter', 'Sugar', 'Eggs', 'Cocoa Powder', 'Red Food Coloring', 'Vanilla Extract', 'Baking Soda', 'Salt', 'White Chocolate Chips'],
+            allergens: ['Wheat', 'Dairy', 'Eggs', 'Soy'],
+        },
+        {
+            name: "S'mores Cookie",
+            image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-smores.png',
+            color: '#8B4513',
+            glutenFree: false,
+            vegan: false,
+            isBaseCookie: true,
+            ingredients: ['Flour', 'Butter', 'Sugar (Brown & Granulated)', 'Eggs', 'Vanilla Extract', 'Baking Soda', 'Salt', 'Graham Cracker Pieces', 'Chocolate Chips', 'Marshmallows'],
+            allergens: ['Wheat', 'Dairy', 'Eggs', 'Soy'],
+        },
+        {
+            name: 'Chocolate Chip Cookie',
+            image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-chocolate-chip.png',
+            color: '#D2691E',
+            glutenFree: false,
+            vegan: false,
+            isBaseCookie: true,
+            ingredients: ['Flour', 'Butter', 'Sugar (Brown & Granulated)', 'Eggs', 'Vanilla Extract', 'Baking Soda', 'Salt', 'Chocolate Chips'],
+            allergens: ['Wheat', 'Dairy', 'Eggs', 'Soy'],
+        },
+    ],
+    frosted: [
+        { name: "A'mour S'more Cookie", image: 'https://images.surrealcreamery.com/catering/cookies/amour-smore-cookie.png', color: '#8B4513', glutenFree: false, vegan: false },
+        { name: 'All Very Strawberry Cookie', image: 'https://images.surrealcreamery.com/catering/cookies/all-very-strawberry-cookie.png', color: '#FF6B81', glutenFree: true, vegan: true },
+        { name: 'Birthday Bash Cookie', image: 'https://images.surrealcreamery.com/catering/cookies/birthday-bash-cookie.png', color: '#FFD700', glutenFree: false, vegan: false },
+        { name: 'La La Red Velvet Cookie', image: 'https://images.surrealcreamery.com/catering/cookies/la-la-red-velvet-cookie.png', color: '#C41E3A', glutenFree: false, vegan: false },
+        { name: 'Nom Nom Cookie', image: 'https://images.surrealcreamery.com/catering/cookies/nom-nom-cookie.png', color: '#2C2C2C', glutenFree: false, vegan: false },
     ],
 };
 
@@ -523,13 +587,20 @@ const CAKE_FLAVORS = [
 ];
 const FROSTINGS = [
     { name: 'Marshmallow', image: null, color: '#FFFFFF' },
-    { name: 'Tres Leches', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-tres-leches.png', color: '#FFF8E7' },
-    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-chocolate.png', color: '#3D1C02' },
-    { name: 'Blue Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-blue-vanilla.png', color: '#A7C7E7' },
-    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-strawberry.png', color: '#FF6B81' },
+    { name: 'Tres Leches', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cake-tres-leches.png', color: '#FFF8E7' },
+    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cake-chocolate.png', color: '#3D1C02' },
+    { name: 'Blue Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cake-blue-vanilla.png', color: '#A7C7E7' },
+    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cake-strawberry.png', color: '#FF6B81' },
     { name: 'Cream Cheese', image: null, color: '#FFFDD0' },
 ];
 const FROSTINGS_AMOUR_SMORE = [{ name: 'Marshmallow & Chocolate', image: null, color: '#5C4033' }]; // Only for A'mour S'more
+const COOKIE_FROSTINGS = [
+    { name: 'Marshmallow', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-marshmallow.png', color: '#FFFFFF' },
+    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-chocolate.png', color: '#3D1C02' },
+    { name: 'Blue Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-blue-vanilla.png', color: '#A7C7E7' },
+    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-strawberry.png', color: '#FF6B81' },
+    { name: 'Cream Cheese', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-cream-cheese.png', color: '#FFFDD0' },
+];
 const AVAILABLE_TOPPINGS = [
     { name: 'Chocolate Chips', image: null },
     { name: 'Chocolate Crunch', image: 'https://images.surrealcreamery.com/catering/make-your-own/topping-chocolate-crunch.png' },
@@ -543,6 +614,10 @@ const AVAILABLE_TOPPINGS = [
     { name: 'Strawberry Crunch', image: null },
     { name: 'Whipped Cream', image: null },
     { name: 'White Chocolate Curls', image: null },
+];
+const COOKIE_TOPPINGS = [
+    { name: 'Rainbow Sprinkles', image: 'https://images.surrealcreamery.com/catering/make-your-own/topping-cookie-rainbow-sprinkles.png' },
+    { name: 'Strawberry Crunch', image: 'https://images.surrealcreamery.com/catering/make-your-own/topping-cookie-strawberry-crunch.png' },
 ];
 const AVAILABLE_COOKIES = [
     'Biscoff', 'Chocolate Straws', 'Graham Crackers', 'Ladyfingers',
@@ -806,84 +881,186 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                         </Box>
                     </Box>
 
-                    {/* Customize Button */}
-                    <Box
-                        component="button"
-                        onClick={onCustomize}
-                        sx={{
-                            width: '100%',
-                            py: 1.5,
-                            px: 3,
-                            mb: 3,
-                            backgroundColor: 'white',
-                            color: 'black',
-                            border: '2px solid black',
-                            borderRadius: 2,
-                            fontSize: '1.6rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                            '&:hover': {
-                                backgroundColor: 'black',
-                                color: 'white',
-                            },
-                        }}
-                    >
-                        Customize This Jar
-                    </Box>
-
-                    {/* Ingredients Display (Read-only) */}
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        {/* Cake */}
-                        <Box>
-                            <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', color: 'text.secondary', mb: 0.5 }}>
-                                Cake
-                            </Typography>
-                            <Typography sx={{ fontSize: '1.6rem' }}>
-                                {displayCake}
-                            </Typography>
+                    {/* Customize Button - only for custom jars */}
+                    {jar.isCustom && (
+                        <Box
+                            component="button"
+                            onClick={onCustomize}
+                            sx={{
+                                width: '100%',
+                                py: 1.5,
+                                px: 3,
+                                mb: 3,
+                                backgroundColor: 'white',
+                                color: 'black',
+                                border: '2px solid black',
+                                borderRadius: 2,
+                                fontSize: '1.6rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                '&:hover': {
+                                    backgroundColor: 'black',
+                                    color: 'white',
+                                },
+                            }}
+                        >
+                            Customize This Jar
                         </Box>
+                    )}
 
-                        {/* Frosting */}
+                    {/* Ingredients Display */}
+                    {jar.isBaseCookie ? (
+                        /* Base Cookie - Show Ingredients and Allergens */
                         <Box>
-                            <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', color: 'text.secondary', mb: 0.5 }}>
-                                Frosting
-                            </Typography>
-                            <Typography sx={{ fontSize: '1.6rem' }}>
-                                {displayFrostings.length > 0 ? displayFrostings.join(', ') : 'None'}
-                            </Typography>
-                        </Box>
+                            {/* Ingredients Section */}
+                            <Box sx={{ mb: 3 }}>
+                                <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 1.5 }}>
+                                    Ingredients
+                                </Typography>
+                                <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', lineHeight: 1.6 }}>
+                                    {jar.ingredients?.join(', ') || 'No ingredients listed'}
+                                </Typography>
+                            </Box>
 
-                        {/* Toppings */}
-                        <Box>
-                            <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', color: 'text.secondary', mb: 0.5 }}>
-                                Toppings
-                            </Typography>
-                            <Typography sx={{ fontSize: '1.6rem' }}>
-                                {displayToppings.length > 0 ? displayToppings.join(', ') : 'None'}
-                            </Typography>
+                            {/* Allergens Section */}
+                            {jar.allergens && jar.allergens.length > 0 && (
+                                <Box sx={{ mb: 3 }}>
+                                    <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 1.5 }}>
+                                        Allergens
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                        {jar.allergens.map((allergen) => (
+                                            <Box
+                                                key={allergen}
+                                                sx={{
+                                                    px: 2,
+                                                    py: 0.5,
+                                                    backgroundColor: '#fff3e0',
+                                                    border: '1px solid #ffcc80',
+                                                    borderRadius: 2,
+                                                    fontSize: '1.3rem',
+                                                    fontWeight: 500,
+                                                    color: '#e65100',
+                                                }}
+                                            >
+                                                {allergen}
+                                            </Box>
+                                        ))}
+                                    </Box>
+                                </Box>
+                            )}
                         </Box>
+                    ) : (
+                        /* Cake Jars / Frosted Cookies - Three columns with images */
+                        (() => {
+                            const cakeObj = CAKE_FLAVORS.find(c => c.name === displayCake);
+                            const frostingObj = FROSTINGS.find(f => f.name === displayFrostings[0]);
+                            const toppingObj = AVAILABLE_TOPPINGS.find(t => t.name === displayToppings[0]);
 
-                        {/* Cookies */}
-                        <Box>
-                            <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', color: 'text.secondary', mb: 0.5 }}>
-                                Cookies
-                            </Typography>
-                            <Typography sx={{ fontSize: '1.6rem' }}>
-                                {displayCookies.length > 0 ? displayCookies.join(', ') : 'None'}
-                            </Typography>
-                        </Box>
+                            return (
+                                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, textAlign: 'center' }}>
+                                    {/* Cake */}
+                                    <Box>
+                                        <Box
+                                            sx={{
+                                                width: 80,
+                                                height: 80,
+                                                borderRadius: '50%',
+                                                overflow: 'hidden',
+                                                margin: '0 auto',
+                                                mb: 1,
+                                                backgroundColor: cakeObj?.color || '#f5f0e6',
+                                                border: '2px solid white',
+                                                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                                            }}
+                                        >
+                                            {cakeObj?.image && (
+                                                <img
+                                                    src={cakeObj.image}
+                                                    alt={displayCake}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                />
+                                            )}
+                                        </Box>
+                                        <Typography sx={{ fontWeight: 600, fontSize: '1.4rem', color: 'text.secondary' }}>
+                                            Cake
+                                        </Typography>
+                                        <Typography sx={{ fontSize: '1.4rem' }}>
+                                            {displayCake}
+                                        </Typography>
+                                    </Box>
 
-                        {/* Syrups */}
-                        <Box>
-                            <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', color: 'text.secondary', mb: 0.5 }}>
-                                Syrups
-                            </Typography>
-                            <Typography sx={{ fontSize: '1.6rem' }}>
-                                {displaySyrups.length > 0 ? displaySyrups.join(', ') : 'None'}
-                            </Typography>
-                        </Box>
-                    </Box>
+                                    {/* Frosting */}
+                                    <Box>
+                                        <Box
+                                            sx={{
+                                                width: 80,
+                                                height: 80,
+                                                borderRadius: '50%',
+                                                overflow: 'hidden',
+                                                margin: '0 auto',
+                                                mb: 1,
+                                                backgroundColor: frostingObj?.color || '#f5f0e6',
+                                                border: '2px solid white',
+                                                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                                            }}
+                                        >
+                                            {frostingObj?.image && (
+                                                <img
+                                                    src={frostingObj.image}
+                                                    alt={displayFrostings[0]}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                />
+                                            )}
+                                        </Box>
+                                        <Typography sx={{ fontWeight: 600, fontSize: '1.4rem', color: 'text.secondary' }}>
+                                            Frosting
+                                        </Typography>
+                                        <Typography sx={{ fontSize: '1.4rem' }}>
+                                            {displayFrostings.length > 0 ? displayFrostings[0] : 'None'}
+                                        </Typography>
+                                    </Box>
+
+                                    {/* Topping */}
+                                    <Box>
+                                        <Box
+                                            sx={{
+                                                width: 80,
+                                                height: 80,
+                                                borderRadius: '50%',
+                                                overflow: 'hidden',
+                                                margin: '0 auto',
+                                                mb: 1,
+                                                backgroundColor: '#f5f0e6',
+                                                border: '2px solid white',
+                                                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                        >
+                                            {toppingObj?.image ? (
+                                                <img
+                                                    src={toppingObj.image}
+                                                    alt={displayToppings[0]}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                />
+                                            ) : (
+                                                <Typography sx={{ fontSize: '1.2rem', color: 'text.secondary' }}>—</Typography>
+                                            )}
+                                        </Box>
+                                        <Typography sx={{ fontWeight: 600, fontSize: '1.4rem', color: 'text.secondary' }}>
+                                            Topping
+                                        </Typography>
+                                        <Typography sx={{ fontSize: '1.4rem' }}>
+                                            {displayToppings.length > 0 ? displayToppings[0] : 'None'}
+                                        </Typography>
+                                    </Box>
+                                </Box>
+                            );
+                        })()
+                    )}
                 </Box>
             </DialogContent>
 
@@ -2309,7 +2486,7 @@ const clearBoxState = () => {
 // Load persisted state once at module level for initial render
 const initialPersistedState = loadPersistedBoxState();
 
-export const CategoryListView = ({ menu, sendToCatering }) => {
+export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onClearEditingCakeJarBox }) => {
     const { cateringState } = useContext(CateringLayoutContext);
     const { packagingResetCounter } = cateringState.context;
 
@@ -2355,6 +2532,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
         syrup: null,
     });
     const [editingJar, setEditingJar] = useState(null); // The jar being customized (null = Make Your Own)
+    const [editingCartItemId, setEditingCartItemId] = useState(null); // Cart item ID when editing from cart
     const [selectedDate, setSelectedDate] = useState(null);
     const [selectedTime, setSelectedTime] = useState(null);
     const [showAvailabilityPage, setShowAvailabilityPage] = useState(false);
@@ -2400,6 +2578,31 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
             clearBoxState(); // Also clear localStorage
         }
     }, [packagingResetCounter]);
+
+    // Handle editing cake jar box from cart
+    useEffect(() => {
+        if (editingCakeJarBox && editingCakeJarBox.jars) {
+            // Find the Cake Jar Boxes packaging
+            const cakeJarBoxPackaging = PACKAGING.find(p => p.name === 'Cake Jar Boxes');
+            if (cakeJarBoxPackaging) {
+                setSelectedPackaging(cakeJarBoxPackaging);
+                // Store the cart item ID for updating later
+                setEditingCartItemId(editingCakeJarBox.cartItemId);
+                // Restore the jars with slot indices
+                const restoredJars = editingCakeJarBox.jars.map((jar, index) => ({
+                    ...jar,
+                    slotIndex: index,
+                    id: jar.id || `restored-${index}-${Date.now()}`,
+                }));
+                setPlacedFlavors(restoredJars);
+                setSelectedFlavorCategory('cake');
+            }
+            // Clear the editing state after restoring
+            if (onClearEditingCakeJarBox) {
+                onClearEditingCakeJarBox();
+            }
+        }
+    }, [editingCakeJarBox, onClearEditingCakeJarBox]);
 
     const handleFlavorCategoryChange = (event, newCategory) => {
         if (newCategory !== null) {
@@ -2533,7 +2736,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
         setSelectedJarForModal(jarObj);
 
         // Make Your Own goes to inline flow on page
-        if (flavor.name === 'Make Your Own Cake Jar' && !flavor.isCustom) {
+        if ((flavor.name === 'Make Your Own Cake Jar' || flavor.name === 'Make Your Own Cookie') && !flavor.isCustom) {
             // Reset selections and activate inline Make Your Own
             setMakeYourOwnSelections({
                 cake: null,
@@ -2546,31 +2749,11 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
             setEditingJar(null);
             setMakeYourOwnActive(true);
         } else if (flavor.isCustom) {
-            // Custom jars (Custom Jar 1, etc.) - use staged flow with pre-filled values
-            const jarCustomizations = flavor.customizations || {};
-            setMakeYourOwnSelections({
-                cake: jarCustomizations.cake || null,
-                frosting: jarCustomizations.frostings?.[0] || null,
-                topping: jarCustomizations.toppings?.[0] || null,
-                cookie: jarCustomizations.cookies?.[0] || null,
-                syrup: jarCustomizations.syrups?.[0] || null,
-            });
-            setMakeYourOwnStep(0);
-            setEditingJar(flavor);
-            setMakeYourOwnActive(true);
+            // Custom jars (Custom Jar 1, etc.) - open preview modal first
+            setPreviewModalOpen(true);
         } else {
-            // Regular jars (A'mour S'more, etc.) - use staged flow with pre-filled defaults
-            const jarDefaults = flavor.customizations || flavor.defaults || {};
-            setMakeYourOwnSelections({
-                cake: jarDefaults.cake || null,
-                frosting: jarDefaults.frostings?.[0] || null,
-                topping: jarDefaults.toppings?.[0] || null,
-                cookie: jarDefaults.cookies?.[0] || null,
-                syrup: jarDefaults.syrups?.[0] || null,
-            });
-            setMakeYourOwnStep(0);
-            setEditingJar(flavor);
-            setMakeYourOwnActive(true);
+            // Regular/pre-canned jars (Chocolate Meltdown, etc.) - open preview modal (no customization)
+            setPreviewModalOpen(true);
         }
     };
 
@@ -2580,9 +2763,25 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
     };
 
     const handleOpenCustomizeModal = () => {
-        // Transition from preview to customize modal
-        setPreviewModalOpen(false);
-        setCustomizeModalOpen(true);
+        // Check if this is a custom jar - use inline flow
+        if (selectedJarForModal?.isCustom) {
+            const jarCustomizations = selectedJarForModal.customizations || {};
+            setMakeYourOwnSelections({
+                cake: jarCustomizations.cake || null,
+                frosting: jarCustomizations.frostings?.[0] || null,
+                topping: jarCustomizations.toppings?.[0] || null,
+                cookie: jarCustomizations.cookies?.[0] || null,
+                syrup: jarCustomizations.syrups?.[0] || null,
+            });
+            setMakeYourOwnStep(0);
+            setEditingJar(selectedJarForModal);
+            setPreviewModalOpen(false);
+            setMakeYourOwnActive(true);
+        } else {
+            // Transition from preview to customize modal for regular jars
+            setPreviewModalOpen(false);
+            setCustomizeModalOpen(true);
+        }
     };
 
     const handleCloseCustomizeModal = () => {
@@ -2595,8 +2794,12 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
         setMakeYourOwnSelections(prev => ({ ...prev, [type]: value }));
     };
 
+    // For cookies: 3 steps (cookie base, frosting, topping)
+    // For cake jars: 5 steps (cake, frosting, topping, cookies, syrup)
+    const maxMakeYourOwnStep = selectedPackaging?.name === 'Cookies' ? 2 : 4;
+
     const handleMakeYourOwnContinue = () => {
-        if (makeYourOwnStep < 4) {
+        if (makeYourOwnStep < maxMakeYourOwnStep) {
             setMakeYourOwnStep(prev => prev + 1);
         }
     };
@@ -2737,20 +2940,36 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
     const handleAddBoxToCart = () => {
         if (!isBoxComplete) return;
 
-        // Create a cart item for the Cake Jar Box
+        // If editing an existing cart item, remove it first
+        if (editingCartItemId) {
+            sendToCatering({
+                type: 'REMOVE_ITEM',
+                cartItemId: editingCartItemId,
+            });
+        }
+
+        // Determine item details based on packaging type
+        const isCookies = selectedPackaging?.name === 'Cookies';
+        const itemId = isCookies ? `cookie-box-${Date.now()}` : `cake-jar-box-${Date.now()}`;
+        const itemName = isCookies ? 'Cookie Box (6 Cookies)' : 'Cake Jar Box (6 Jars)';
+        const itemPrice = isCookies ? 30 : 50; // $30 for cookies, $50 for cake jars
+
+        // Create a cart item for the Box
         const boxItem = {
-            'Item ID': `cake-jar-box-${Date.now()}`,
-            'Item Name': 'Cake Jar Box (6 Jars)',
-            'Item Price': 0, // Price will be calculated based on jars
+            'Item ID': itemId,
+            'Item Name': itemName,
+            'Item Price': itemPrice,
             'Item Image': selectedPackaging?.heroImage,
-            // Store the jars data for display and order processing
-            jars: placedFlavors.map(jar => ({
-                name: jar.name,
-                image: jar.image,
-                color: jar.color,
-                glutenFree: jar.glutenFree,
-                vegan: jar.vegan,
-                customizations: jar.customizations,
+            // Store the items data for display and order processing
+            jars: placedFlavors.map(item => ({
+                name: item.name,
+                displayName: item.displayName,
+                image: item.image,
+                color: item.color,
+                glutenFree: item.glutenFree,
+                vegan: item.vegan,
+                customizations: item.customizations,
+                isCustom: item.isCustom,
             })),
             // Store fulfillment date/time
             fulfillmentDate: selectedDate?.toISOString(),
@@ -2771,6 +2990,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
         setPlacedFlavors([]);
         setSelectedPackaging(null);
         setSelectedFlavorCategory('cake');
+        setEditingCartItemId(null); // Clear editing state
         clearBoxState();
 
         // Open cart drawer to show the added item
@@ -2787,8 +3007,8 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                     : jar
             ));
 
-            // Always add another copy to the box (user can fill box with same custom jar)
-            if (selectedPackaging?.name === 'Cake Jar Boxes') {
+            // Always add another copy to the box (user can fill box with same custom item)
+            if (selectedPackaging?.name === 'Cake Jar Boxes' || selectedPackaging?.name === 'Cookies') {
                 setPlacedFlavors(prev => {
                     if (prev.length >= 6) return prev; // Box is full
 
@@ -2810,21 +3030,22 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                     return [...prev, newPlacement];
                 });
             }
-        } else if (updatedJar.name === 'Make Your Own Cake Jar') {
-            // Creating a new custom jar from "Make Your Own"
-            const customJarNumber = customJars.length + 1;
-            const customJar = {
+        } else if (updatedJar.name === 'Make Your Own Cake Jar' || updatedJar.name === 'Make Your Own Cookie') {
+            // Creating a new custom item from "Make Your Own"
+            const isCookie = updatedJar.name === 'Make Your Own Cookie';
+            const customItemNumber = customJars.length + 1;
+            const customItem = {
                 ...updatedJar,
-                id: `custom-jar-${Date.now()}`,
-                displayName: `Custom Jar ${customJarNumber}`,
+                id: `custom-${isCookie ? 'cookie' : 'jar'}-${Date.now()}`,
+                displayName: isCookie ? `Custom Cookie ${customItemNumber}` : `Custom Jar ${customItemNumber}`,
                 isCustom: true,
             };
 
-            // Add to custom jars list
-            setCustomJars(prev => [...prev, customJar]);
+            // Add to custom items list
+            setCustomJars(prev => [...prev, customItem]);
 
-            // For Cake Jar Boxes, add to slot
-            if (selectedPackaging?.name === 'Cake Jar Boxes') {
+            // For Cake Jar Boxes or Cookies, add to slot
+            if (selectedPackaging?.name === 'Cake Jar Boxes' || selectedPackaging?.name === 'Cookies') {
                 if (placedFlavors.length >= 6) return;
 
                 const usedSlots = placedFlavors.map(f => f.slotIndex);
@@ -2836,11 +3057,11 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                     }
                 }
 
-                setPlacedFlavors(prev => [...prev, { ...customJar, slotIndex: nextSlot }]);
+                setPlacedFlavors(prev => [...prev, { ...customItem, slotIndex: nextSlot }]);
             }
         } else {
-            // For Cake Jar Boxes, find the next empty slot and add the jar
-            if (selectedPackaging?.name === 'Cake Jar Boxes') {
+            // For Cake Jar Boxes or Cookies, find the next empty slot and add the item
+            if (selectedPackaging?.name === 'Cake Jar Boxes' || selectedPackaging?.name === 'Cookies') {
                 // Max 6 slots
                 if (placedFlavors.length >= 6) return;
 
@@ -2874,8 +3095,17 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
 
     const currentFlavors = FLAVORS[selectedFlavorCategory] || [];
 
-    // Check if the box is complete (6/6 for Cake Jar Boxes)
-    const isBoxComplete = selectedPackaging?.name === 'Cake Jar Boxes' && placedFlavors.length === 6;
+    // Filter custom items based on packaging type (cookies vs jars)
+    const filteredCustomItems = customJars.filter(item => {
+        if (selectedPackaging?.name === 'Cookies') {
+            return item.id?.startsWith('custom-cookie-');
+        } else {
+            return item.id?.startsWith('custom-jar-');
+        }
+    });
+
+    // Check if the box is complete (6/6 for Cake Jar Boxes or Cookies)
+    const isBoxComplete = (selectedPackaging?.name === 'Cake Jar Boxes' || selectedPackaging?.name === 'Cookies') && placedFlavors.length === 6;
 
     // Check if a flavor is already placed
     const isFlavorPlaced = (flavorId) => {
@@ -3523,8 +3753,8 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                 </Box>
             )}
 
-            {/* Sticky Bottom Box - Fixed at bottom for Cake Jar Boxes (hidden during Make Your Own flow) */}
-            {selectedPackaging && selectedPackaging.name === 'Cake Jar Boxes' && !makeYourOwnActive && (
+            {/* Sticky Bottom Box - Fixed at bottom for Cake Jar Boxes and Cookies (hidden during Make Your Own flow) */}
+            {selectedPackaging && (selectedPackaging.name === 'Cake Jar Boxes' || selectedPackaging.name === 'Cookies') && !makeYourOwnActive && (
                 <Box
                     sx={{
                         position: 'fixed',
@@ -3541,7 +3771,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                 >
                     <Box sx={{ maxWidth: 600, margin: '0 auto' }}>
                         {isBoxComplete ? (
-                            /* Add to Cart button when box is complete */
+                            /* Add to Cart / Update Cart button when box is complete */
                             <Box
                                 component="button"
                                 onClick={handleAddBoxToCart}
@@ -3561,7 +3791,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                     },
                                 }}
                             >
-                                Add to Cart
+                                {editingCartItemId ? 'Update Cart' : 'Add to Cart'}
                             </Box>
                         ) : (
                             <>
@@ -3750,7 +3980,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
             )}
 
             {/* Selected Packaging Header - for non-box packaging */}
-            {selectedPackaging && selectedPackaging.name !== 'Cake Jar Boxes' && (
+            {selectedPackaging && selectedPackaging.name !== 'Cake Jar Boxes' && selectedPackaging.name !== 'Cookies' && (
                 <Box sx={{ py: 2, mb: 2 }}>
                     <Typography
                         variant="h5"
@@ -3774,7 +4004,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                     {/* Flavors Section OR Completed Box List */}
                     <Box sx={{
                         pt: 2,
-                        pb: selectedPackaging?.name === 'Cake Jar Boxes' ? 12 : 4,
+                        pb: (selectedPackaging?.name === 'Cake Jar Boxes' || selectedPackaging?.name === 'Cookies') ? 12 : 4,
                         borderTop: '1px solid',
                         borderColor: 'divider'
                     }}>
@@ -3839,7 +4069,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                 <Box sx={{ flex: 1 }}>
                                                     <Typography
                                                         sx={{
-                                                            fontSize: '1.4rem',
+                                                            fontSize: '1.6rem',
                                                             fontWeight: 600,
                                                         }}
                                                     >
@@ -3849,7 +4079,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                     {flavor.isCustom && flavor.customizations && (
                                                         <Typography
                                                             sx={{
-                                                                fontSize: '1.2rem',
+                                                                fontSize: '1.6rem',
                                                                 color: 'text.secondary',
                                                                 mt: 0.25,
                                                             }}
@@ -3876,16 +4106,17 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                     sx={{
                                                         background: 'none',
                                                         border: 'none',
-                                                        color: 'text.secondary',
-                                                        fontSize: '1.2rem',
+                                                        color: '#1976d2',
+                                                        fontSize: '1.6rem',
+                                                        fontWeight: 600,
                                                         cursor: 'pointer',
                                                         padding: '4px 8px',
                                                         '&:hover': {
-                                                            color: 'error.main',
+                                                            opacity: 0.7,
                                                         },
                                                     }}
                                                 >
-                                                    Remove
+                                                    REMOVE
                                                 </Box>
                                             </Box>
                                         ))}
@@ -3907,34 +4138,79 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                 textAlign: 'center'
                                             }}
                                         >
-                                            {editingJar ? (editingJar.isCustom ? 'Update Your Custom Cake Jar' : editingJar.name) : 'Make Your Own Cake Jar'}
+                                            {editingJar
+                                                ? (editingJar.isCustom
+                                                    ? (selectedPackaging?.name === 'Cookies' ? 'Update Your Custom Cookie' : 'Update Your Custom Cake Jar')
+                                                    : editingJar.name)
+                                                : (selectedPackaging?.name === 'Cookies' ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar')}
                                         </Typography>
 
-                                        {/* Dynamic Preview Image - updates based on selections */}
+                                        {/* Dynamic Preview Image - updates based on current step and selections */}
                                         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>
                                             {(() => {
-                                                // Get selected items
-                                                const selectedCake = CAKE_FLAVORS.find(c => c.name === makeYourOwnSelections.cake);
-                                                const selectedFrosting = FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting);
-                                                const selectedTopping = AVAILABLE_TOPPINGS.find(t => t.name === makeYourOwnSelections.topping);
+                                                const isCookies = selectedPackaging?.name === 'Cookies';
 
-                                                // Determine what to show
+                                                // Get selected items from appropriate arrays based on packaging type
+                                                const selectedBase = isCookies
+                                                    ? BASE_COOKIES.find(c => c.name === makeYourOwnSelections.cake)
+                                                    : CAKE_FLAVORS.find(c => c.name === makeYourOwnSelections.cake);
+                                                const selectedFrosting = isCookies
+                                                    ? COOKIE_FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)
+                                                    : FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting);
+                                                const selectedTopping = isCookies
+                                                    ? COOKIE_TOPPINGS.find(t => t.name === makeYourOwnSelections.topping)
+                                                    : AVAILABLE_TOPPINGS.find(t => t.name === makeYourOwnSelections.topping);
+
+                                                // For cookies: layer frosting on top of cookie
+                                                // For cake jars: frosting replaces the base image
                                                 let bgColor = '#f5f0e6';
-                                                let baseImage = editingJar?.image || MAKE_YOUR_OWN_JAR.image;
-                                                let showFrosting = false;
+                                                let baseImage = null;
+                                                let frostingOverlay = null;
                                                 let showTopping = false;
 
-                                                if (selectedCake) {
-                                                    baseImage = selectedCake.image;
-                                                    bgColor = selectedCake.color;
-                                                }
-                                                if (selectedFrosting) {
-                                                    baseImage = selectedFrosting.image;
-                                                    bgColor = selectedFrosting.color;
-                                                    showFrosting = true;
-                                                }
-                                                if (selectedTopping && selectedTopping.image) {
-                                                    showTopping = true;
+                                                if (isCookies) {
+                                                    // Cookies: Show nothing until cookie is selected
+                                                    if (selectedBase) {
+                                                        baseImage = selectedBase.image;
+                                                        bgColor = selectedBase.color;
+                                                    }
+                                                    // Layer frosting on top of cookie
+                                                    if (selectedFrosting && makeYourOwnStep >= 1) {
+                                                        frostingOverlay = selectedFrosting.image;
+                                                    }
+                                                    // Layer topping on top
+                                                    if (selectedTopping?.image && makeYourOwnStep >= 2) {
+                                                        showTopping = true;
+                                                    }
+                                                } else {
+                                                    // Cake jars: Original behavior
+                                                    baseImage = editingJar?.image || MAKE_YOUR_OWN_JAR.image;
+
+                                                    if (makeYourOwnStep === 0) {
+                                                        if (selectedBase) {
+                                                            baseImage = selectedBase.image;
+                                                            bgColor = selectedBase.color;
+                                                        }
+                                                    } else if (makeYourOwnStep === 1) {
+                                                        if (selectedFrosting) {
+                                                            baseImage = selectedFrosting.image;
+                                                            bgColor = selectedFrosting.color;
+                                                        } else if (selectedBase) {
+                                                            baseImage = selectedBase.image;
+                                                            bgColor = selectedBase.color;
+                                                        }
+                                                    } else {
+                                                        if (selectedFrosting) {
+                                                            baseImage = selectedFrosting.image;
+                                                            bgColor = selectedFrosting.color;
+                                                        } else if (selectedBase) {
+                                                            baseImage = selectedBase.image;
+                                                            bgColor = selectedBase.color;
+                                                        }
+                                                        if (selectedTopping?.image) {
+                                                            showTopping = true;
+                                                        }
+                                                    }
                                                 }
 
                                                 return (
@@ -3950,7 +4226,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                             position: 'relative',
                                                         }}
                                                     >
-                                                        {/* Base layer - cake or frosting */}
+                                                        {/* Base layer - cookie or cake/frosting */}
                                                         {baseImage && (
                                                             <img
                                                                 src={baseImage}
@@ -3966,6 +4242,22 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                                 }}
                                                             />
                                                         )}
+                                                        {/* Frosting overlay - for cookies only */}
+                                                        {frostingOverlay && (
+                                                            <img
+                                                                src={frostingOverlay}
+                                                                alt="Frosting"
+                                                                style={{
+                                                                    position: 'absolute',
+                                                                    top: 0,
+                                                                    left: 0,
+                                                                    width: '100%',
+                                                                    height: '100%',
+                                                                    objectFit: 'cover',
+                                                                    zIndex: 1,
+                                                                }}
+                                                            />
+                                                        )}
                                                         {/* Topping overlay */}
                                                         {showTopping && selectedTopping?.image && (
                                                             <img
@@ -3978,7 +4270,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                                     width: '100%',
                                                                     height: '100%',
                                                                     objectFit: 'cover',
-                                                                    zIndex: 1,
+                                                                    zIndex: 2,
                                                                 }}
                                                             />
                                                         )}
@@ -3987,17 +4279,17 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                             })()}
                                         </Box>
 
-                                        {/* Step 0: Select Cake */}
+                                        {/* Step 0: Select Cake/Cookie Base */}
                                         {makeYourOwnStep === 0 && (
                                             <Box>
                                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 2, textAlign: 'center' }}>
-                                                    Select Your Cake
+                                                    {selectedPackaging?.name === 'Cookies' ? 'Select Your Cookie' : 'Select Your Cake'}
                                                 </Typography>
                                                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, maxWidth: '350px', margin: '0 auto' }}>
-                                                    {CAKE_FLAVORS.map((cake) => (
+                                                    {(selectedPackaging?.name === 'Cookies' ? BASE_COOKIES : CAKE_FLAVORS).map((item) => (
                                                         <Box
-                                                            key={cake.name}
-                                                            onClick={() => handleMakeYourOwnSelect('cake', cake.name)}
+                                                            key={item.name}
+                                                            onClick={() => handleMakeYourOwnSelect('cake', item.name)}
                                                             sx={{
                                                                 display: 'flex',
                                                                 flexDirection: 'column',
@@ -4011,14 +4303,14 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                                     height: 80,
                                                                     borderRadius: '50%',
                                                                     overflow: 'hidden',
-                                                                    border: makeYourOwnSelections.cake === cake.name ? `3px solid ${cake.color}` : '3px solid white',
-                                                                    boxShadow: makeYourOwnSelections.cake === cake.name ? `0 0 0 2px ${cake.color}` : '0 2px 8px rgba(0,0,0,0.15)',
+                                                                    border: makeYourOwnSelections.cake === item.name ? `3px solid ${item.color}` : '3px solid white',
+                                                                    boxShadow: makeYourOwnSelections.cake === item.name ? `0 0 0 2px ${item.color}` : '0 2px 8px rgba(0,0,0,0.15)',
                                                                     transition: 'all 0.2s',
                                                                 }}
                                                             >
-                                                                <img src={cake.image} alt={cake.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                                <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                             </Box>
-                                                            <Typography sx={{ fontSize: '1.4rem', mt: 1, textAlign: 'center' }}>{cake.name}</Typography>
+                                                            <Typography sx={{ fontSize: '1.4rem', mt: 1, textAlign: 'center' }}>{item.name}</Typography>
                                                         </Box>
                                                     ))}
                                                 </Box>
@@ -4032,7 +4324,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                     Select Your Frosting
                                                 </Typography>
                                                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, maxWidth: '350px', margin: '0 auto' }}>
-                                                    {FROSTINGS.map((frosting) => (
+                                                    {(selectedPackaging?.name === 'Cookies' ? COOKIE_FROSTINGS : FROSTINGS).map((frosting) => (
                                                         <Box
                                                             key={frosting.name}
                                                             onClick={() => handleMakeYourOwnSelect('frosting', frosting.name)}
@@ -4049,8 +4341,8 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                                     height: 80,
                                                                     borderRadius: '50%',
                                                                     overflow: 'hidden',
-                                                                    backgroundColor: frosting.color,
-                                                                    border: makeYourOwnSelections.frosting === frosting.name ? `3px solid ${frosting.color}` : '3px solid white',
+                                                                    backgroundColor: 'white',
+                                                                    border: `3px solid ${frosting.color}`,
                                                                     boxShadow: makeYourOwnSelections.frosting === frosting.name ? `0 0 0 2px ${frosting.color}` : '0 2px 8px rgba(0,0,0,0.15)',
                                                                     transition: 'all 0.2s',
                                                                 }}
@@ -4071,7 +4363,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                     Add Topping <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>(Optional)</Typography>
                                                 </Typography>
                                                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, maxWidth: '350px', margin: '0 auto' }}>
-                                                    {AVAILABLE_TOPPINGS.map((topping) => (
+                                                    {(selectedPackaging?.name === 'Cookies' ? COOKIE_TOPPINGS : AVAILABLE_TOPPINGS).map((topping) => (
                                                         <Box
                                                             key={topping.name}
                                                             component="button"
@@ -4204,7 +4496,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                         <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                                                     </svg>
                                                 </Box>
-                                                {makeYourOwnStep < 4 ? (
+                                                {makeYourOwnStep < maxMakeYourOwnStep ? (
                                                     <Box
                                                         component="button"
                                                         onClick={handleMakeYourOwnContinue}
@@ -4241,7 +4533,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                             cursor: 'pointer',
                                                         }}
                                                     >
-                                                        {editingJar ? 'Update Cake Jar' : 'Add to Box'}
+                                                        {editingJar ? (selectedPackaging?.name === 'Cookies' ? 'Update Cookie' : 'Update Cake Jar') : 'Add to Box'}
                                                     </Box>
                                                 )}
                                             </Box>
@@ -4260,7 +4552,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                 textAlign: 'center'
                                             }}
                                         >
-                                            Add a Cake Jar
+                                            {selectedPackaging?.name === 'Cookies' ? 'Add a Cookie' : 'Add a Cake Jar'}
                                         </Typography>
 
                                         {/* Legend */}
@@ -4286,10 +4578,11 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                     </Box>
                                 </Box>
 
-                                {/* Category Anchor Links */}
+                                {/* Category Anchor Links - only show if more than one category or custom items exist */}
+                                {((FLAVOR_CATEGORIES_BY_PACKAGING[selectedPackaging?.name] || []).length > 1 || filteredCustomItems.length > 0) && (
                                 <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3, flexWrap: 'wrap', gap: 1 }}>
-                                    {/* Your Jars link - only show when custom jars exist */}
-                                    {customJars.length > 0 && (
+                                    {/* Your Jars/Cookies link - only show when custom items exist */}
+                                    {filteredCustomItems.length > 0 && (
                                         <Box
                                             component="a"
                                             href="#your-jars-section"
@@ -4315,7 +4608,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                 },
                                             }}
                                         >
-                                            Your Jars
+                                            {selectedPackaging?.name === 'Cookies' ? 'Your Cookies' : 'Your Jars'}
                                         </Box>
                                     )}
                                     {(FLAVOR_CATEGORIES_BY_PACKAGING[selectedPackaging?.name] || []).map((category) => (
@@ -4349,9 +4642,10 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                         </Box>
                                     ))}
                                 </Box>
+                                )}
 
-                                {/* Your Jars Section - only show when user has custom jars */}
-                                {customJars.length > 0 && (
+                                {/* Your Jars/Cookies Section - only show when user has custom items */}
+                                {filteredCustomItems.length > 0 && (
                                     <Box id="your-jars-section" sx={{ mb: 4 }}>
                                         <Typography
                                             sx={{
@@ -4361,7 +4655,7 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                 textAlign: 'center',
                                             }}
                                         >
-                                            Your Jars
+                                            {selectedPackaging?.name === 'Cookies' ? 'Your Cookies' : 'Your Jars'}
                                         </Typography>
                                         <Box
                                             sx={{
@@ -4372,20 +4666,20 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                 margin: '0 auto'
                                             }}
                                         >
-                                            {/* Make Your Own Cake Jar - moves here when custom jars exist */}
+                                            {/* Make Your Own - moves here when custom items exist */}
                                             <AnimatedFlavorCircle
                                                 key="make-your-own"
-                                                flavor={MAKE_YOUR_OWN_JAR}
+                                                flavor={selectedPackaging?.name === 'Cookies' ? MAKE_YOUR_OWN_COOKIE : MAKE_YOUR_OWN_JAR}
                                                 onSelect={handleOpenJarModal}
                                                 isPlaced={false}
                                             />
-                                            {/* User's custom jars */}
-                                            {customJars.map((jar) => (
+                                            {/* User's custom jars/cookies */}
+                                            {filteredCustomItems.map((item) => (
                                                 <AnimatedFlavorCircle
-                                                    key={jar.id}
-                                                    flavor={jar}
+                                                    key={item.id}
+                                                    flavor={item}
                                                     onSelect={handleOpenJarModal}
-                                                    isPlaced={isFlavorPlaced(jar.id)}
+                                                    isPlaced={isFlavorPlaced(item.id)}
                                                 />
                                             ))}
                                         </Box>
@@ -4414,11 +4708,19 @@ export const CategoryListView = ({ menu, sendToCatering }) => {
                                                 margin: '0 auto'
                                             }}
                                         >
-                                            {/* Make Your Own - show in Cake Jars section when no custom jars yet */}
-                                            {category.id === 'cake' && customJars.length === 0 && (
+                                            {/* Make Your Own - show in Cake Jars/Cookie section when no custom items yet */}
+                                            {category.id === 'cake' && filteredCustomItems.length === 0 && selectedPackaging?.name === 'Cake Jar Boxes' && (
                                                 <AnimatedFlavorCircle
-                                                    key="make-your-own"
+                                                    key="make-your-own-jar"
                                                     flavor={MAKE_YOUR_OWN_JAR}
+                                                    onSelect={handleOpenJarModal}
+                                                    isPlaced={false}
+                                                />
+                                            )}
+                                            {category.id === 'frosted' && filteredCustomItems.length === 0 && selectedPackaging?.name === 'Cookies' && (
+                                                <AnimatedFlavorCircle
+                                                    key="make-your-own-cookie"
+                                                    flavor={MAKE_YOUR_OWN_COOKIE}
                                                     onSelect={handleOpenJarModal}
                                                     isPlaced={false}
                                                 />

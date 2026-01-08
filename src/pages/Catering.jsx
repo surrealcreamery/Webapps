@@ -1,4 +1,4 @@
-import React, { useEffect, useContext } from 'react';
+import React, { useEffect, useContext, useState } from 'react';
 import {
     Box,
     Typography,
@@ -43,6 +43,17 @@ export default function CateringMenu() {
 
     const handleCloseCartDrawer = () => {
         sendToCatering({ type: 'CLOSE_CART_DRAWER' });
+    };
+
+    // State for editing cake jar box from cart
+    const [editingCakeJarBox, setEditingCakeJarBox] = useState(null);
+
+    const handleEditCakeJarBox = (cartItemId, jars) => {
+        setEditingCakeJarBox({ cartItemId, jars });
+    };
+
+    const clearEditingCakeJarBox = () => {
+        setEditingCakeJarBox(null);
     };
 
     console.log('%c[CateringMenu Page] Rendering. State is:', 'color: #16a34a', JSON.stringify(cateringState.value));
@@ -280,7 +291,14 @@ export default function CateringMenu() {
         }
         
         if (cateringState.matches('browsing.browsingCategories')) {
-            return <CategoryListView menu={menu} sendToCatering={sendToCatering} />;
+            return (
+                <CategoryListView
+                    menu={menu}
+                    sendToCatering={sendToCatering}
+                    editingCakeJarBox={editingCakeJarBox}
+                    onClearEditingCakeJarBox={clearEditingCakeJarBox}
+                />
+            );
         }
 
         // --- PLACEHOLDER STATES ---
@@ -324,6 +342,7 @@ export default function CateringMenu() {
                 cart={cart}
                 sendToCatering={sendToCatering}
                 cateringState={cateringState}
+                onEditCakeJarBox={handleEditCakeJarBox}
             />
         </>
     );

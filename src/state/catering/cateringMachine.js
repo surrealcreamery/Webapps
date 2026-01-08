@@ -705,6 +705,8 @@ export const cateringMachine = setup({
                     on: {
                         SELECT_CATEGORY: { target: 'browsingItems', actions: ['selectCategory', 'persistState'], guard: ({ event }) => !!event.category },
                         ADD_TO_CART: { actions: ['addToCart', 'persistState'] },
+                        REMOVE_ITEM: { actions: ['removeFromCart', 'persistState'] },
+                        UPDATE_QUANTITY: { actions: ['updateCartQuantity', 'persistState'] },
                     },
                 },
                  browsingItems: {
