@@ -40,6 +40,7 @@ const persistState = ({ context }) => {
             accountId: context.accountId,
             contactInfo: context.contactInfo,
             fulfillmentDetails: context.fulfillmentDetails,
+            selectedPackaging: context.selectedPackaging,
         };
         console.log('%c[persistState] Saving state with lastView:', 'color: #ff7f50; font-weight: bold;', context.lastView);
         console.log('%c[persistState] Full state:', 'color: #ff7f50', JSON.stringify(stateToSave, null, 2));
@@ -302,7 +303,8 @@ export const cateringMachine = setup({
                 fulfillmentDetails: defaultFulfillment,
                 formErrors: {}, otpChannel: null, sid: null, potentialAccounts: [],
                 selectedAccountId: null, selectedPartialMatch: null, locations: [],
-                chosenAccountType: null, error: null, authMode: null
+                chosenAccountType: null, error: null, authMode: null,
+                selectedPackaging: null
             };
             try {
                 const rawState = localStorage.getItem(CATERING_STORAGE_KEY);
@@ -590,6 +592,7 @@ export const cateringMachine = setup({
         authMode: null,
         cartDrawerOpen: false, // Controls cart drawer overlay
         packagingResetCounter: 0, // Increments when logo is clicked to reset packaging selection
+        selectedPackaging: null, // Current packaging selection (Cookie Tray, Cake Jar Boxes, etc.)
     },
     initial: 'booting',
     on: {
@@ -647,6 +650,41 @@ export const cateringMachine = setup({
         CONTINUE_TO_DATE: {
             target: '#catering.selectingDate',
             actions: [assign({ cartDrawerOpen: false }), 'persistState']
+        },
+        // Global fulfillment handlers (for cart drawer overlay)
+        SET_FULFILLMENT_TYPE: { actions: ['setFulfillmentType', 'persistState'] },
+        SELECT_PICKUP_LOCATION: { actions: ['selectPickupLocation', 'persistState'] },
+        UPDATE_DELIVERY_ADDRESS: { actions: ['updateDeliveryAddress', 'persistState'] },
+        SET_FULL_DELIVERY_ADDRESS: {
+            actions: [
+                assign({
+                    fulfillmentDetails: ({ context, event }) => ({
+                        ...context.fulfillmentDetails,
+                        type: 'delivery',
+                        locationId: null,
+                        address: { ...defaultFulfillment.address, ...event.address }
+                    })
+                }),
+                'persistState'
+            ]
+        },
+        CLEAR_DELIVERY_ADDRESS: {
+            actions: [
+                assign({
+                    fulfillmentDetails: ({ context }) => ({
+                        ...context.fulfillmentDetails,
+                        address: defaultFulfillment.address
+                    })
+                }),
+                'persistState'
+            ]
+        },
+        // Global packaging handler (for footer visibility in layout)
+        SET_SELECTED_PACKAGING: {
+            actions: [
+                assign({ selectedPackaging: ({ event }) => event.packaging }),
+                'persistState'
+            ]
         },
         TRIGGER_AUTH: {
             target: '#catering.guestCheckoutFlow',

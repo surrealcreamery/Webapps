@@ -1,4 +1,4 @@
-import React, { useEffect, useContext, useState } from 'react';
+import React, { useEffect, useContext, useState, useCallback } from 'react';
 import {
     Box,
     Typography,
@@ -52,9 +52,9 @@ export default function CateringMenu() {
         setEditingCakeJarBox({ cartItemId, jars });
     };
 
-    const clearEditingCakeJarBox = () => {
+    const clearEditingCakeJarBox = useCallback(() => {
         setEditingCakeJarBox(null);
-    };
+    }, []);
 
     console.log('%c[CateringMenu Page] Rendering. State is:', 'color: #16a34a', JSON.stringify(cateringState.value));
 

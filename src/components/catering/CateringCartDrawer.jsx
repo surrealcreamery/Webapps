@@ -26,6 +26,48 @@ import { GoogleAddressAutocomplete } from './GoogleAddressAutocomplete';
 // Placeholder image
 const PLACEHOLDER_IMAGE = 'https://placehold.co/80x80/e0e0e0/666666?text=No+Image';
 
+// Arrays for layered images (custom jars and cookies)
+const BASE_COOKIES = [
+    { name: 'Sugar Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-sugar-cookie.png', color: '#F5DEB3' },
+    { name: "M&M Cookie", image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-M&M.png', color: '#FFD700' },
+    { name: 'Red Velvet Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-red-velvet.png', color: '#C41E3A' },
+    { name: "S'mores Cookie", image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-smores.png', color: '#8B4513' },
+    { name: 'Chocolate Chip Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-chocolate-chip.png', color: '#D2691E' },
+];
+const FROSTINGS = [
+    { name: 'Marshmallow', image: null, color: '#FFFFFF' },
+    { name: 'Tres Leches', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cake-tres-leches.png', color: '#FFF8E7' },
+    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cake-chocolate.png', color: '#3D1C02' },
+    { name: 'Blue Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cake-blue-vanilla.png', color: '#A7C7E7' },
+    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cake-strawberry.png', color: '#FF6B81' },
+    { name: 'Cream Cheese', image: null, color: '#FFFDD0' },
+];
+const COOKIE_FROSTINGS = [
+    { name: 'Marshmallow', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-marshmallow.png', color: '#FFFFFF' },
+    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-chocolate.png', color: '#3D1C02' },
+    { name: 'Blue Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-blue-vanilla.png', color: '#A7C7E7' },
+    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-strawberry.png', color: '#FF6B81' },
+    { name: 'Cream Cheese', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cookie-cream-cheese.png', color: '#FFFDD0' },
+];
+const AVAILABLE_TOPPINGS = [
+    { name: 'Chocolate Chips', image: null },
+    { name: 'Chocolate Crunch', image: 'https://images.surrealcreamery.com/catering/make-your-own/topping-chocolate-crunch.png' },
+    { name: 'Chocolate Sprinkles', image: null },
+    { name: 'Gummy Bears', image: null },
+    { name: 'Lucky Charms Marshmallows', image: null },
+    { name: 'Marshmallows', image: null },
+    { name: "M&M's", image: null },
+    { name: 'Peanut Butter Chips', image: null },
+    { name: 'Rainbow Sprinkles', image: null },
+    { name: 'Strawberry Crunch', image: null },
+    { name: 'Whipped Cream', image: null },
+    { name: 'White Chocolate Curls', image: null },
+];
+const COOKIE_TOPPINGS = [
+    { name: 'Rainbow Sprinkles', image: 'https://images.surrealcreamery.com/catering/make-your-own/topping-cookie-rainbow-sprinkles.png' },
+    { name: 'Strawberry Crunch', image: 'https://images.surrealcreamery.com/catering/make-your-own/topping-cookie-strawberry-crunch.png' },
+];
+
 const CartQuantitySelector = ({ value, onIncrement, onDecrement }) => (
     <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
         <Button sx={{ minWidth: '40px' }} onClick={onDecrement} disabled={value <= 1}>-</Button>
@@ -207,6 +249,91 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
                     <>
                         {/* Scrollable Content */}
                         <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+                            {/* Fulfillment Section */}
+                            <Box sx={{ mb: 3 }}>
+                                <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
+                                    Fulfillment
+                                </Typography>
+                                <ToggleButtonGroup
+                                    value={localFulfillmentType}
+                                    exclusive
+                                    onChange={handleFulfillmentTypeChange}
+                                    fullWidth
+                                    sx={{ mb: 2 }}
+                                >
+                                    <ToggleButton value="pickup">Pickup</ToggleButton>
+                                    <ToggleButton value="delivery">Delivery</ToggleButton>
+                                </ToggleButtonGroup>
+
+                                {localFulfillmentType === 'pickup' ? (
+                                    <FormControl fullWidth variant="outlined" size="small">
+                                        <InputLabel shrink id="pickup-location-label" sx={{ backgroundColor: 'white', pr: 1, ml: -0.5 }}>
+                                            Pickup Location
+                                        </InputLabel>
+                                        <Button
+                                            fullWidth
+                                            variant="outlined"
+                                            onClick={() => setLocationModalOpen(true)}
+                                            endIcon={<ArrowDropDownIcon sx={{ color: 'action.active' }} />}
+                                            sx={{
+                                                borderColor: 'rgba(0, 0, 0, 0.23)',
+                                                color: 'black',
+                                                textTransform: 'none',
+                                                justifyContent: 'space-between',
+                                                py: '8.5px',
+                                                px: '14px',
+                                                '&:hover': {
+                                                    borderColor: 'black',
+                                                    backgroundColor: 'rgba(0,0,0,0.04)'
+                                                }
+                                            }}
+                                        >
+                                            {selectedLocation ? (
+                                                <Box sx={{ textAlign: 'left' }}>
+                                                    <Typography sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
+                                                        {selectedLocation['Location Name']}
+                                                    </Typography>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        {selectedLocation['Location Address']?.replace('\n', ', ') || ''}
+                                                    </Typography>
+                                                </Box>
+                                            ) : (
+                                                <Typography color="text.secondary" sx={{ py: 1.5 }}>Select a location</Typography>
+                                            )}
+                                        </Button>
+                                    </FormControl>
+                                ) : (
+                                    <Stack spacing={2}>
+                                        {isManualEntry ? (
+                                            <>
+                                                <TextField fullWidth label="Street Address" name="street" value={address?.street || ''} onChange={handleAddressChange} size="small" />
+                                                <TextField fullWidth label="Apt or Suite (Optional)" name="aptSuite" value={address?.aptSuite || ''} onChange={handleAddressChange} size="small" />
+                                                <TextField fullWidth label="City" name="city" value={address?.city || ''} onChange={handleAddressChange} size="small" />
+                                                <Box sx={{ display: 'flex', gap: 2 }}>
+                                                    <FormControl fullWidth size="small">
+                                                        <InputLabel id="state-select-label">State</InputLabel>
+                                                        <Select labelId="state-select-label" name="state" value={address?.state || ''} label="State" onChange={handleAddressChange}>
+                                                            {states.map(stateAbbr => (<MenuItem key={stateAbbr} value={stateAbbr}>{stateAbbr}</MenuItem>))}
+                                                        </Select>
+                                                    </FormControl>
+                                                    <TextField fullWidth label="Zip Code" name="zip" value={address?.zip || ''} onChange={handleAddressChange} inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 5 }} size="small" />
+                                                </Box>
+                                                <Button variant="text" size="small" onClick={() => setIsManualEntry(false)}>Use Address Search</Button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <GoogleAddressAutocomplete value={address?.fullAddressText || ''} sendToCatering={sendToCatering} onAddressSelected={(success) => { if (!success) setIsManualEntry(true); }} />
+                                                {!!address?.street && !isManualEntry && (
+                                                    <TextField fullWidth label="Apt or Suite (Optional)" name="aptSuite" value={address?.aptSuite || ''} onChange={handleAddressChange} size="small" />
+                                                )}
+                                            </>
+                                        )}
+                                    </Stack>
+                                )}
+                            </Box>
+
+                            <Divider sx={{ mb: 3 }} />
+
                             {/* Cart Items */}
                             <Stack spacing={2} divider={<Divider />}>
                                 {cart.map((cartItem) => {
@@ -349,53 +476,155 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
                                                         )}
 
                                                     {/* Individual Jars for Cake Jar Box */}
-                                                    {item.jars && item.jars.length > 0 && (
-                                                        <Box sx={{ mt: 1.5 }}>
-                                                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'text.secondary', mb: 1 }}>
-                                                                Selected Jars:
-                                                            </Typography>
-                                                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                                                                {item.jars.map((jar, index) => (
-                                                                    <Box
-                                                                        key={index}
-                                                                        sx={{
-                                                                            display: 'flex',
-                                                                            alignItems: 'center',
-                                                                            gap: 1,
-                                                                        }}
-                                                                    >
-                                                                        <Box
-                                                                            sx={{
-                                                                                width: 24,
-                                                                                height: 24,
-                                                                                borderRadius: '50%',
-                                                                                backgroundColor: jar.color || '#f5f0e6',
-                                                                                overflow: 'hidden',
-                                                                                flexShrink: 0,
-                                                                                border: '1px solid white',
-                                                                                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                                                                            }}
-                                                                        >
-                                                                            {jar.image && (
-                                                                                <img
-                                                                                    src={jar.image}
-                                                                                    alt={jar.name}
-                                                                                    style={{
-                                                                                        width: '100%',
-                                                                                        height: '100%',
-                                                                                        objectFit: 'cover',
+                                                    {item.jars && item.jars.length > 0 && (() => {
+                                                        // Group duplicate items by their display name or name
+                                                        const groupedJars = item.jars.reduce((acc, jar) => {
+                                                            const key = jar.displayName || jar.name;
+                                                            if (!acc[key]) {
+                                                                acc[key] = { jar, count: 1 };
+                                                            } else {
+                                                                acc[key].count++;
+                                                            }
+                                                            return acc;
+                                                        }, {});
+
+                                                        const groupedArray = Object.values(groupedJars);
+
+                                                        return (
+                                                            <Box sx={{ mt: 1.5 }}>
+                                                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'text.secondary', mb: 1 }}>
+                                                                    Selected {item.jars[0]?.id?.startsWith('custom-cookie-') || item.jars[0]?.isBaseCookie || item.jars[0]?.isFrostedCookie ? 'Cookies' : 'Jars'}:
+                                                                </Typography>
+                                                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                                                    {groupedArray.map(({ jar, count }, index) => {
+                                                                        // Determine if this is a custom cookie or custom jar
+                                                                        const baseName = jar.customizations?.cake;
+                                                                        const isCookieBase = baseName && BASE_COOKIES.some(c => c.name === baseName);
+                                                                        const isCustomCookie = jar.isCustom && (isCookieBase || jar.name?.includes('Cookie') || jar.id?.includes('cookie'));
+                                                                        const isCustomJar = jar.isCustom && !isCustomCookie;
+                                                                        const isCookie = isCustomCookie || jar.isBaseCookie || jar.isFrostedCookie || jar.id?.includes('cookie');
+                                                                        const itemType = isCookie ? (count > 1 ? 'Cookies' : 'Cookie') : (count > 1 ? 'Cake Jars' : 'Cake Jar');
+                                                                        const displayName = jar.displayName || jar.name;
+                                                                        // Format: "3 Name Cake Jars" or just "Name" if count is 1
+                                                                        const formattedName = count > 1 ? `${count} ${displayName} ${itemType}` : displayName;
+
+                                                                        // Render layered image for custom cookies
+                                                                        if (isCustomCookie && jar.customizations) {
+                                                                            const baseObj = BASE_COOKIES.find(c => c.name === baseName);
+                                                                            const frostingName = jar.customizations.frostings?.[0];
+                                                                            const frostingObj = COOKIE_FROSTINGS.find(f => f.name === frostingName);
+                                                                            const toppingImages = (jar.customizations.toppings || [])
+                                                                                .map(t => COOKIE_TOPPINGS.find(top => top.name === t))
+                                                                                .filter(t => t && t.image)
+                                                                                .map(t => t.image);
+
+                                                                            return (
+                                                                                <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                                                    <Box
+                                                                                        sx={{
+                                                                                            width: 24,
+                                                                                            height: 24,
+                                                                                            borderRadius: '50%',
+                                                                                            backgroundColor: baseObj?.color || jar.color || '#f5f0e6',
+                                                                                            overflow: 'hidden',
+                                                                                            flexShrink: 0,
+                                                                                            border: '1px solid white',
+                                                                                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                                                                                            position: 'relative',
+                                                                                        }}
+                                                                                    >
+                                                                                        {baseObj?.image && (
+                                                                                            <img src={baseObj.image} alt="base" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
+                                                                                        )}
+                                                                                        {frostingObj?.image && (
+                                                                                            <img src={frostingObj.image} alt="frosting" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
+                                                                                        )}
+                                                                                        {toppingImages.map((img, idx) => (
+                                                                                            <img key={idx} src={img} alt="topping" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: idx + 2 }} />
+                                                                                        ))}
+                                                                                    </Box>
+                                                                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
+                                                                                        {formattedName}
+                                                                                    </Typography>
+                                                                                </Box>
+                                                                            );
+                                                                        }
+
+                                                                        // Render layered image for custom jars (frosting + toppings)
+                                                                        if (isCustomJar && jar.customizations) {
+                                                                            const frostingName = jar.customizations.frostings?.[0];
+                                                                            const frostingObj = FROSTINGS.find(f => f.name === frostingName);
+                                                                            const toppingImages = (jar.customizations.toppings || [])
+                                                                                .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+                                                                                .filter(t => t && t.image)
+                                                                                .map(t => t.image);
+
+                                                                            return (
+                                                                                <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                                                    <Box
+                                                                                        sx={{
+                                                                                            width: 24,
+                                                                                            height: 24,
+                                                                                            borderRadius: '50%',
+                                                                                            backgroundColor: frostingObj?.color || jar.color || '#f5f0e6',
+                                                                                            overflow: 'hidden',
+                                                                                            flexShrink: 0,
+                                                                                            border: '1px solid white',
+                                                                                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                                                                                            position: 'relative',
+                                                                                        }}
+                                                                                    >
+                                                                                        {frostingObj?.image && (
+                                                                                            <img src={frostingObj.image} alt="frosting" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
+                                                                                        )}
+                                                                                        {toppingImages.map((img, idx) => (
+                                                                                            <img key={idx} src={img} alt="topping" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: idx + 1 }} />
+                                                                                        ))}
+                                                                                    </Box>
+                                                                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
+                                                                                        {formattedName}
+                                                                                    </Typography>
+                                                                                </Box>
+                                                                            );
+                                                                        }
+
+                                                                        // Regular items (base cookies, frosted cookies, pre-made jars)
+                                                                        return (
+                                                                            <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                                                <Box
+                                                                                    sx={{
+                                                                                        width: 24,
+                                                                                        height: 24,
+                                                                                        borderRadius: '50%',
+                                                                                        backgroundColor: jar.color || '#f5f0e6',
+                                                                                        overflow: 'hidden',
+                                                                                        flexShrink: 0,
+                                                                                        border: '1px solid white',
+                                                                                        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                                                                                     }}
-                                                                                />
-                                                                            )}
-                                                                        </Box>
-                                                                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
-                                                                            {jar.displayName || jar.name}
-                                                                        </Typography>
-                                                                    </Box>
-                                                                ))}
+                                                                                >
+                                                                                    {jar.image && (
+                                                                                        <img
+                                                                                            src={jar.image}
+                                                                                            alt={jar.name}
+                                                                                            style={{
+                                                                                                width: '100%',
+                                                                                                height: '100%',
+                                                                                                objectFit: 'cover',
+                                                                                            }}
+                                                                                        />
+                                                                                    )}
+                                                                                </Box>
+                                                                                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
+                                                                                    {formattedName}
+                                                                                </Typography>
+                                                                            </Box>
+                                                                        );
+                                                                    })}
+                                                                </Box>
                                                             </Box>
-                                                        </Box>
-                                                    )}
+                                                        );
+                                                    })()}
 
                                                     {/* Quantity and Total */}
                                                     <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -438,91 +667,6 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
                                         <Typography variant="body1" sx={{ fontWeight: 'bold' }}>${total}</Typography>
                                     </Box>
                                 </Stack>
-                            </Box>
-
-                            <Divider sx={{ my: 3 }} />
-
-                            {/* Fulfillment Section */}
-                            <Box>
-                                <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
-                                    Fulfillment
-                                </Typography>
-                                <ToggleButtonGroup
-                                    value={localFulfillmentType}
-                                    exclusive
-                                    onChange={handleFulfillmentTypeChange}
-                                    fullWidth
-                                    sx={{ mb: 2 }}
-                                >
-                                    <ToggleButton value="pickup">Pickup</ToggleButton>
-                                    <ToggleButton value="delivery">Delivery</ToggleButton>
-                                </ToggleButtonGroup>
-
-                                {localFulfillmentType === 'pickup' ? (
-                                    <FormControl fullWidth variant="outlined" size="small">
-                                        <InputLabel shrink id="pickup-location-label" sx={{ backgroundColor: 'white', pr: 1, ml: -0.5 }}>
-                                            Pickup Location
-                                        </InputLabel>
-                                        <Button
-                                            fullWidth
-                                            variant="outlined"
-                                            onClick={() => setLocationModalOpen(true)}
-                                            endIcon={<ArrowDropDownIcon sx={{ color: 'action.active' }} />}
-                                            sx={{
-                                                borderColor: 'rgba(0, 0, 0, 0.23)',
-                                                color: 'black',
-                                                textTransform: 'none',
-                                                justifyContent: 'space-between',
-                                                py: '8.5px',
-                                                px: '14px',
-                                                '&:hover': {
-                                                    borderColor: 'black',
-                                                    backgroundColor: 'rgba(0,0,0,0.04)'
-                                                }
-                                            }}
-                                        >
-                                            {selectedLocation ? (
-                                                <Box sx={{ textAlign: 'left' }}>
-                                                    <Typography sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
-                                                        {selectedLocation['Location Name']}
-                                                    </Typography>
-                                                    <Typography variant="body2" color="text.secondary">
-                                                        {selectedLocation['Location Address']?.replace('\n', ', ') || ''}
-                                                    </Typography>
-                                                </Box>
-                                            ) : (
-                                                <Typography color="text.secondary" sx={{ py: 1.5 }}>Select a location</Typography>
-                                            )}
-                                        </Button>
-                                    </FormControl>
-                                ) : (
-                                    <Stack spacing={2}>
-                                        {isManualEntry ? (
-                                            <>
-                                                <TextField fullWidth label="Street Address" name="street" value={address?.street || ''} onChange={handleAddressChange} size="small" />
-                                                <TextField fullWidth label="Apt or Suite (Optional)" name="aptSuite" value={address?.aptSuite || ''} onChange={handleAddressChange} size="small" />
-                                                <TextField fullWidth label="City" name="city" value={address?.city || ''} onChange={handleAddressChange} size="small" />
-                                                <Box sx={{ display: 'flex', gap: 2 }}>
-                                                    <FormControl fullWidth size="small">
-                                                        <InputLabel id="state-select-label">State</InputLabel>
-                                                        <Select labelId="state-select-label" name="state" value={address?.state || ''} label="State" onChange={handleAddressChange}>
-                                                            {states.map(stateAbbr => (<MenuItem key={stateAbbr} value={stateAbbr}>{stateAbbr}</MenuItem>))}
-                                                        </Select>
-                                                    </FormControl>
-                                                    <TextField fullWidth label="Zip Code" name="zip" value={address?.zip || ''} onChange={handleAddressChange} inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 5 }} size="small" />
-                                                </Box>
-                                                <Button variant="text" size="small" onClick={() => setIsManualEntry(false)}>Use Address Search</Button>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <GoogleAddressAutocomplete value={address?.fullAddressText || ''} sendToCatering={sendToCatering} onAddressSelected={(success) => { if (!success) setIsManualEntry(true); }} />
-                                                {!!address?.street && !isManualEntry && (
-                                                    <TextField fullWidth label="Apt or Suite (Optional)" name="aptSuite" value={address?.aptSuite || ''} onChange={handleAddressChange} size="small" />
-                                                )}
-                                            </>
-                                        )}
-                                    </Stack>
-                                )}
                             </Box>
                         </Box>
 

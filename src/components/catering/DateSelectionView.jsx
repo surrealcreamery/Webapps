@@ -1,8 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Box, Typography, Button } from '@mui/material';
 import { LocalizationProvider, DateCalendar, PickersDay } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { isBefore, startOfToday, isToday, addDays, format } from 'date-fns';
+import { isBefore, startOfToday, isToday, addDays, format, addMinutes } from 'date-fns';
+
+// Store hours by location (simplified - matches CategoryListView)
+const STORE_HOURS = {
+    'kips-bay': {
+        0: { open: '14:00', close: '23:00' }, // Sunday
+        1: { open: '14:00', close: '23:00' }, // Monday
+        2: { open: '14:00', close: '23:00' }, // Tuesday
+        3: { open: '14:00', close: '23:00' }, // Wednesday
+        4: { open: '14:00', close: '23:00' }, // Thursday
+        5: { open: '14:00', close: '25:00' }, // Friday (until 1am)
+        6: { open: '14:00', close: '25:00' }, // Saturday (until 1am)
+    },
+    'flushing': {
+        0: { open: '12:00', close: '22:00' },
+        1: { open: '14:00', close: '22:00' },
+        2: { open: '14:00', close: '22:00' },
+        3: { open: '14:00', close: '22:00' },
+        4: { open: '14:00', close: '22:00' },
+        5: { open: '12:00', close: '23:00' },
+        6: { open: '12:00', close: '23:00' },
+    },
+};
+
+// Prep time in minutes for pickup orders
+const PREP_TIME_MINUTES = 30;
 
 // Custom day styling for calendar
 const CustomDay = (props) => {
@@ -44,12 +69,97 @@ export const DateSelectionView = ({ sendToCatering, cateringState }) => {
     const [selectedDate, setSelectedDate] = useState(contextDate ? new Date(contextDate) : null);
     const [selectedTime, setSelectedTime] = useState(contextTime || null);
 
-    // Generate time slots in 30-minute increments from 8am to 8pm
-    const generateTimeSlots = () => {
+    // Get store hours for the selected location
+    const getStoreHoursForDate = (date, locId) => {
+        const storeHours = STORE_HOURS[locId] || STORE_HOURS['kips-bay'];
+        const dayOfWeek = date.getDay();
+        return storeHours[dayOfWeek];
+    };
+
+    // Calculate earliest available time for a given date
+    const getEarliestAvailableTime = (date) => {
+        const hours = getStoreHoursForDate(date, locationId || 'kips-bay');
+        if (!hours) return null;
+
+        const [openHour, openMin] = hours.open.split(':').map(Number);
+        const [closeHour] = hours.close.split(':').map(Number);
+
+        const now = new Date();
+        const isSelectedDateToday = isToday(date);
+
+        if (isSelectedDateToday) {
+            // For today, earliest is now + prep time, but not before store opens
+            const earliestTime = addMinutes(now, PREP_TIME_MINUTES);
+            const storeOpenTime = new Date(date);
+            storeOpenTime.setHours(openHour, openMin, 0, 0);
+
+            // Round up to next 30-minute slot
+            const roundedTime = new Date(Math.max(earliestTime.getTime(), storeOpenTime.getTime()));
+            const minutes = roundedTime.getMinutes();
+            if (minutes > 0 && minutes <= 30) {
+                roundedTime.setMinutes(30, 0, 0);
+            } else if (minutes > 30) {
+                roundedTime.setHours(roundedTime.getHours() + 1, 0, 0, 0);
+            }
+
+            return roundedTime;
+        } else {
+            // For future dates, start from store opening
+            const openTime = new Date(date);
+            openTime.setHours(openHour, openMin, 0, 0);
+            return openTime;
+        }
+    };
+
+    // Check if a date has any available time slots
+    const hasAvailableSlots = (date) => {
+        const hours = getStoreHoursForDate(date, locationId || 'kips-bay');
+        if (!hours) return false;
+
+        const [closeHour, closeMin] = hours.close.split(':').map(Number);
+        const actualCloseHour = closeHour >= 24 ? closeHour - 24 : closeHour;
+
+        const earliestTime = getEarliestAvailableTime(date);
+        if (!earliestTime) return false;
+
+        // Store close time (handle past midnight)
+        const storeCloseTime = new Date(date);
+        if (closeHour >= 24) {
+            storeCloseTime.setDate(storeCloseTime.getDate() + 1);
+        }
+        storeCloseTime.setHours(actualCloseHour, closeMin || 0, 0, 0);
+
+        // Last order must be at least 30 mins before close
+        const lastOrderTime = addMinutes(storeCloseTime, -30);
+
+        return earliestTime <= lastOrderTime;
+    };
+
+    // Generate time slots based on store hours and selected date
+    const generateTimeSlots = useMemo(() => {
+        if (!selectedDate) return [];
+
+        const hours = getStoreHoursForDate(selectedDate, locationId || 'kips-bay');
+        if (!hours) return [];
+
+        const [openHour, openMin] = hours.open.split(':').map(Number);
+        const [closeHour, closeMin] = hours.close.split(':').map(Number);
+
+        const earliestTime = getEarliestAvailableTime(selectedDate);
+        if (!earliestTime) return [];
+
         const slots = [];
-        for (let hour = 8; hour <= 20; hour++) {
-            for (let minute = 0; minute < 60; minute += 30) {
-                if (hour === 20 && minute > 0) break; // Stop at 8:00pm
+        const startHour = earliestTime.getHours();
+        const startMin = earliestTime.getMinutes();
+
+        // Handle close time past midnight
+        const effectiveCloseHour = closeHour >= 24 ? 24 : closeHour;
+
+        for (let hour = startHour; hour < effectiveCloseHour; hour++) {
+            for (let minute = (hour === startHour ? startMin : 0); minute < 60; minute += 30) {
+                // Don't allow orders in last 30 mins before close
+                if (hour === effectiveCloseHour - 1 && minute >= 30) continue;
+
                 const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
                 const period = hour >= 12 ? 'pm' : 'am';
                 const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
@@ -59,9 +169,9 @@ export const DateSelectionView = ({ sendToCatering, cateringState }) => {
             }
         }
         return slots;
-    };
+    }, [selectedDate, locationId]);
 
-    const timeSlots = generateTimeSlots();
+    const timeSlots = generateTimeSlots;
 
     const handleDateChange = (newDate) => {
         setSelectedDate(newDate);
@@ -104,9 +214,9 @@ export const DateSelectionView = ({ sendToCatering, cateringState }) => {
             {!selectedDate && (
                 <>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                        Orders must be placed at least 24 hours in advance.
+                        Select a date based on store availability.
                     </Typography>
-                    
+
                     <LocalizationProvider dateAdapter={AdapterDateFns}>
                         <DateCalendar
                             value={selectedDate}
@@ -114,7 +224,8 @@ export const DateSelectionView = ({ sendToCatering, cateringState }) => {
                             referenceDate={new Date()}
                             disablePast
                             shouldDisableDate={(date) => {
-                                if (isToday(date)) return true;
+                                // Disable today only if no available time slots remain
+                                if (isToday(date) && !hasAvailableSlots(date)) return true;
                                 const maxDate = addDays(new Date(), 90);
                                 return date > maxDate;
                             }}

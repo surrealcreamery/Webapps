@@ -226,13 +226,47 @@ const getNextAvailablePickup = () => {
 };
 
 // Flip Clock Digit Component - mimics old split-flap display
-const FlipClockDigit = ({ value }) => {
+const FlipClockDigit = ({ value, small }) => {
+    const size = small
+        ? { width: 24, height: 32, fontSize: '1.6rem' }
+        : { width: 50, height: 70, fontSize: '3.5rem' };
+
+    // Simplified version for small size
+    if (small) {
+        return (
+            <Box
+                sx={{
+                    width: size.width,
+                    height: size.height,
+                    backgroundColor: '#1a1a1a',
+                    borderRadius: 0.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                }}
+            >
+                <Typography
+                    sx={{
+                        fontSize: size.fontSize,
+                        fontWeight: 700,
+                        color: 'white',
+                        fontFamily: '"Courier New", monospace',
+                        lineHeight: 1,
+                    }}
+                >
+                    {value}
+                </Typography>
+            </Box>
+        );
+    }
+
     return (
         <Box
             sx={{
                 position: 'relative',
-                width: 50,
-                height: 70,
+                width: size.width,
+                height: size.height,
                 backgroundColor: '#1a1a1a',
                 borderRadius: 1,
                 display: 'flex',
@@ -260,7 +294,7 @@ const FlipClockDigit = ({ value }) => {
             >
                 <Typography
                     sx={{
-                        fontSize: '3.5rem',
+                        fontSize: size.fontSize,
                         fontWeight: 700,
                         color: 'white',
                         fontFamily: '"Courier New", monospace',
@@ -288,7 +322,7 @@ const FlipClockDigit = ({ value }) => {
             >
                 <Typography
                     sx={{
-                        fontSize: '3.5rem',
+                        fontSize: size.fontSize,
                         fontWeight: 700,
                         color: 'white',
                         fontFamily: '"Courier New", monospace',
@@ -316,7 +350,7 @@ const FlipClockDigit = ({ value }) => {
 };
 
 // Flip Clock Time Display Component
-const FlipClockDisplay = ({ time }) => {
+const FlipClockDisplay = ({ time, small }) => {
     // time is a Date object
     if (!time) return null;
 
@@ -329,24 +363,27 @@ const FlipClockDisplay = ({ time }) => {
     const minStr = minutes.toString().padStart(2, '0');
 
     return (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
-            <FlipClockDigit value={hourStr[0]} />
-            <FlipClockDigit value={hourStr[1]} />
-            <Typography sx={{ fontSize: '3rem', fontWeight: 700, color: '#1a1a1a', mx: 0.5 }}>:</Typography>
-            <FlipClockDigit value={minStr[0]} />
-            <FlipClockDigit value={minStr[1]} />
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: small ? 0.25 : 0.5 }}>
+            <FlipClockDigit value={hourStr[0]} small={small} />
+            <FlipClockDigit value={hourStr[1]} small={small} />
+            <Typography sx={{ fontSize: small ? '1.8rem' : '3rem', fontWeight: 700, color: '#1a1a1a', mx: small ? 0.25 : 0.5 }}>:</Typography>
+            <FlipClockDigit value={minStr[0]} small={small} />
+            <FlipClockDigit value={minStr[1]} small={small} />
             <Box
                 sx={{
-                    ml: 1,
-                    px: 1,
-                    py: 0.5,
+                    ml: small ? 0.5 : 1,
+                    px: small ? 0.5 : 1,
+                    height: small ? 32 : 70,
                     backgroundColor: '#1a1a1a',
-                    borderRadius: 1,
+                    borderRadius: small ? 0.5 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                 }}
             >
                 <Typography
                     sx={{
-                        fontSize: '1.4rem',
+                        fontSize: '1.6rem',
                         fontWeight: 700,
                         color: 'white',
                         fontFamily: '"Courier New", monospace',
@@ -729,17 +766,13 @@ const DEFAULT_INGREDIENTS = {
 };
 
 // Jar Preview Modal Component - shows read-only view of jar with default ingredients
-const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete, onRename, availableSlots = 6 }) => {
-    const [isEditingName, setIsEditingName] = useState(false);
-    const [editedName, setEditedName] = useState('');
+const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete, availableSlots = 6 }) => {
     const [quantity, setQuantity] = useState(1);
 
-    // Reset edit state when jar changes
+    // Reset quantity when jar changes
     useEffect(() => {
         if (jar) {
-            setEditedName(jar.displayName || jar.name);
-            setIsEditingName(false);
-            setQuantity(1); // Reset quantity when jar changes
+            setQuantity(1);
         }
     }, [jar]);
 
@@ -756,27 +789,6 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
     const displayCookies = jar.customizations?.cookies || defaults.cookies || [];
     const displaySyrups = jar.customizations?.syrups || defaults.syrups || [];
 
-    const handleStartEditing = () => {
-        setEditedName(jar.displayName || jar.name);
-        setIsEditingName(true);
-    };
-
-    const handleSaveName = () => {
-        if (editedName.trim() && onRename) {
-            onRename(jar, editedName.trim());
-        }
-        setIsEditingName(false);
-    };
-
-    const handleKeyDown = (e) => {
-        if (e.key === 'Enter') {
-            handleSaveName();
-        } else if (e.key === 'Escape') {
-            setIsEditingName(false);
-            setEditedName(jar.displayName || jar.name);
-        }
-    };
-
     const handleAddToBox = () => {
         // Add with current/default customizations
         const itemToAdd = {
@@ -790,14 +802,8 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
             }
         };
 
-        // For cookies, add multiple based on quantity
-        if (jar.isBaseCookie || jar.isFrostedCookie) {
-            for (let i = 0; i < quantity; i++) {
-                onAddToBox(itemToAdd);
-            }
-        } else {
-            onAddToBox(itemToAdd);
-        }
+        // Always pass quantity to add multiple at once
+        onAddToBox(itemToAdd, quantity);
         onClose();
     };
 
@@ -944,72 +950,21 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
 
                 {/* Content */}
                 <Box sx={{ p: 3, maxWidth: 600, margin: '0 auto' }}>
-                    {/* Jar Name with Edit and Delete buttons for custom jars */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, gap: 1, overflow: 'hidden' }}>
-                        {/* Name and Edit Icon */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                            {isEditingName ? (
-                                <input
-                                    type="text"
-                                    value={editedName}
-                                    onChange={(e) => setEditedName(e.target.value)}
-                                    onBlur={handleSaveName}
-                                    onKeyDown={handleKeyDown}
-                                    maxLength={30}
-                                    autoFocus
-                                    style={{
-                                        fontWeight: 700,
-                                        fontSize: '2rem',
-                                        border: 'none',
-                                        borderBottom: '2px solid #1976d2',
-                                        outline: 'none',
-                                        background: 'transparent',
-                                        width: '100%',
-                                        maxWidth: '100%',
-                                        padding: '0 0 4px 0',
-                                        fontFamily: 'inherit',
-                                        boxSizing: 'border-box',
-                                    }}
-                                />
-                            ) : (
-                                <>
-                                    <Typography
-                                        variant="h4"
-                                        sx={{
-                                            fontWeight: 700,
-                                            fontSize: '2rem',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                        }}
-                                    >
-                                        {jar.displayName || jar.name}
-                                    </Typography>
-                                    {jar.isCustom && onRename && (
-                                        <Box
-                                            component="button"
-                                            onClick={handleStartEditing}
-                                            sx={{
-                                                background: 'none',
-                                                border: 'none',
-                                                padding: '4px',
-                                                cursor: 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                color: '#666',
-                                                flexShrink: 0,
-                                                '&:hover': { color: '#1976d2' },
-                                            }}
-                                            aria-label="Edit name"
-                                        >
-                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-                                            </svg>
-                                        </Box>
-                                    )}
-                                </>
-                            )}
-                        </Box>
+                    {/* Jar Name with Delete button for custom jars */}
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1, gap: 1 }}>
+                        {/* Name */}
+                        <Typography
+                            variant="h4"
+                            sx={{
+                                fontWeight: 700,
+                                fontSize: '2rem',
+                                flex: 1,
+                                minWidth: 0,
+                                wordWrap: 'break-word',
+                            }}
+                        >
+                            {jar.displayName || jar.name}
+                        </Typography>
                         {/* Delete Button */}
                         {jar.isCustom && onDelete && (
                             <Box
@@ -1057,13 +1012,63 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                             </Box>
                         )}
                         {/* All jars are sustainable - only show for jars, not cookies */}
-                        {!jar.isBaseCookie && !jar.isFrostedCookie && (
+                        {!jar.isBaseCookie && !jar.isFrostedCookie && !jar.id?.startsWith('custom-cookie-') && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <SustainableBadge size="medium" />
                                 <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Sustainable</Typography>
                             </Box>
                         )}
                     </Box>
+
+                    {/* Quantity Selector for Custom Items (cookies and jars) - above Customize button */}
+                    {(jar.id?.startsWith('custom-cookie-') || jar.id?.startsWith('custom-jar-')) && (
+                        <Box sx={{ mb: 3 }}>
+                            <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 1.5 }}>
+                                Quantity {availableSlots > 0 && <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary', fontSize: '1.4rem' }}>({availableSlots} slots available)</Typography>}
+                            </Typography>
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
+                                <Box
+                                    component="button"
+                                    onClick={() => setQuantity(prev => Math.max(1, prev - 1))}
+                                    disabled={quantity <= 1}
+                                    sx={{
+                                        minWidth: 44,
+                                        height: 44,
+                                        border: 'none',
+                                        backgroundColor: 'transparent',
+                                        fontSize: '1.5rem',
+                                        fontWeight: 700,
+                                        cursor: quantity <= 1 ? 'not-allowed' : 'pointer',
+                                        opacity: quantity <= 1 ? 0.4 : 1,
+                                        '&:hover': { backgroundColor: quantity <= 1 ? 'transparent' : '#f5f5f5' },
+                                    }}
+                                >
+                                    −
+                                </Box>
+                                <Typography sx={{ px: 2, fontWeight: 700, minWidth: 30, textAlign: 'center', fontSize: '1.6rem' }}>
+                                    {quantity}
+                                </Typography>
+                                <Box
+                                    component="button"
+                                    onClick={() => setQuantity(prev => Math.min(availableSlots, prev + 1))}
+                                    disabled={quantity >= availableSlots || availableSlots <= 0}
+                                    sx={{
+                                        minWidth: 44,
+                                        height: 44,
+                                        border: 'none',
+                                        backgroundColor: 'transparent',
+                                        fontSize: '1.5rem',
+                                        fontWeight: 700,
+                                        cursor: (quantity >= availableSlots || availableSlots <= 0) ? 'not-allowed' : 'pointer',
+                                        opacity: (quantity >= availableSlots || availableSlots <= 0) ? 0.4 : 1,
+                                        '&:hover': { backgroundColor: (quantity >= availableSlots || availableSlots <= 0) ? 'transparent' : '#f5f5f5' },
+                                    }}
+                                >
+                                    +
+                                </Box>
+                            </Box>
+                        </Box>
+                    )}
 
                     {/* Customize Button - only for custom jars */}
                     {jar.isCustom && (
@@ -1089,7 +1094,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                 },
                             }}
                         >
-                            Customize This Jar
+                            {jar.id?.startsWith('custom-cookie-') ? 'Customize This Cookie' : 'Customize This Jar'}
                         </Box>
                     )}
 
@@ -1184,7 +1189,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                             )}
                         </Box>
                     ) : (
-                        /* Cake Jars / Frosted Cookies - Three columns with images */
+                        /* Cake Jars / Custom Cookies - Three columns with images */
                         (() => {
                             const isCustomCookie = jar.id?.startsWith('custom-cookie-');
                             // Use cookie arrays for custom cookies, jar arrays for jars
@@ -1199,7 +1204,57 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                 : AVAILABLE_TOPPINGS.find(t => t.name === displayToppings[0]);
 
                             return (
-                                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, textAlign: 'center' }}>
+                                <>
+                                    {/* Quantity Selector for Jars (not custom cookies - they have their own above) */}
+                                    {!isCustomCookie && !jar.isCustom && (
+                                        <Box sx={{ mb: 3 }}>
+                                            <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 1.5 }}>
+                                                Quantity {availableSlots > 0 && <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary', fontSize: '1.4rem' }}>({availableSlots} slots available)</Typography>}
+                                            </Typography>
+                                            <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
+                                                <Box
+                                                    component="button"
+                                                    onClick={() => setQuantity(prev => Math.max(1, prev - 1))}
+                                                    disabled={quantity <= 1}
+                                                    sx={{
+                                                        minWidth: 44,
+                                                        height: 44,
+                                                        border: 'none',
+                                                        backgroundColor: 'transparent',
+                                                        fontSize: '1.5rem',
+                                                        fontWeight: 700,
+                                                        cursor: quantity <= 1 ? 'not-allowed' : 'pointer',
+                                                        opacity: quantity <= 1 ? 0.4 : 1,
+                                                        '&:hover': { backgroundColor: quantity <= 1 ? 'transparent' : '#f5f5f5' },
+                                                    }}
+                                                >
+                                                    −
+                                                </Box>
+                                                <Typography sx={{ px: 2, fontWeight: 700, minWidth: 30, textAlign: 'center', fontSize: '1.6rem' }}>
+                                                    {quantity}
+                                                </Typography>
+                                                <Box
+                                                    component="button"
+                                                    onClick={() => setQuantity(prev => Math.min(availableSlots, prev + 1))}
+                                                    disabled={quantity >= availableSlots || availableSlots <= 0}
+                                                    sx={{
+                                                        minWidth: 44,
+                                                        height: 44,
+                                                        border: 'none',
+                                                        backgroundColor: 'transparent',
+                                                        fontSize: '1.5rem',
+                                                        fontWeight: 700,
+                                                        cursor: (quantity >= availableSlots || availableSlots <= 0) ? 'not-allowed' : 'pointer',
+                                                        opacity: (quantity >= availableSlots || availableSlots <= 0) ? 0.4 : 1,
+                                                        '&:hover': { backgroundColor: (quantity >= availableSlots || availableSlots <= 0) ? 'transparent' : '#f5f5f5' },
+                                                    }}
+                                                >
+                                                    +
+                                                </Box>
+                                            </Box>
+                                        </Box>
+                                    )}
+                                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, textAlign: 'center' }}>
                                     {/* Cookie/Cake */}
                                     <Box>
                                         <Box
@@ -1298,6 +1353,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                         </Typography>
                                     </Box>
                                 </Box>
+                                </>
                             );
                         })()
                     )}
@@ -1366,7 +1422,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                             },
                         }}
                     >
-                        Add to Box
+                        {`Add ${quantity} to Box`}
                     </Box>
                 </Box>
             </Box>
@@ -2332,13 +2388,15 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced, onDelete }) => {
     const getCustomJarImages = () => {
         if (!flavor.isCustom || !flavor.customizations) return { baseImage: null, frostingImage: null, frostingColor: null, toppingImages: [], isCustomCookie: false };
 
-        const isCustomCookie = flavor.id?.startsWith('custom-cookie-');
+        // Detect if it's a cookie by checking if the base (cake) name is in BASE_COOKIES or by name/id
+        const baseName = flavor.customizations.cake;
+        const isCookieBase = BASE_COOKIES.some(c => c.name === baseName);
+        const isCustomCookie = isCookieBase || flavor.name?.includes('Cookie') || flavor.id?.includes('cookie');
 
         // For cookies, get the base cookie image
         let baseImage = null;
         let baseColor = null;
         if (isCustomCookie) {
-            const baseName = flavor.customizations.cake;
             const baseObj = BASE_COOKIES.find(c => c.name === baseName);
             baseImage = baseObj?.image;
             baseColor = baseObj?.color;
@@ -2556,36 +2614,6 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced, onDelete }) => {
                 )}
             </Box>
 
-            {/* Ingredients list for custom jars */}
-            {flavor.isCustom && flavor.customizations && (
-                <Box sx={{ mt: 0.5, textAlign: 'center' }}>
-                    {flavor.customizations.cake && (
-                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
-                            {flavor.customizations.cake} Cake
-                        </Typography>
-                    )}
-                    {flavor.customizations.frostings?.length > 0 && (
-                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
-                            {flavor.customizations.frostings.map(f => `${f} Frosting`).join(', ')}
-                        </Typography>
-                    )}
-                    {flavor.customizations.toppings?.length > 0 && (
-                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
-                            {flavor.customizations.toppings.join(', ')}
-                        </Typography>
-                    )}
-                    {flavor.customizations.cookies?.length > 0 && (
-                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
-                            {flavor.customizations.cookies.join(', ')}
-                        </Typography>
-                    )}
-                    {flavor.customizations.syrups?.length > 0 && (
-                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
-                            {flavor.customizations.syrups.join(', ')}
-                        </Typography>
-                    )}
-                </Box>
-            )}
         </Box>
     );
 };
@@ -2790,12 +2818,33 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             const saved = localStorage.getItem('cateringCustomJars');
             if (!saved) return [];
             const parsed = JSON.parse(saved);
-            // Migrate old jars that don't have displayName
-            return parsed.map((jar, index) => ({
-                ...jar,
-                displayName: jar.displayName || `Custom Jar ${index + 1}`,
-                isCustom: true,
-            }));
+            // Migrate old jars - generate composition name from customizations
+            return parsed.map((jar) => {
+                // Generate composition name if not already set or if it's an old "Custom Jar X" format
+                let displayName = jar.displayName;
+                const isCookie = jar.id?.startsWith('custom-cookie-');
+                if (!displayName || displayName.startsWith('Custom Jar') || displayName.startsWith('Custom Cookie')) {
+                    const customizations = jar.customizations;
+                    if (customizations) {
+                        const parts = [];
+                        if (customizations.cake) parts.push(`${customizations.cake} ${isCookie ? 'Cookie' : 'Cake'}`);
+                        if (customizations.frostings?.[0]) parts.push(`${customizations.frostings[0]} Frosting`);
+                        if (customizations.toppings) parts.push(...customizations.toppings);
+
+                        if (parts.length === 1) displayName = parts[0];
+                        else if (parts.length === 2) displayName = `${parts[0]} and ${parts[1]}`;
+                        else if (parts.length > 2) {
+                            const lastPart = parts.pop();
+                            displayName = `${parts.join(', ')}, and ${lastPart}`;
+                        } else {
+                            displayName = 'Custom Item';
+                        }
+                    } else {
+                        displayName = 'Custom Item';
+                    }
+                }
+                return { ...jar, displayName, isCustom: true };
+            });
         } catch {
             return [];
         }
@@ -2833,7 +2882,8 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     const [locationModalOpen, setLocationModalOpen] = useState(false);
     const [advancedPackagingItem, setAdvancedPackagingItem] = useState(null);
     const [slotPage, setSlotPage] = useState(0); // 0 = slots 1-6, 1 = slots 7-12 (for Cookie Tray)
-    const [showListView, setShowListView] = useState(false); // Toggle between slot view and list view in sticky footer
+    const [showListView, setShowListView] = useState(false); // Toggle to full page list view
+    const [addingFromListView, setAddingFromListView] = useState(false); // Track when adding cookie from list view
     const heroRef = useRef(null);
     const isInitialMount = useRef(true);
     const prevResetCounter = useRef(packagingResetCounter);
@@ -2846,6 +2896,14 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             selectedFlavorCategory,
         });
     }, [selectedPackaging, placedFlavors, selectedFlavorCategory]);
+
+    // Sync initial selectedPackaging to catering machine context on mount
+    useEffect(() => {
+        if (selectedPackaging) {
+            sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: selectedPackaging });
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Only run on mount
 
     // Persist custom jars to localStorage
     useEffect(() => {
@@ -2863,20 +2921,34 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         if (prevResetCounter.current !== packagingResetCounter) {
             prevResetCounter.current = packagingResetCounter;
             setSelectedPackaging(null);
+            sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: null });
             setPlacedFlavors([]);
             setSelectedFlavorCategory('cake');
             setSlotPage(0); // Reset to first page for paginated trays
             clearBoxState(); // Also clear localStorage
         }
-    }, [packagingResetCounter]);
+    }, [packagingResetCounter, sendToCatering]);
 
     // Handle editing cake jar box from cart
     useEffect(() => {
         if (editingCakeJarBox && editingCakeJarBox.jars) {
-            // Find the Cake Jar Boxes packaging
-            const cakeJarBoxPackaging = PACKAGING.find(p => p.name === 'Cake Jar Boxes');
-            if (cakeJarBoxPackaging) {
-                setSelectedPackaging(cakeJarBoxPackaging);
+            // Find the appropriate packaging based on the first jar type
+            const firstJar = editingCakeJarBox.jars[0];
+            const isCookieItem = firstJar?.id?.includes('cookie') || firstJar?.isBaseCookie || firstJar?.isFrostedCookie;
+
+            let targetPackaging;
+            if (isCookieItem) {
+                // Check if it's a Cookie Tray (12 items) or Cookies box (6 items)
+                targetPackaging = editingCakeJarBox.jars.length === 12
+                    ? PACKAGING.find(p => p.name === 'Cookie Tray')
+                    : PACKAGING.find(p => p.name === 'Cookies');
+            } else {
+                targetPackaging = PACKAGING.find(p => p.name === 'Cake Jar Boxes');
+            }
+
+            if (targetPackaging) {
+                setSelectedPackaging(targetPackaging);
+                sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: targetPackaging });
                 // Store the cart item ID for updating later
                 setEditingCartItemId(editingCakeJarBox.cartItemId);
                 // Restore the jars with slot indices
@@ -2887,13 +2959,15 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 }));
                 setPlacedFlavors(restoredJars);
                 setSelectedFlavorCategory('cake');
+                // Show the list view so user can see their items
+                setShowListView(true);
             }
             // Clear the editing state after restoring
             if (onClearEditingCakeJarBox) {
                 onClearEditingCakeJarBox();
             }
         }
-    }, [editingCakeJarBox, onClearEditingCakeJarBox]);
+    }, [editingCakeJarBox, onClearEditingCakeJarBox, sendToCatering]);
 
     const handleFlavorCategoryChange = (event, newCategory) => {
         if (newCategory !== null) {
@@ -2991,6 +3065,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
 
     const handlePackagingSelect = (packaging, dateTimeInfo) => {
         setSelectedPackaging(packaging);
+        sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging });
         // Store the selected date/time from the modal
         if (dateTimeInfo?.date) {
             setSelectedDate(dateTimeInfo.date);
@@ -3008,7 +3083,16 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     };
 
     const handleRemoveFromSlot = (slotIndex) => {
-        setPlacedFlavors(prev => prev.filter(f => f.slotIndex !== slotIndex));
+        setPlacedFlavors(prev => {
+            // Remove the item at the slot
+            const filtered = prev.filter(f => f.slotIndex !== slotIndex);
+            // Re-index remaining items to fill gaps (shift down)
+            return filtered
+                .sort((a, b) => a.slotIndex - b.slotIndex)
+                .map((f, index) => ({ ...f, slotIndex: index }));
+        });
+        // Keep the user in list view so they can continue removing items
+        setShowListView(true);
     };
 
     const handleDeleteCustomJar = (jar) => {
@@ -3018,19 +3102,34 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         setPlacedFlavors(prev => prev.filter(f => f.id !== jar.id));
     };
 
-    const handleRenameCustomItem = (jar, newName) => {
-        // Update in customJars list
-        setCustomJars(prev => prev.map(j =>
-            j.id === jar.id ? { ...j, displayName: newName } : j
-        ));
-        // Update in placedFlavors if placed
-        setPlacedFlavors(prev => prev.map(f =>
-            f.id === jar.id ? { ...f, displayName: newName } : f
-        ));
-        // Update the selected jar for modal to reflect the change
-        setSelectedJarForModal(prev =>
-            prev && prev.id === jar.id ? { ...prev, displayName: newName } : prev
-        );
+    // Generate composition name from customizations (e.g., "Vanilla Cake, Tres Leches Frosting, and Chocolate Crunch")
+    const getCompositionName = (customizations, isCookie = false) => {
+        if (!customizations) return 'Custom Item';
+
+        const parts = [];
+
+        // Add base (cake for jars, cookie for cookies) with label
+        if (customizations.cake) {
+            parts.push(`${customizations.cake} ${isCookie ? 'Cookie' : 'Cake'}`);
+        }
+
+        // Add frosting with label
+        if (customizations.frostings && customizations.frostings.length > 0) {
+            parts.push(`${customizations.frostings[0]} Frosting`);
+        }
+
+        // Add toppings (no label needed)
+        if (customizations.toppings && customizations.toppings.length > 0) {
+            parts.push(...customizations.toppings);
+        }
+
+        // Format with commas and "and"
+        if (parts.length === 0) return 'Custom Item';
+        if (parts.length === 1) return parts[0];
+        if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+
+        const lastPart = parts.pop();
+        return `${parts.join(', ')}, and ${lastPart}`;
     };
 
     const handleOpenJarModal = (flavor) => {
@@ -3104,6 +3203,16 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     // For cake jars: 5 steps (cake, frosting, topping, cookies, syrup)
     const isCookiePackaging = selectedPackaging?.name === 'Cookies' || selectedPackaging?.name === 'Cookie Tray';
     const maxMakeYourOwnStep = isCookiePackaging ? 2 : 4;
+
+    // For cookie packaging, show list view only after at least one cookie is added
+    // This way, selecting Cookie Tray goes directly to cookie selection (better UX)
+    useEffect(() => {
+        if (isCookiePackaging && placedFlavors.length > 0) {
+            setShowListView(true);
+        } else if (isCookiePackaging && placedFlavors.length === 0) {
+            setShowListView(false);
+        }
+    }, [isCookiePackaging, placedFlavors.length]);
 
     const handleMakeYourOwnContinue = () => {
         if (makeYourOwnStep < maxMakeYourOwnStep) {
@@ -3214,15 +3323,12 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 },
             };
 
+            // Generate composition name from customizations
+            const compositionName = getCompositionName(newCustomItem.customizations, isCookiePackaging);
+
             // Add to custom jars/cookies list
             setCustomJars(prev => {
-                // Count existing items of the same type
-                const existingCount = prev.filter(item =>
-                    isCookiePackaging ? item.id?.startsWith('custom-cookie-') : item.id?.startsWith('custom-jar-')
-                ).length;
-                const newNumber = existingCount + 1;
-                const displayName = isCookiePackaging ? `Custom Cookie ${newNumber}` : `Custom Jar ${newNumber}`;
-                const itemWithName = { ...newCustomItem, displayName };
+                const itemWithName = { ...newCustomItem, displayName: compositionName };
                 return [...prev, itemWithName];
             });
 
@@ -3240,15 +3346,9 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                     }
                 }
 
-                // Count existing custom items of the same type
-                const existingCount = customJars.filter(item =>
-                    isCookiePackaging ? item.id?.startsWith('custom-cookie-') : item.id?.startsWith('custom-jar-')
-                ).length;
-                const customNumber = existingCount + 1;
-                const displayName = isCookiePackaging ? `Custom Cookie ${customNumber}` : `Custom Jar ${customNumber}`;
                 const itemWithSlot = {
                     ...newCustomItem,
-                    displayName,
+                    displayName: compositionName,
                     slotIndex: nextSlot
                 };
                 return [...prev, itemWithSlot];
@@ -3323,6 +3423,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         setSelectedTime(null);
         setPlacedFlavors([]);
         setSelectedPackaging(null);
+        sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: null });
         setSelectedFlavorCategory('cake');
         setEditingCartItemId(null); // Clear editing state
         clearBoxState();
@@ -3331,7 +3432,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         sendToCatering({ type: 'OPEN_CART_DRAWER' });
     };
 
-    const handleSaveJarCustomizations = (updatedJar) => {
+    const handleSaveJarCustomizations = (updatedJar, quantity = 1) => {
         // Check if this is an existing custom jar being edited
         if (updatedJar.isCustom) {
             // Update existing custom jar in the customJars list
@@ -3341,39 +3442,46 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                     : jar
             ));
 
-            // Always add another copy to the box (user can fill box with same custom item)
+            // Always add copies to the box based on quantity (user can fill box with same custom item)
             const isSlotBasedPkg = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging;
             if (isSlotBasedPkg) {
                 const maxSlots = selectedPackaging?.slotCount || 6;
                 setPlacedFlavors(prev => {
                     if (prev.length >= maxSlots) return prev; // Box/Tray is full
 
-                    const usedSlots = prev.map(f => f.slotIndex);
-                    let nextSlot = 0;
-                    for (let i = 0; i < maxSlots; i++) {
-                        if (!usedSlots.includes(i)) {
-                            nextSlot = i;
-                            break;
+                    const newPlacements = [];
+                    const usedSlots = [...prev.map(f => f.slotIndex)];
+
+                    for (let q = 0; q < quantity && (prev.length + newPlacements.length) < maxSlots; q++) {
+                        // Find next empty slot
+                        let nextSlot = 0;
+                        for (let i = 0; i < maxSlots; i++) {
+                            if (!usedSlots.includes(i)) {
+                                nextSlot = i;
+                                usedSlots.push(i); // Mark as used for next iteration
+                                break;
+                            }
                         }
+
+                        // Create a new placement with unique ID for each slot
+                        newPlacements.push({
+                            ...updatedJar,
+                            placementId: `${updatedJar.id}-slot-${nextSlot}-${Date.now()}-${q}`,
+                            slotIndex: nextSlot
+                        });
                     }
 
-                    // Create a new placement with unique ID for each slot
-                    const newPlacement = {
-                        ...updatedJar,
-                        placementId: `${updatedJar.id}-slot-${nextSlot}`,
-                        slotIndex: nextSlot
-                    };
-                    return [...prev, newPlacement];
+                    return [...prev, ...newPlacements];
                 });
             }
         } else if (updatedJar.name === 'Make Your Own Cake Jar' || updatedJar.name === 'Make Your Own Cookie') {
             // Creating a new custom item from "Make Your Own"
             const isCookie = updatedJar.name === 'Make Your Own Cookie';
-            const customItemNumber = customJars.length + 1;
+            const compositionName = getCompositionName(updatedJar.customizations, isCookie);
             const customItem = {
                 ...updatedJar,
                 id: `custom-${isCookie ? 'cookie' : 'jar'}-${Date.now()}`,
-                displayName: isCookie ? `Custom Cookie ${customItemNumber}` : `Custom Jar ${customItemNumber}`,
+                displayName: compositionName,
                 isCustom: true,
             };
 
@@ -3398,27 +3506,37 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 setPlacedFlavors(prev => [...prev, { ...customItem, slotIndex: nextSlot }]);
             }
         } else {
-            // For slot-based packaging (Cake Jar Boxes, Cookies, Cookie Tray), find the next empty slot and add the item
+            // For slot-based packaging (Cake Jar Boxes, Cookies, Cookie Tray), find empty slots and add items
             const isSlotBased = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging;
             if (isSlotBased) {
                 const maxSlots = selectedPackaging?.slotCount || 6;
-                if (placedFlavors.length >= maxSlots) return;
 
-                // Find first empty slot index
-                const usedSlots = placedFlavors.map(f => f.slotIndex);
-                let nextSlot = 0;
-                for (let i = 0; i < maxSlots; i++) {
-                    if (!usedSlots.includes(i)) {
-                        nextSlot = i;
-                        break;
+                setPlacedFlavors(prev => {
+                    if (prev.length >= maxSlots) return prev; // Box/Tray is full
+
+                    const newPlacements = [];
+                    const usedSlots = [...prev.map(f => f.slotIndex)];
+
+                    for (let q = 0; q < quantity && (prev.length + newPlacements.length) < maxSlots; q++) {
+                        // Find next empty slot
+                        let nextSlot = 0;
+                        for (let i = 0; i < maxSlots; i++) {
+                            if (!usedSlots.includes(i)) {
+                                nextSlot = i;
+                                usedSlots.push(i); // Mark as used for next iteration
+                                break;
+                            }
+                        }
+
+                        newPlacements.push({
+                            ...updatedJar,
+                            placementId: `${updatedJar.id}-slot-${nextSlot}-${Date.now()}-${q}`,
+                            slotIndex: nextSlot,
+                        });
                     }
-                }
 
-                const newPlacement = {
-                    ...updatedJar,
-                    slotIndex: nextSlot,
-                };
-                setPlacedFlavors(prev => [...prev, newPlacement]);
+                    return [...prev, ...newPlacements];
+                });
             } else {
                 // For other packaging types, use random positioning
                 const newPlacement = {
@@ -3429,6 +3547,12 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 };
                 setPlacedFlavors(prev => [...prev, newPlacement]);
             }
+        }
+
+        // If we were adding from list view, return to list view
+        if (addingFromListView) {
+            setShowListView(true);
+            setAddingFromListView(false);
         }
     };
 
@@ -3505,34 +3629,41 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 </Box>
 
                 <Box sx={{ p: 3, maxWidth: 600, margin: '0 auto' }}>
-                    {/* Earliest Pickup & Delivery Times */}
-                    <Box sx={{ textAlign: 'center', mb: 3 }}>
-                        <Typography
-                            sx={{
-                                fontSize: '1.6rem',
-                                fontWeight: 600,
-                                color: 'text.secondary',
-                                mb: 1,
-                            }}
-                        >
-                            Earliest Pickup Today
-                        </Typography>
-                        <Box sx={{ mb: 2 }}>
-                            <FlipClockDisplay time={availability.pickupTime} />
+                    {/* Earliest Pickup & Delivery Times - Two Column */}
+                    <Box
+                        sx={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: 2,
+                            mb: 3,
+                        }}
+                    >
+                        <Box sx={{ textAlign: 'center' }}>
+                            <Typography
+                                sx={{
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    color: 'text.secondary',
+                                    mb: 1,
+                                }}
+                            >
+                                Earliest Pickup
+                            </Typography>
+                            <FlipClockDisplay time={availability.pickupTime} small />
                         </Box>
 
-                        <Typography
-                            sx={{
-                                fontSize: '1.6rem',
-                                fontWeight: 600,
-                                color: 'text.secondary',
-                                mb: 1,
-                            }}
-                        >
-                            Earliest Delivery Today
-                        </Typography>
-                        <Box>
-                            <FlipClockDisplay time={availability.deliveryTime} />
+                        <Box sx={{ textAlign: 'center' }}>
+                            <Typography
+                                sx={{
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    color: 'text.secondary',
+                                    mb: 1,
+                                }}
+                            >
+                                Earliest Delivery
+                            </Typography>
+                            <FlipClockDisplay time={availability.deliveryTime} small />
                         </Box>
                     </Box>
 
@@ -4094,399 +4225,6 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 </Box>
             )}
 
-            {/* Sticky Bottom Box - Fixed at bottom for slot-based packaging (hidden during Make Your Own flow) */}
-            {selectedPackaging && isSlotBasedPackaging && !makeYourOwnActive && (
-                <Box
-                    sx={{
-                        position: 'fixed',
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        backgroundColor: 'white',
-                        borderTop: '1px solid',
-                        borderColor: 'grey.300',
-                        boxShadow: '0 -4px 20px rgba(0,0,0,0.1)',
-                        zIndex: 1000,
-                        p: 2,
-                    }}
-                >
-                    <Box sx={{ maxWidth: 600, margin: '0 auto' }}>
-                        {isBoxComplete ? (
-                            /* Add to Cart / Update Cart button when box is complete */
-                            <Box
-                                component="button"
-                                onClick={handleAddBoxToCart}
-                                sx={{
-                                    width: '100%',
-                                    py: 2,
-                                    px: 4,
-                                    backgroundColor: 'black',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: 2,
-                                    fontSize: '1.6rem',
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    '&:hover': {
-                                        backgroundColor: '#333',
-                                    },
-                                }}
-                            >
-                                {editingCartItemId ? 'Update Cart' : 'Add to Cart'}
-                            </Box>
-                        ) : (
-                            <>
-                                {/* Title and count row */}
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                                    <Typography
-                                        variant="h6"
-                                        sx={{ fontWeight: 700, fontSize: '1.4rem' }}
-                                    >
-                                        {selectedPackaging.name}
-                                    </Typography>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                        <Typography
-                                            variant="body2"
-                                            color="text.secondary"
-                                            sx={{ fontSize: '1.4rem' }}
-                                        >
-                                            {placedFlavors.length}/{totalSlots} filled
-                                        </Typography>
-                                        {placedFlavors.length > 0 && (
-                                            <Box
-                                                component="button"
-                                                onClick={() => setShowListView(!showListView)}
-                                                sx={{
-                                                    px: 1.5,
-                                                    py: 0.5,
-                                                    backgroundColor: 'transparent',
-                                                    color: 'black',
-                                                    border: '1px solid black',
-                                                    borderRadius: 1,
-                                                    fontSize: '1.2rem',
-                                                    fontWeight: 600,
-                                                    cursor: 'pointer',
-                                                    whiteSpace: 'nowrap',
-                                                    '&:hover': { backgroundColor: '#f5f5f5' },
-                                                }}
-                                            >
-                                                {showListView ? 'View Slots' : 'View as List'}
-                                            </Box>
-                                        )}
-                                    </Box>
-                                </Box>
-
-                                {/* Show either slot view or list view */}
-                                {showListView ? (
-                                    /* List View - scrollable list of placed items */
-                                    <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
-                                        {placedFlavors
-                                            .sort((a, b) => a.slotIndex - b.slotIndex)
-                                            .map((flavor) => (
-                                                <Box
-                                                    key={`${flavor.id}-${flavor.slotIndex}`}
-                                                    sx={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 1.5,
-                                                        py: 1,
-                                                        borderBottom: '1px solid',
-                                                        borderColor: 'grey.200',
-                                                    }}
-                                                >
-                                                    <Typography sx={{ fontSize: '1.2rem', color: 'text.secondary', minWidth: 20 }}>
-                                                        {flavor.slotIndex + 1}.
-                                                    </Typography>
-                                                    <Box
-                                                        sx={{
-                                                            width: 32,
-                                                            height: 32,
-                                                            borderRadius: '50%',
-                                                            backgroundColor: flavor.color,
-                                                            overflow: 'hidden',
-                                                            flexShrink: 0,
-                                                        }}
-                                                    >
-                                                        {flavor.image && (
-                                                            <img src={flavor.image} alt={flavor.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                                        )}
-                                                    </Box>
-                                                    <Typography sx={{ fontSize: '1.3rem', fontWeight: 500, flex: 1 }}>
-                                                        {flavor.displayName || flavor.name}
-                                                    </Typography>
-                                                    <Box
-                                                        component="button"
-                                                        onClick={() => handleRemoveFromSlot(flavor.slotIndex)}
-                                                        sx={{
-                                                            width: 28,
-                                                            height: 28,
-                                                            borderRadius: '50%',
-                                                            border: '1px solid',
-                                                            borderColor: 'grey.400',
-                                                            backgroundColor: 'white',
-                                                            fontSize: '1.2rem',
-                                                            cursor: 'pointer',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            '&:hover': { backgroundColor: '#fee', borderColor: 'error.main' },
-                                                        }}
-                                                    >
-                                                        ×
-                                                    </Box>
-                                                </Box>
-                                            ))}
-                                    </Box>
-                                ) : (
-                                    <>
-                                        {/* Tab buttons for 12-slot trays */}
-                                        {totalSlots > 6 && (
-                                            <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                                                <Box
-                                                    component="button"
-                                                    onClick={() => setSlotPage(0)}
-                                                    sx={{
-                                                        flex: 1,
-                                                        py: 0.75,
-                                                        px: 2,
-                                                        backgroundColor: slotPage === 0 ? 'black' : 'white',
-                                                        color: slotPage === 0 ? 'white' : 'black',
-                                                        border: '2px solid black',
-                                                        borderRadius: 1,
-                                                        fontSize: '1rem',
-                                                        fontWeight: 600,
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.2s',
-                                                    }}
-                                                >
-                                                    1-6 ({placedFlavors.filter(f => f.slotIndex < 6).length}/6)
-                                                </Box>
-                                                <Box
-                                                    component="button"
-                                                    onClick={() => setSlotPage(1)}
-                                                    sx={{
-                                                        flex: 1,
-                                                        py: 0.75,
-                                                        px: 2,
-                                                        backgroundColor: slotPage === 1 ? 'black' : 'white',
-                                                        color: slotPage === 1 ? 'white' : 'black',
-                                                        border: '2px solid black',
-                                                        borderRadius: 1,
-                                                        fontSize: '1rem',
-                                                        fontWeight: 600,
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.2s',
-                                                    }}
-                                                >
-                                                    7-12 ({placedFlavors.filter(f => f.slotIndex >= 6).length}/6)
-                                                </Box>
-                                            </Box>
-                                        )}
-
-                                {/* 6-Slot Box - Compact horizontal layout */}
-                                <Box
-                                    sx={{
-                                        position: 'relative',
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(6, 1fr)',
-                                        gap: 1,
-                                        p: 1.5,
-                                        backgroundColor: '#f5f0e6',
-                                        borderRadius: 2,
-                                        border: '2px solid #d4c4a8',
-                                    }}
-                                >
-                                    {/* Show slots based on current page: 0-5 for page 0, 6-11 for page 1 */}
-                                    {[0, 1, 2, 3, 4, 5].map((i) => {
-                                        const slotIndex = slotPage * 6 + i;
-                                        const flavorInSlot = placedFlavors.find(f => f.slotIndex === slotIndex);
-                                        return (
-                                            <Box
-                                                key={slotIndex}
-                                                sx={{
-                                                    position: 'relative',
-                                                    aspectRatio: '1',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: flavorInSlot ? 'transparent' : '#e8e0d0',
-                                                    border: flavorInSlot ? 'none' : '2px dashed #c4b89c',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    overflow: 'visible',
-                                                    cursor: flavorInSlot ? 'pointer' : 'default',
-                                                }}
-                                                onClick={() => flavorInSlot && handleRemoveFromSlot(flavorInSlot.slotIndex)}
-                                            >
-                                                {/* Slot number when empty */}
-                                                {!flavorInSlot && (
-                                                    <Typography
-                                                        sx={{
-                                                            fontSize: '1.2rem',
-                                                            fontWeight: 600,
-                                                            color: '#b8a88c',
-                                                        }}
-                                                    >
-                                                        {slotIndex + 1}
-                                                    </Typography>
-                                                )}
-                                                <AnimatePresence>
-                                                    {flavorInSlot && (
-                                                        <motion.div
-                                                            key={flavorInSlot.id}
-                                                            initial={{ scale: 0, opacity: 0 }}
-                                                            animate={{ scale: 1, opacity: 1 }}
-                                                            exit={{ scale: 0, opacity: 0 }}
-                                                            transition={{
-                                                                type: 'spring',
-                                                                stiffness: 400,
-                                                                damping: 25
-                                                            }}
-                                                            style={{ width: '100%', height: '100%', position: 'relative' }}
-                                                        >
-                                                            {(() => {
-                                                                // For custom jars/cookies, get frosting and topping images
-                                                                let baseImage = null;
-                                                                let frostingImage = null;
-                                                                let frostingColor = flavorInSlot.color;
-                                                                let toppingImages = [];
-                                                                const isCustomCookie = flavorInSlot.id?.startsWith('custom-cookie-');
-
-                                                                if (flavorInSlot.isCustom && flavorInSlot.customizations) {
-                                                                    // For cookies, get the base cookie image
-                                                                    if (isCustomCookie) {
-                                                                        const baseName = flavorInSlot.customizations.cake;
-                                                                        const baseObj = BASE_COOKIES.find(c => c.name === baseName);
-                                                                        baseImage = baseObj?.image;
-                                                                        frostingColor = baseObj?.color || flavorInSlot.color;
-                                                                    }
-
-                                                                    const frostingName = flavorInSlot.customizations.frostings?.[0];
-                                                                    // Use cookie frostings for custom cookies, jar frostings for jars
-                                                                    const frostingObj = isCustomCookie
-                                                                        ? COOKIE_FROSTINGS.find(f => f.name === frostingName)
-                                                                        : FROSTINGS.find(f => f.name === frostingName);
-                                                                    frostingImage = frostingObj?.image;
-                                                                    if (!isCustomCookie) {
-                                                                        frostingColor = frostingObj?.color || flavorInSlot.color;
-                                                                    }
-
-                                                                    // Use cookie toppings for custom cookies, jar toppings for jars
-                                                                    const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : AVAILABLE_TOPPINGS;
-                                                                    toppingImages = (flavorInSlot.customizations.toppings || [])
-                                                                        .map(t => toppingsArray.find(top => top.name === t))
-                                                                        .filter(t => t && t.image)
-                                                                        .map(t => t.image);
-                                                                }
-
-                                                                return (
-                                                                    <Box
-                                                                        sx={{
-                                                                            width: '100%',
-                                                                            height: '100%',
-                                                                            borderRadius: '50%',
-                                                                            backgroundColor: frostingColor || flavorInSlot.color,
-                                                                            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-                                                                            display: 'flex',
-                                                                            alignItems: 'center',
-                                                                            justifyContent: 'center',
-                                                                            overflow: 'hidden',
-                                                                            position: 'relative',
-                                                                        }}
-                                                                    >
-                                                                        {flavorInSlot.isCustom ? (
-                                                                            <>
-                                                                                {/* Base layer - cookie base (for cookies) or frosting (for jars) */}
-                                                                                {isCustomCookie && baseImage && (
-                                                                                    <img
-                                                                                        src={baseImage}
-                                                                                        alt="cookie base"
-                                                                                        style={{
-                                                                                            position: 'absolute',
-                                                                                            top: 0,
-                                                                                            left: 0,
-                                                                                            width: '100%',
-                                                                                            height: '100%',
-                                                                                            objectFit: 'cover',
-                                                                                            zIndex: 0,
-                                                                                        }}
-                                                                                    />
-                                                                                )}
-                                                                                {/* Frosting layer */}
-                                                                                {frostingImage && (
-                                                                                    <img
-                                                                                        src={frostingImage}
-                                                                                        alt="frosting"
-                                                                                        style={{
-                                                                                            position: 'absolute',
-                                                                                            top: 0,
-                                                                                            left: 0,
-                                                                                            width: '100%',
-                                                                                            height: '100%',
-                                                                                            objectFit: 'cover',
-                                                                                            zIndex: isCustomCookie ? 1 : 0,
-                                                                                        }}
-                                                                                    />
-                                                                                )}
-                                                                                {/* Topping layers */}
-                                                                                {toppingImages.map((img, index) => (
-                                                                                    <img
-                                                                                        key={index}
-                                                                                        src={img}
-                                                                                        alt="topping"
-                                                                                        style={{
-                                                                                            position: 'absolute',
-                                                                                            top: 0,
-                                                                                            left: 0,
-                                                                                            width: '100%',
-                                                                                            height: '100%',
-                                                                                            objectFit: 'cover',
-                                                                                            zIndex: isCustomCookie ? index + 2 : index + 1,
-                                                                                        }}
-                                                                                    />
-                                                                                ))}
-                                                                            </>
-                                                                        ) : (
-                                                                            flavorInSlot.image && (
-                                                                                <img
-                                                                                    src={flavorInSlot.image}
-                                                                                    alt={flavorInSlot.name}
-                                                                                    style={{
-                                                                                        width: '100%',
-                                                                                        height: '100%',
-                                                                                        objectFit: 'cover',
-                                                                                    }}
-                                                                                />
-                                                                            )
-                                                                        )}
-                                                                    </Box>
-                                                                );
-                                                            })()}
-                                                            {/* Dietary badges for this jar */}
-                                                            {flavorInSlot.glutenFree && (
-                                                                <Box sx={{ position: 'absolute', top: -6, right: -2, zIndex: 10 }}>
-                                                                    <GlutenFreeBadge size="small" />
-                                                                </Box>
-                                                            )}
-                                                            {flavorInSlot.vegan && (
-                                                                <Box sx={{ position: 'absolute', top: -6, left: -2, zIndex: 10 }}>
-                                                                    <VeganBadge size="small" />
-                                                                </Box>
-                                                            )}
-                                                        </motion.div>
-                                                    )}
-                                                </AnimatePresence>
-                                            </Box>
-                                        );
-                                    })}
-                                </Box>
-                                    </>
-                                )}
-                            </>
-                        )}
-                    </Box>
-                </Box>
-            )}
-
             {/* Selected Packaging Header - for non-slot-based packaging */}
             {selectedPackaging && !isSlotBasedPackaging && (
                 <Box sx={{ py: 2, mb: 2 }}>
@@ -4509,127 +4247,284 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             {/* Show Toggle and Flavors only after packaging is selected */}
             {selectedPackaging && (
                 <>
-                    {/* Flavors Section OR Completed Box List */}
+                    {/* Flavors Section OR Completed Box List OR Full Page List View */}
                     <Box sx={{
                         pt: 2,
-                        pb: isSlotBasedPackaging ? 12 : 4,
+                        pb: 4,
                         borderTop: '1px solid',
                         borderColor: 'divider'
                     }}>
-                        {isBoxComplete ? (
-                            /* Completed Box - Show list of selected items */
+                        {/* FULL PAGE LIST VIEW - shows all slots with Add Cookie CTA for empty ones */}
+                        {(showListView || isBoxComplete) ? (
                             <>
-                                <Typography
-                                    variant="h3"
-                                    component="h2"
-                                    sx={{
-                                        fontWeight: 700,
-                                        mb: 3,
-                                        fontSize: { xs: '1.75rem', md: '2.25rem' },
-                                        textAlign: 'center'
-                                    }}
-                                >
-                                    {selectedPackaging?.name === 'Cookie Tray' ? 'Your Cookie Tray' :
-                                     isCookiePackaging ? 'Your Cookie Box' :
-                                     'Your Cake Jar Box'}
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                                    <Typography
+                                        variant="h3"
+                                        component="h2"
+                                        sx={{
+                                            fontWeight: 700,
+                                            fontSize: { xs: '1.75rem', md: '2.25rem' },
+                                        }}
+                                    >
+                                        {selectedPackaging?.name === 'Cookie Tray' ? 'Your Cookie Tray' :
+                                         isCookiePackaging ? 'Your Cookie Box' :
+                                         'Your Cake Jar Box'}
+                                    </Typography>
+                                </Box>
+
+                                <Typography sx={{ mb: 3, color: 'text.secondary', fontSize: '1.4rem' }}>
+                                    {placedFlavors.length}/{totalSlots} filled
                                 </Typography>
 
-                                {/* List of selected items */}
-                                <Box sx={{ maxWidth: 400, margin: '0 auto' }}>
-                                    {placedFlavors
-                                        .sort((a, b) => a.slotIndex - b.slotIndex)
-                                        .map((flavor, index) => (
+                                {/* All slots list */}
+                                <Box sx={{ maxWidth: 500, margin: '0 auto', pb: isBoxComplete ? 10 : 0 }}>
+                                    {Array.from({ length: totalSlots }, (_, i) => i).map((slotIndex) => {
+                                        const flavorInSlot = placedFlavors.find(f => f.slotIndex === slotIndex);
+                                        return (
                                             <Box
-                                                key={flavor.id}
+                                                key={slotIndex}
                                                 sx={{
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     gap: 2,
-                                                    py: 1.5,
-                                                    borderBottom: index < totalSlots - 1 ? '1px solid' : 'none',
+                                                    py: 2,
+                                                    borderBottom: slotIndex < totalSlots - 1 ? '1px solid' : 'none',
                                                     borderColor: 'divider',
                                                 }}
                                             >
-                                                {/* Jar image */}
-                                                <Box
-                                                    sx={{
-                                                        width: 50,
-                                                        height: 50,
-                                                        borderRadius: '50%',
-                                                        backgroundColor: flavor.color,
-                                                        overflow: 'hidden',
-                                                        flexShrink: 0,
-                                                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-                                                    }}
-                                                >
-                                                    {flavor.image && (
-                                                        <img
-                                                            src={flavor.image}
-                                                            alt={flavor.name}
-                                                            style={{
-                                                                width: '100%',
-                                                                height: '100%',
-                                                                objectFit: 'cover',
-                                                            }}
-                                                        />
-                                                    )}
-                                                </Box>
+                                                {/* Slot number */}
+                                                <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: 'text.secondary', minWidth: 30 }}>
+                                                    {slotIndex + 1}.
+                                                </Typography>
 
-                                                {/* Jar name and badges */}
-                                                <Box sx={{ flex: 1 }}>
-                                                    <Typography
-                                                        sx={{
-                                                            fontSize: '1.6rem',
-                                                            fontWeight: 600,
-                                                        }}
-                                                    >
-                                                        {flavor.isCustom ? flavor.displayName : flavor.name}
-                                                    </Typography>
-                                                    {/* Show ingredients for custom jars */}
-                                                    {flavor.isCustom && flavor.customizations && (
-                                                        <Typography
+                                                {flavorInSlot ? (
+                                                    /* Filled slot */
+                                                    <>
+                                                        {(() => {
+                                                            // For custom items, render layered images
+                                                            // Detect cookie vs jar by checking if base name is in BASE_COOKIES
+                                                            const baseName = flavorInSlot.customizations?.cake;
+                                                            const isCookieBase = baseName && BASE_COOKIES.some(c => c.name === baseName);
+                                                            const isCustomCookie = flavorInSlot.isCustom && (isCookieBase || flavorInSlot.name?.includes('Cookie') || flavorInSlot.id?.includes('cookie'));
+                                                            const isCustomJar = flavorInSlot.isCustom && !isCustomCookie;
+
+                                                            if (isCustomCookie && flavorInSlot.customizations) {
+                                                                const baseObj = BASE_COOKIES.find(c => c.name === baseName);
+                                                                const frostingName = flavorInSlot.customizations.frostings?.[0];
+                                                                const frostingObj = COOKIE_FROSTINGS.find(f => f.name === frostingName);
+                                                                const toppingImages = (flavorInSlot.customizations.toppings || [])
+                                                                    .map(t => COOKIE_TOPPINGS.find(top => top.name === t))
+                                                                    .filter(t => t && t.image)
+                                                                    .map(t => t.image);
+
+                                                                return (
+                                                                    <Box
+                                                                        sx={{
+                                                                            width: 50,
+                                                                            height: 50,
+                                                                            borderRadius: '50%',
+                                                                            backgroundColor: baseObj?.color || flavorInSlot.color,
+                                                                            overflow: 'hidden',
+                                                                            flexShrink: 0,
+                                                                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                                            position: 'relative',
+                                                                        }}
+                                                                    >
+                                                                        {/* Base cookie layer */}
+                                                                        {baseObj?.image && (
+                                                                            <img src={baseObj.image} alt="base" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
+                                                                        )}
+                                                                        {/* Frosting layer */}
+                                                                        {frostingObj?.image && (
+                                                                            <img src={frostingObj.image} alt="frosting" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
+                                                                        )}
+                                                                        {/* Topping layers */}
+                                                                        {toppingImages.map((img, idx) => (
+                                                                            <img key={idx} src={img} alt="topping" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: idx + 2 }} />
+                                                                        ))}
+                                                                    </Box>
+                                                                );
+                                                            }
+
+                                                            // For custom cake jars, render frosting + toppings (frosting covers the cake)
+                                                            if (isCustomJar && flavorInSlot.customizations) {
+                                                                const frostingName = flavorInSlot.customizations.frostings?.[0];
+                                                                const frostingObj = FROSTINGS.find(f => f.name === frostingName);
+                                                                const toppingImages = (flavorInSlot.customizations.toppings || [])
+                                                                    .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+                                                                    .filter(t => t && t.image)
+                                                                    .map(t => t.image);
+
+                                                                return (
+                                                                    <Box
+                                                                        sx={{
+                                                                            width: 50,
+                                                                            height: 50,
+                                                                            borderRadius: '50%',
+                                                                            backgroundColor: frostingObj?.color || flavorInSlot.color || '#f5f0e6',
+                                                                            overflow: 'hidden',
+                                                                            flexShrink: 0,
+                                                                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                                            position: 'relative',
+                                                                        }}
+                                                                    >
+                                                                        {/* Frosting layer (base layer for jars) */}
+                                                                        {frostingObj?.image && (
+                                                                            <img src={frostingObj.image} alt="frosting" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
+                                                                        )}
+                                                                        {/* Topping layers */}
+                                                                        {toppingImages.map((img, idx) => (
+                                                                            <img key={idx} src={img} alt="topping" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: idx + 1 }} />
+                                                                        ))}
+                                                                    </Box>
+                                                                );
+                                                            }
+
+                                                            // Regular items (base cookies, frosted cookies, jars)
+                                                            return (
+                                                                <Box
+                                                                    sx={{
+                                                                        width: 50,
+                                                                        height: 50,
+                                                                        borderRadius: '50%',
+                                                                        backgroundColor: flavorInSlot.color,
+                                                                        overflow: 'hidden',
+                                                                        flexShrink: 0,
+                                                                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                                    }}
+                                                                >
+                                                                    {flavorInSlot.image && (
+                                                                        <img src={flavorInSlot.image} alt={flavorInSlot.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                                    )}
+                                                                </Box>
+                                                            );
+                                                        })()}
+                                                        <Box sx={{ flex: 1 }}>
+                                                            <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                                                                {flavorInSlot.displayName || flavorInSlot.name}
+                                                            </Typography>
+                                                        </Box>
+                                                        <Box
+                                                            component="button"
+                                                            onClick={() => handleRemoveFromSlot(slotIndex)}
                                                             sx={{
-                                                                fontSize: '1.6rem',
-                                                                color: 'text.secondary',
-                                                                mt: 0.25,
+                                                                width: 36,
+                                                                height: 36,
+                                                                borderRadius: '50%',
+                                                                border: '1px solid',
+                                                                borderColor: 'grey.400',
+                                                                backgroundColor: 'white',
+                                                                fontSize: '1.4rem',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                flexShrink: 0,
+                                                                '&:hover': { backgroundColor: '#fee', borderColor: 'error.main' },
                                                             }}
                                                         >
-                                                            {[
-                                                                flavor.customizations.cake,
-                                                                ...(flavor.customizations.frostings || []),
-                                                                ...(flavor.customizations.toppings || []),
-                                                                ...(flavor.customizations.cookies || []),
-                                                                ...(flavor.customizations.syrups || []),
-                                                            ].filter(Boolean).join(', ')}
+                                                            ×
+                                                        </Box>
+                                                    </>
+                                                ) : slotIndex === placedFlavors.length ? (
+                                                    /* First empty slot - Add Cookie CTA */
+                                                    <Box
+                                                        component="button"
+                                                        onClick={() => {
+                                                            // Go to cookie selection page without sticky footer
+                                                            setShowListView(false);
+                                                            setAddingFromListView(true);
+                                                        }}
+                                                        sx={{
+                                                            flex: 1,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 2,
+                                                            py: 1.5,
+                                                            px: 2,
+                                                            backgroundColor: '#f9f9f9',
+                                                            border: '2px dashed #ccc',
+                                                            borderRadius: 2,
+                                                            cursor: 'pointer',
+                                                            transition: 'all 0.2s',
+                                                            '&:hover': {
+                                                                backgroundColor: '#f0f0f0',
+                                                                borderColor: '#999',
+                                                            },
+                                                        }}
+                                                    >
+                                                        <Box
+                                                            sx={{
+                                                                width: 40,
+                                                                height: 40,
+                                                                borderRadius: '50%',
+                                                                backgroundColor: '#e0e0e0',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                fontSize: '1.5rem',
+                                                                color: '#666',
+                                                            }}
+                                                        >
+                                                            +
+                                                        </Box>
+                                                        <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: '#666' }}>
+                                                            {isCookiePackaging ? 'Add a Cookie' : 'Add a Cake Jar'}
                                                         </Typography>
-                                                    )}
-                                                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
-                                                        {flavor.glutenFree && <GlutenFreeBadge size="small" />}
-                                                        {flavor.vegan && <VeganBadge size="small" />}
                                                     </Box>
-                                                </Box>
-
-                                                {/* Remove button */}
-                                                <Box
-                                                    component="button"
-                                                    onClick={() => handleRemoveFromSlot(flavor.slotIndex)}
-                                                    sx={{
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        color: '#1976d2',
-                                                        fontSize: '1.6rem',
-                                                        fontWeight: 600,
-                                                        cursor: 'pointer',
-                                                        padding: '4px 8px',
-                                                        '&:hover': {
-                                                            opacity: 0.7,
-                                                        },
-                                                    }}
-                                                >
-                                                    REMOVE
-                                                </Box>
+                                                ) : (
+                                                    /* Remaining empty slots - just show as empty */
+                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.disabled', py: 1.5 }}>
+                                                        —
+                                                    </Typography>
+                                                )}
                                             </Box>
-                                        ))}
+                                        );
+                                    })}
+                                </Box>
+
+                                {/* Sticky Add to Cart Button - always visible */}
+                                <Box
+                                    sx={{
+                                        position: 'fixed',
+                                        bottom: 0,
+                                        left: 0,
+                                        right: 0,
+                                        p: 2,
+                                        backgroundColor: 'white',
+                                        borderTop: '1px solid',
+                                        borderColor: 'grey.300',
+                                        boxShadow: '0 -4px 20px rgba(0,0,0,0.1)',
+                                        zIndex: 1000,
+                                    }}
+                                >
+                                    <Box sx={{ maxWidth: 500, margin: '0 auto' }}>
+                                        <Box
+                                            component="button"
+                                            onClick={isBoxComplete ? handleAddBoxToCart : undefined}
+                                            disabled={!isBoxComplete}
+                                            sx={{
+                                                width: '100%',
+                                                py: 2,
+                                                px: 4,
+                                                backgroundColor: isBoxComplete ? 'black' : 'grey.300',
+                                                color: isBoxComplete ? 'white' : 'grey.500',
+                                                border: 'none',
+                                                borderRadius: 2,
+                                                fontSize: '1.6rem',
+                                                fontWeight: 700,
+                                                cursor: isBoxComplete ? 'pointer' : 'not-allowed',
+                                                '&:hover': {
+                                                    backgroundColor: isBoxComplete ? '#333' : 'grey.300',
+                                                },
+                                            }}
+                                        >
+                                            {isBoxComplete
+                                                ? (editingCartItemId ? 'Update Cart' : 'Add to Cart')
+                                                : `Add ${totalSlots - placedFlavors.length} More ${isCookiePackaging ? 'Cookie' : 'Jar'}${totalSlots - placedFlavors.length !== 1 ? 's' : ''}`
+                                            }
+                                        </Box>
+                                    </Box>
                                 </Box>
                             </>
                         ) : (
@@ -5387,7 +5282,6 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 onCustomize={handleOpenCustomizeModal}
                 onAddToBox={handleSaveJarCustomizations}
                 onDelete={handleDeleteCustomJar}
-                onRename={handleRenameCustomItem}
                 availableSlots={totalSlots - placedFlavors.length}
             />
 
@@ -5398,6 +5292,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 jar={selectedJarForModal}
                 onSave={handleSaveJarCustomizations}
             />
+
         </Box>
     );
 };
