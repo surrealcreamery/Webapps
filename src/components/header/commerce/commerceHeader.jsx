@@ -138,7 +138,7 @@ const Header = () => {
           totalItems > 0
         : totalItems > 0;
 
-    // Show location selector only in commerce mode
+    // Show location selector only in commerce mode (catering shows it on availability page)
     const showLocationSelector = !isCateringMode;
 
     const handleLogoClick = (e) => {

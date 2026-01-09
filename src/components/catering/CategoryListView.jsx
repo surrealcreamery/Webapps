@@ -11,7 +11,7 @@ import { getLocationFromIP, calculateDistance } from '@/components/commerce/geol
 import { getDefaultLocations } from '@/components/commerce/shopifyLocations';
 import { LocalizationProvider, DateCalendar, PickersDay } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { isBefore, startOfToday, isToday, addDays, format } from 'date-fns';
+import { isBefore, startOfToday, isToday, isTomorrow, addDays, format } from 'date-fns';
 
 const PLACEHOLDER_IMAGE = 'https://placehold.co/300x300/e0e0e0/666666?text=Category';
 
@@ -3323,35 +3323,55 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             }
         } else {
             // Make Your Own - create new custom jar or cookie
-            const frostingColor = isCookiePackaging
-                ? COOKIE_FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color
-                : FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color;
-
-            const newCustomItem = {
-                id: isCookiePackaging ? `custom-cookie-${Date.now()}` : `custom-jar-${Date.now()}`,
-                name: isCookiePackaging ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar',
-                image: null,
-                color: frostingColor || '#FFD700',
-                glutenFree: false,
-                vegan: false,
-                isCustom: true,
-                customizations: {
-                    cake: makeYourOwnSelections.cake,
-                    frostings: makeYourOwnSelections.frosting ? [makeYourOwnSelections.frosting] : [],
-                    toppings: makeYourOwnSelections.topping ? [makeYourOwnSelections.topping] : [],
-                    cookies: makeYourOwnSelections.cookie ? [makeYourOwnSelections.cookie] : [],
-                    syrups: makeYourOwnSelections.syrup ? [makeYourOwnSelections.syrup] : [],
-                },
+            const newCustomizations = {
+                cake: makeYourOwnSelections.cake,
+                frostings: makeYourOwnSelections.frosting ? [makeYourOwnSelections.frosting] : [],
+                toppings: makeYourOwnSelections.topping ? [makeYourOwnSelections.topping] : [],
+                cookies: makeYourOwnSelections.cookie ? [makeYourOwnSelections.cookie] : [],
+                syrups: makeYourOwnSelections.syrup ? [makeYourOwnSelections.syrup] : [],
             };
 
-            // Generate composition name from customizations
-            const compositionName = getCompositionName(newCustomItem.customizations, isCookiePackaging);
-
-            // Add to custom jars/cookies list
-            setCustomJars(prev => {
-                const itemWithName = { ...newCustomItem, displayName: compositionName };
-                return [...prev, itemWithName];
+            // Check if a custom item with the same customizations already exists
+            const existingItem = customJars.find(jar => {
+                if (!jar.customizations) return false;
+                return (
+                    jar.customizations.cake === newCustomizations.cake &&
+                    JSON.stringify(jar.customizations.frostings) === JSON.stringify(newCustomizations.frostings) &&
+                    JSON.stringify(jar.customizations.toppings) === JSON.stringify(newCustomizations.toppings) &&
+                    JSON.stringify(jar.customizations.cookies) === JSON.stringify(newCustomizations.cookies) &&
+                    JSON.stringify(jar.customizations.syrups) === JSON.stringify(newCustomizations.syrups)
+                );
             });
+
+            let itemToAdd;
+
+            if (existingItem) {
+                // Use the existing item instead of creating a duplicate
+                itemToAdd = existingItem;
+            } else {
+                // Create new custom item
+                const frostingColor = isCookiePackaging
+                    ? COOKIE_FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color
+                    : FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color;
+
+                const newCustomItem = {
+                    id: isCookiePackaging ? `custom-cookie-${Date.now()}` : `custom-jar-${Date.now()}`,
+                    name: isCookiePackaging ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar',
+                    image: null,
+                    color: frostingColor || '#FFD700',
+                    glutenFree: false,
+                    vegan: false,
+                    isCustom: true,
+                    customizations: newCustomizations,
+                };
+
+                // Generate composition name from customizations
+                const compositionName = getCompositionName(newCustomItem.customizations, isCookiePackaging);
+                itemToAdd = { ...newCustomItem, displayName: compositionName };
+
+                // Add to custom jars/cookies list (only if new)
+                setCustomJars(prev => [...prev, itemToAdd]);
+            }
 
             // Add to box if there's room
             const maxSlots = selectedPackaging?.slotCount || 6;
@@ -3367,18 +3387,15 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                     }
                 }
 
-                const itemWithSlot = {
-                    ...newCustomItem,
-                    displayName: compositionName,
-                    slotIndex: nextSlot
-                };
-                return [...prev, itemWithSlot];
+                return [...prev, { ...itemToAdd, slotIndex: nextSlot }];
             });
         }
 
         // Exit Make Your Own mode and clear editing state
         setMakeYourOwnActive(false);
         setEditingJar(null);
+        // Navigate to list view to show the box contents
+        setShowListView(true);
     };
 
     // Handle adding completed box to cart with date/time (already selected from availability modal)
@@ -3628,13 +3645,11 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
 
         return (
             <Box sx={{ backgroundColor: 'white' }}>
-                {/* Location Selector Header */}
+                {/* Location Selector - only on availability page */}
                 <Box
                     sx={{
                         py: 2,
                         px: 3,
-                        borderBottom: '1px solid',
-                        borderColor: 'grey.200',
                         display: 'flex',
                         justifyContent: 'center',
                         cursor: 'pointer',
@@ -3668,7 +3683,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     mb: 1,
                                 }}
                             >
-                                Earliest Pickup
+                                Earliest Pickup {isToday(availability.pickupTime) ? 'Today' : isTomorrow(availability.pickupTime) ? 'Tomorrow' : format(availability.pickupTime, 'EEE')}
                             </Typography>
                             <FlipClockDisplay time={availability.pickupTime} small />
                         </Box>
@@ -3682,7 +3697,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     mb: 1,
                                 }}
                             >
-                                Earliest Delivery
+                                Earliest Delivery {isToday(availability.deliveryTime) ? 'Today' : isTomorrow(availability.deliveryTime) ? 'Tomorrow' : format(availability.deliveryTime, 'EEE')}
                             </Typography>
                             <FlipClockDisplay time={availability.deliveryTime} small />
                         </Box>
@@ -5136,7 +5151,6 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             borderBottom: index < filteredCustomItems.length - 1 ? '1px solid' : 'none',
                                                             borderColor: 'divider',
                                                             cursor: 'pointer',
-                                                            opacity: isFlavorPlaced(item.id) ? 0.5 : 1,
                                                             '&:hover': { backgroundColor: 'grey.50' },
                                                         }}
                                                     >
