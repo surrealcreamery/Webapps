@@ -10,8 +10,6 @@ import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
 import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
 import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext';
 import { LocationModal } from '@/components/commerce/LocationModal';
-import { MenuDrawer } from '@/components/commerce/MenuDrawer';
-import { CateringMenuDrawer } from '@/components/catering/CateringMenuDrawer';
 import { getDefaultLocations } from '@/components/commerce/shopifyLocations';
 import { initializeLocationSelection } from '@/components/commerce/geolocation';
 
@@ -62,7 +60,6 @@ const Header = () => {
     const cateringState = cateringContext?.cateringState;
     const sendToCatering = cateringContext?.sendToCatering;
     const cateringCart = cateringState?.context?.cart || [];
-    const cateringMenu = cateringState?.context?.menu || {};
     const isAuthenticated = cateringState?.context?.isAuthenticated || false;
     const contactInfo = cateringState?.context?.contactInfo;
 
@@ -71,8 +68,6 @@ const Header = () => {
         return localStorage.getItem('selectedLocation') || null;
     });
     const [locationModalOpen, setLocationModalOpen] = useState(false);
-    const [menuDrawerOpen, setMenuDrawerOpen] = useState(false);
-    const [cateringMenuDrawerOpen, setCateringMenuDrawerOpen] = useState(false);
 
     // Determine active nav item based on current path
     const getActiveNavItem = () => {
@@ -145,16 +140,6 @@ const Header = () => {
 
     // Show location selector only in commerce mode
     const showLocationSelector = !isCateringMode;
-
-    // Show menu button in both commerce and catering modes
-    // In catering mode, hide during checkout/login flows
-    const showMenuButton = isCateringMode
-        ? !cateringState?.matches('checkoutPlaceholder') &&
-          !cateringState?.matches('guestCheckoutFlow') &&
-          !cateringState?.matches('loginFlow') &&
-          !cateringState?.matches('viewingOrders') &&
-          !cateringState?.matches('selectingDate')
-        : true;
 
     const handleLogoClick = (e) => {
         e.preventDefault();
@@ -299,29 +284,8 @@ const Header = () => {
                         {/* 3-column CSS Grid layout */}
                         <div className="header__inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
 
-                            {/* Left column - Menu button (commerce back button handled separately) */}
+                            {/* Left column - placeholder for grid alignment */}
                             <div style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                {showMenuButton && (
-                                    <Button
-                                        variant="outlined"
-                                        onClick={() => isCateringMode ? setCateringMenuDrawerOpen(true) : setMenuDrawerOpen(true)}
-                                        sx={{
-                                            color: 'black',
-                                            borderColor: 'black',
-                                            borderWidth: '1px',
-                                            textTransform: 'none',
-                                            padding: '7px 16px',
-                                            borderRadius: '12px',
-                                            height: '39px',
-                                            '&:hover': {
-                                                borderColor: 'black',
-                                                backgroundColor: 'rgba(0,0,0,0.04)',
-                                            },
-                                        }}
-                                    >
-                                        <Typography sx={{ fontSize: '1.6rem !important', fontWeight: 400 }}>Menu</Typography>
-                                    </Button>
-                                )}
                             </div>
 
                             {/* Center column - Logo */}
@@ -440,19 +404,6 @@ const Header = () => {
                             locations={LOCATIONS}
                         />
 
-                        {/* Commerce Menu Drawer */}
-                        <MenuDrawer
-                            open={menuDrawerOpen}
-                            onClose={() => setMenuDrawerOpen(false)}
-                        />
-
-                        {/* Catering Menu Drawer */}
-                        <CateringMenuDrawer
-                            open={cateringMenuDrawerOpen}
-                            onClose={() => setCateringMenuDrawerOpen(false)}
-                            menu={cateringMenu}
-                            sendToCatering={sendToCatering}
-                        />
                     </div>
                 </div>
             </header>

@@ -40,7 +40,8 @@ const persistState = ({ context }) => {
             accountId: context.accountId,
             contactInfo: context.contactInfo,
             fulfillmentDetails: context.fulfillmentDetails,
-            selectedPackaging: context.selectedPackaging,
+            // Note: selectedPackaging is NOT persisted here - it's managed by CategoryListView
+            // This ensures footer shows on /catering page load
         };
         console.log('%c[persistState] Saving state with lastView:', 'color: #ff7f50; font-weight: bold;', context.lastView);
         console.log('%c[persistState] Full state:', 'color: #ff7f50', JSON.stringify(stateToSave, null, 2));
@@ -682,7 +683,10 @@ export const cateringMachine = setup({
         // Global packaging handler (for footer visibility in layout)
         SET_SELECTED_PACKAGING: {
             actions: [
-                assign({ selectedPackaging: ({ event }) => event.packaging }),
+                assign({ selectedPackaging: ({ event }) => {
+                    console.log('[cateringMachine] SET_SELECTED_PACKAGING received:', event.packaging?.name);
+                    return event.packaging;
+                }}),
                 'persistState'
             ]
         },

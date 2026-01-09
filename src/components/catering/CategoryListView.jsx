@@ -2897,13 +2897,12 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         });
     }, [selectedPackaging, placedFlavors, selectedFlavorCategory]);
 
-    // Sync initial selectedPackaging to catering machine context on mount
+    // Sync selectedPackaging to catering machine context whenever it changes
+    // This controls footer visibility in CommerceLayout
     useEffect(() => {
-        if (selectedPackaging) {
-            sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: selectedPackaging });
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Only run on mount
+        console.log('[CategoryListView] useEffect syncing selectedPackaging to context:', selectedPackaging?.name || 'null');
+        sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: selectedPackaging });
+    }, [selectedPackaging, sendToCatering]);
 
     // Persist custom jars to localStorage
     useEffect(() => {
@@ -2926,6 +2925,12 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             setSelectedFlavorCategory('cake');
             setSlotPage(0); // Reset to first page for paginated trays
             clearBoxState(); // Also clear localStorage
+            // Also close availability page and advanced date selection if open
+            setShowAvailabilityPage(false);
+            setPendingPackagingItem(null);
+            setAvailabilitySelectedOption(null);
+            setShowAdvancedDateSelection(false);
+            setAdvancedPackagingItem(null);
         }
     }, [packagingResetCounter, sendToCatering]);
 
@@ -2983,20 +2988,29 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
 
     // Open the availability page when clicking Explore
     const handleExploreClick = (packaging) => {
+        console.log('[CategoryListView] handleExploreClick called:', packaging?.name);
         setPendingPackagingItem(packaging);
         setAvailabilitySelectedOption('quickest'); // Pre-select quickest option
         setShowAvailabilityPage(true);
+        // Set selectedPackaging immediately to hide footer on availability page
+        setSelectedPackaging(packaging);
+        sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging });
     };
 
     const handleCloseAvailabilityPage = () => {
         setShowAvailabilityPage(false);
         setPendingPackagingItem(null);
         setAvailabilitySelectedOption(null);
+        // Clear selectedPackaging when closing without continuing (restore footer)
+        setSelectedPackaging(null);
+        sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: null });
     };
 
     const handleAvailabilityContinue = () => {
+        console.log('[CategoryListView] handleAvailabilityContinue called, option:', availabilitySelectedOption, 'pendingItem:', pendingPackagingItem?.name);
         const availability = getNextAvailablePickup();
         if (availabilitySelectedOption === 'quickest') {
+            console.log('[CategoryListView] Quickest option selected, calling handlePackagingSelect');
             // Quickest order - go directly to selecting cake jars with earliest time
             handlePackagingSelect(pendingPackagingItem, {
                 date: availability.pickupTime,
@@ -3006,11 +3020,14 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             setPendingPackagingItem(null);
             setAvailabilitySelectedOption(null);
         } else if (availabilitySelectedOption === 'future') {
+            console.log('[CategoryListView] Future option selected, calling handleAdvancedCustomization');
             // Future customizations - go to date/time selection page
             handleAdvancedCustomization(pendingPackagingItem);
             setShowAvailabilityPage(false);
             setPendingPackagingItem(null);
             setAvailabilitySelectedOption(null);
+        } else {
+            console.log('[CategoryListView] No option selected! availabilitySelectedOption is:', availabilitySelectedOption);
         }
     };
 
@@ -3064,8 +3081,10 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     };
 
     const handlePackagingSelect = (packaging, dateTimeInfo) => {
+        console.log('[CategoryListView] Selecting packaging:', packaging?.name, packaging?.slotCount);
         setSelectedPackaging(packaging);
         sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging });
+        console.log('[CategoryListView] Sent SET_SELECTED_PACKAGING to context');
         // Store the selected date/time from the modal
         if (dateTimeInfo?.date) {
             setSelectedDate(dateTimeInfo.date);
@@ -3075,6 +3094,8 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         }
         // Clear placed flavors when changing packaging
         setPlacedFlavors([]);
+        // Scroll to top when entering packaging flow
+        window.scrollTo(0, 0);
         // Set default flavor category to first available for this packaging
         const categories = FLAVOR_CATEGORIES_BY_PACKAGING[packaging.name] || [];
         if (categories.length > 0) {
@@ -3606,7 +3627,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         const currentLocationName = STORE_LOCATIONS.find(loc => loc.id === selectedLocation)?.name || 'Select Location';
 
         return (
-            <Box sx={{ backgroundColor: 'white', minHeight: '100vh', pb: '100px' }}>
+            <Box sx={{ backgroundColor: 'white' }}>
                 {/* Location Selector Header */}
                 <Box
                     sx={{
@@ -3726,7 +3747,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     mb: 0.5,
                                 }}
                             >
-                                Quickest Order Delivery Time
+                                Ready Today
                             </Typography>
                             <Typography
                                 sx={{
@@ -3734,12 +3755,12 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     color: 'text.secondary',
                                 }}
                             >
-                                Some customization options will not be available
+                                Perfect for last-minute meetings, parties, and more! (Up to 50 people)
                             </Typography>
                         </Box>
                     </Box>
 
-                    {/* Option 2: Customizations for Future Orders */}
+                    {/* Option 2: Make Your Next Large Event So Surreal */}
                     <Box
                         component="button"
                         onClick={() => setAvailabilitySelectedOption('future')}
@@ -3797,7 +3818,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     mb: 0.5,
                                 }}
                             >
-                                Customizations for Future Orders
+                                Make Your Next Large Event So Surreal
                             </Typography>
                             <Typography
                                 sx={{
@@ -3805,7 +3826,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     color: 'text.secondary',
                                 }}
                             >
-                                Custom options such as logos, jars, packaging, charms or accessories will be available based on selected date and time
+                                Personalized for your large event, our events team can help you create custom packaging for your {pendingPackagingItem?.name?.toLowerCase() || 'order'} and make sure your next event will be So Surreal!
                             </Typography>
                         </Box>
                     </Box>
@@ -4950,7 +4971,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                             component="h2"
                                             sx={{
                                                 fontWeight: 700,
-                                                mb: 2,
+                                                marginBottom: '.8rem !important',
                                                 fontSize: { xs: '1.75rem', md: '2.25rem' },
                                                 textAlign: 'center'
                                             }}
@@ -5049,96 +5070,279 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
 
                                 {/* Your Jars/Cookies Section - only show when user has custom items */}
                                 {filteredCustomItems.length > 0 && (
-                                    <Box id="your-jars-section" sx={{ mb: 4 }}>
+                                    <Box id="your-jars-section" sx={{ mb: 0 }}>
                                         <Typography
                                             sx={{
                                                 fontSize: '1.6rem',
                                                 fontWeight: 700,
-                                                mb: 2,
-                                                textAlign: 'center',
+                                                mb: 0,
+                                                textAlign: 'left',
+                                                maxWidth: 500,
+                                                margin: '0 auto',
                                             }}
                                         >
                                             {isCookiePackaging ? 'Your Cookies' : 'Your Jars'}
                                         </Typography>
-                                        <Box
-                                            sx={{
-                                                display: 'grid',
-                                                gridTemplateColumns: 'repeat(3, 1fr)',
-                                                gap: 3,
-                                                maxWidth: '400px',
-                                                margin: '0 auto'
-                                            }}
-                                        >
+                                        <Box sx={{ maxWidth: 500, margin: '0 auto' }}>
                                             {/* Make Your Own - moves here when custom items exist */}
-                                            <AnimatedFlavorCircle
-                                                key="make-your-own"
-                                                flavor={isCookiePackaging ? MAKE_YOUR_OWN_COOKIE : MAKE_YOUR_OWN_JAR}
-                                                onSelect={handleOpenJarModal}
-                                                isPlaced={false}
-                                            />
+                                            <Box
+                                                onClick={() => handleOpenJarModal(isCookiePackaging ? MAKE_YOUR_OWN_COOKIE : MAKE_YOUR_OWN_JAR)}
+                                                sx={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 2,
+                                                    py: 2,
+                                                    borderBottom: '1px solid',
+                                                    borderColor: 'divider',
+                                                    cursor: 'pointer',
+                                                    '&:hover': { backgroundColor: 'grey.50' },
+                                                }}
+                                            >
+                                                <Box
+                                                    sx={{
+                                                        width: 80,
+                                                        height: 80,
+                                                        borderRadius: '50%',
+                                                        backgroundColor: isCookiePackaging ? MAKE_YOUR_OWN_COOKIE.color : MAKE_YOUR_OWN_JAR.color,
+                                                        overflow: 'hidden',
+                                                        flexShrink: 0,
+                                                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                    }}
+                                                >
+                                                    <img
+                                                        src={isCookiePackaging ? MAKE_YOUR_OWN_COOKIE.image : MAKE_YOUR_OWN_JAR.image}
+                                                        alt={isCookiePackaging ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar'}
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                    />
+                                                </Box>
+                                                <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                                                    {isCookiePackaging ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar'}
+                                                </Typography>
+                                            </Box>
                                             {/* User's custom jars/cookies */}
-                                            {filteredCustomItems.map((item) => (
-                                                <AnimatedFlavorCircle
-                                                    key={item.id}
-                                                    flavor={item}
-                                                    onSelect={handleOpenJarModal}
-                                                    isPlaced={isFlavorPlaced(item.id)}
-                                                />
-                                            ))}
+                                            {filteredCustomItems.map((item, index) => {
+                                                const isCustomCookie = item.isCustom && (item.name?.includes('Cookie') || item.id?.includes('cookie'));
+                                                const isCustomJar = item.isCustom && !isCustomCookie;
+
+                                                return (
+                                                    <Box
+                                                        key={item.id}
+                                                        onClick={() => handleOpenJarModal(item)}
+                                                        sx={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 2,
+                                                            py: 2,
+                                                            borderBottom: index < filteredCustomItems.length - 1 ? '1px solid' : 'none',
+                                                            borderColor: 'divider',
+                                                            cursor: 'pointer',
+                                                            opacity: isFlavorPlaced(item.id) ? 0.5 : 1,
+                                                            '&:hover': { backgroundColor: 'grey.50' },
+                                                        }}
+                                                    >
+                                                        {/* Layered image */}
+                                                        {(() => {
+                                                            if (isCustomCookie && item.customizations) {
+                                                                const baseName = item.customizations?.cake;
+                                                                const baseObj = BASE_COOKIES.find(c => c.name === baseName);
+                                                                const frostingName = item.customizations.frostings?.[0];
+                                                                const frostingObj = COOKIE_FROSTINGS.find(f => f.name === frostingName);
+                                                                const toppingImages = (item.customizations.toppings || [])
+                                                                    .map(t => COOKIE_TOPPINGS.find(top => top.name === t))
+                                                                    .filter(t => t && t.image)
+                                                                    .map(t => t.image);
+
+                                                                return (
+                                                                    <Box
+                                                                        sx={{
+                                                                            width: 80,
+                                                                            height: 80,
+                                                                            borderRadius: '50%',
+                                                                            backgroundColor: baseObj?.color || item.color,
+                                                                            overflow: 'hidden',
+                                                                            flexShrink: 0,
+                                                                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                                            position: 'relative',
+                                                                        }}
+                                                                    >
+                                                                        {baseObj?.image && (
+                                                                            <img src={baseObj.image} alt="base" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
+                                                                        )}
+                                                                        {frostingObj?.image && (
+                                                                            <img src={frostingObj.image} alt="frosting" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
+                                                                        )}
+                                                                        {toppingImages.map((img, idx) => (
+                                                                            <img key={idx} src={img} alt="topping" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: idx + 2 }} />
+                                                                        ))}
+                                                                    </Box>
+                                                                );
+                                                            }
+
+                                                            if (isCustomJar && item.customizations) {
+                                                                const frostingName = item.customizations.frostings?.[0];
+                                                                const frostingObj = FROSTINGS.find(f => f.name === frostingName);
+                                                                const toppingImages = (item.customizations.toppings || [])
+                                                                    .map(t => AVAILABLE_TOPPINGS.find(top => top.name === t))
+                                                                    .filter(t => t && t.image)
+                                                                    .map(t => t.image);
+
+                                                                return (
+                                                                    <Box
+                                                                        sx={{
+                                                                            width: 80,
+                                                                            height: 80,
+                                                                            borderRadius: '50%',
+                                                                            backgroundColor: frostingObj?.color || item.color || '#f5f0e6',
+                                                                            overflow: 'hidden',
+                                                                            flexShrink: 0,
+                                                                            boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                                            position: 'relative',
+                                                                        }}
+                                                                    >
+                                                                        {frostingObj?.image && (
+                                                                            <img src={frostingObj.image} alt="frosting" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
+                                                                        )}
+                                                                        {toppingImages.map((img, idx) => (
+                                                                            <img key={idx} src={img} alt="topping" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: idx + 1 }} />
+                                                                        ))}
+                                                                    </Box>
+                                                                );
+                                                            }
+
+                                                            return (
+                                                                <Box
+                                                                    sx={{
+                                                                        width: 80,
+                                                                        height: 80,
+                                                                        borderRadius: '50%',
+                                                                        backgroundColor: item.color,
+                                                                        overflow: 'hidden',
+                                                                        flexShrink: 0,
+                                                                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                                    }}
+                                                                >
+                                                                    {item.image && (
+                                                                        <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                                    )}
+                                                                </Box>
+                                                            );
+                                                        })()}
+                                                        <Box sx={{ flex: 1 }}>
+                                                            <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                                                                {item.displayName || item.name}
+                                                            </Typography>
+                                                        </Box>
+                                                    </Box>
+                                                );
+                                            })}
                                         </Box>
                                     </Box>
                                 )}
 
                                 {/* All Flavor Sections */}
-                                {(FLAVOR_CATEGORIES_BY_PACKAGING[selectedPackaging?.name] || []).map((category) => (
-                                    <Box key={category.id} id={`${category.id}-section`} sx={{ mb: 4 }}>
-                                        <Typography
-                                            sx={{
-                                                fontSize: '1.6rem',
-                                                fontWeight: 700,
-                                                mb: 2,
-                                                textAlign: 'center',
-                                            }}
-                                        >
-                                            {category.label}
-                                        </Typography>
-                                        <Box
-                                            sx={{
-                                                display: 'grid',
-                                                gridTemplateColumns: 'repeat(3, 1fr)',
-                                                gap: 3,
-                                                maxWidth: '400px',
-                                                margin: '0 auto'
-                                            }}
-                                        >
-                                            {/* Make Your Own - show in Cake Jars/Cookie section when no custom items yet */}
-                                            {category.id === 'cake' && filteredCustomItems.length === 0 && selectedPackaging?.name === 'Cake Jar Boxes' && (
-                                                <AnimatedFlavorCircle
-                                                    key="make-your-own-jar"
-                                                    flavor={MAKE_YOUR_OWN_JAR}
-                                                    onSelect={handleOpenJarModal}
-                                                    isPlaced={false}
-                                                />
-                                            )}
-                                            {category.id === 'frosted' && filteredCustomItems.length === 0 && isCookiePackaging && (
-                                                <AnimatedFlavorCircle
-                                                    key="make-your-own-cookie"
-                                                    flavor={MAKE_YOUR_OWN_COOKIE}
-                                                    onSelect={handleOpenJarModal}
-                                                    isPlaced={false}
-                                                />
-                                            )}
-                                            {(FLAVORS[category.id] || []).map((flavor) => (
-                                                <AnimatedFlavorCircle
-                                                    key={flavor.name}
-                                                    flavor={flavor}
-                                                    onSelect={handleOpenJarModal}
-                                                    isPlaced={false}
-                                                />
-                                            ))}
+                                {(FLAVOR_CATEGORIES_BY_PACKAGING[selectedPackaging?.name] || []).map((category) => {
+                                    // Helper to generate ingredient description for jars
+                                    const getIngredientDescription = (flavor) => {
+                                        const defaults = DEFAULT_INGREDIENTS[flavor.name];
+                                        if (!defaults) return null;
+
+                                        const parts = [];
+                                        if (defaults.cake) parts.push(`${defaults.cake} Cake`);
+                                        if (defaults.frostings?.length > 0) parts.push(`${defaults.frostings[0]} Frosting`);
+                                        if (defaults.toppings?.length > 0) parts.push(defaults.toppings.join(', '));
+                                        if (defaults.cookies?.length > 0) parts.push(defaults.cookies.join(', '));
+
+                                        if (parts.length === 0) return null;
+                                        if (parts.length === 1) return parts[0];
+                                        if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+                                        return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+                                    };
+
+                                    const allFlavors = [
+                                        // Make Your Own - show first when no custom items yet
+                                        ...(category.id === 'cake' && filteredCustomItems.length === 0 && selectedPackaging?.name === 'Cake Jar Boxes'
+                                            ? [{ ...MAKE_YOUR_OWN_JAR, isMakeYourOwn: true }]
+                                            : []),
+                                        ...(category.id === 'frosted' && filteredCustomItems.length === 0 && isCookiePackaging
+                                            ? [{ ...MAKE_YOUR_OWN_COOKIE, isMakeYourOwn: true }]
+                                            : []),
+                                        ...(FLAVORS[category.id] || [])
+                                    ];
+
+                                    return (
+                                        <Box key={category.id} id={`${category.id}-section`} sx={{ mb: 0 }}>
+                                            <Typography
+                                                sx={{
+                                                    fontSize: '1.6rem',
+                                                    fontWeight: 700,
+                                                    mb: 0,
+                                                    textAlign: 'left',
+                                                    maxWidth: 500,
+                                                    margin: '0 auto',
+                                                }}
+                                            >
+                                                {category.label}
+                                            </Typography>
+                                            <Box sx={{ maxWidth: 500, margin: '0 auto' }}>
+                                                {allFlavors.map((flavor, index) => {
+                                                    const ingredientDesc = getIngredientDescription(flavor);
+
+                                                    return (
+                                                        <Box
+                                                            key={flavor.name}
+                                                            onClick={() => handleOpenJarModal(flavor)}
+                                                            sx={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 2,
+                                                                py: 2,
+                                                                borderBottom: index < allFlavors.length - 1 ? '1px solid' : 'none',
+                                                                borderColor: 'divider',
+                                                                cursor: 'pointer',
+                                                                '&:hover': { backgroundColor: 'grey.50' },
+                                                            }}
+                                                        >
+                                                            <Box
+                                                                sx={{
+                                                                    width: 80,
+                                                                    height: 80,
+                                                                    borderRadius: '50%',
+                                                                    backgroundColor: flavor.color,
+                                                                    overflow: 'hidden',
+                                                                    flexShrink: 0,
+                                                                    boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                                                                }}
+                                                            >
+                                                                {flavor.image && (
+                                                                    <img
+                                                                        src={flavor.image}
+                                                                        alt={flavor.name}
+                                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                                    />
+                                                                )}
+                                                            </Box>
+                                                            <Box sx={{ flex: 1 }}>
+                                                                <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                                                                    {flavor.name}
+                                                                </Typography>
+                                                                {ingredientDesc && (
+                                                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', mt: 0.5 }}>
+                                                                        {ingredientDesc}
+                                                                    </Typography>
+                                                                )}
+                                                            </Box>
+                                                            {/* Dietary badges */}
+                                                            <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
+                                                                {flavor.glutenFree && <GlutenFreeBadge size="small" />}
+                                                                {flavor.vegan && <VeganBadge size="small" />}
+                                                            </Box>
+                                                        </Box>
+                                                    );
+                                                })}
+                                            </Box>
                                         </Box>
-                                    </Box>
-                                ))}
+                                    );
+                                })}
                                     </>
                                 )}
                             </>
