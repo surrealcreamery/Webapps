@@ -2385,14 +2385,6 @@ const PACKAGING = [
         price: 50,
     },
     {
-        name: 'Cupcakes',
-        heroImage: 'https://placehold.co/600x400/FFB6C1/333333?text=Cupcakes',
-        glutenFree: true,
-        vegan: true,
-        slotCount: 6,
-        price: 45,
-    },
-    {
         name: 'Cookies',
         heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-tray.png',
         glutenFree: true,
@@ -2402,7 +2394,7 @@ const PACKAGING = [
     },
     {
         name: 'Cookie Tray',
-        heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-tray.png',
+        heroImage: 'https://images.surrealcreamery.com/catering/product/product-cookie.png',
         glutenFree: true,
         vegan: true,
         slotCount: 12,
@@ -4313,16 +4305,14 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                         },
                                     }}
                                 >
-                                    {/* Hero Image */}
+                                    {/* Hero Image - 16:9 aspect ratio */}
                                     <Box
                                         sx={{
                                             width: '100%',
-                                            height: { xs: 200, sm: 250, md: 300 },
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
+                                            aspectRatio: '16 / 9',
+                                            position: 'relative',
+                                            overflow: 'hidden',
                                             backgroundColor: 'white',
-                                            p: 2,
                                         }}
                                     >
                                         {item.heroImage && (
@@ -4330,9 +4320,10 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 src={item.heroImage}
                                                 alt={item.name}
                                                 style={{
-                                                    maxWidth: '100%',
-                                                    maxHeight: '100%',
-                                                    objectFit: 'contain',
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover',
+                                                    objectPosition: 'center',
                                                 }}
                                             />
                                         )}

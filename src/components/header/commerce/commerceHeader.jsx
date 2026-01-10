@@ -220,64 +220,66 @@ const Header = () => {
                 role="banner"
                 aria-label="Site header"
             >
-                {/* Navigation Bar */}
-                <Box
-                    component="nav"
-                    role="navigation"
-                    aria-label="Main navigation"
-                    sx={{
-                        backgroundColor: '#000',
-                        width: '100vw',
-                        marginLeft: 'calc(-50vw + 50%)',
-                        py: 1,
-                        px: 2,
-                    }}
-                >
+                {/* Navigation Bar - hide for catering */}
+                {!isCateringMode && (
                     <Box
+                        component="nav"
+                        role="navigation"
+                        aria-label="Main navigation"
                         sx={{
-                            maxWidth: '600px',
-                            margin: '0 auto',
-                            display: 'flex',
-                            justifyContent: 'center',
-                            gap: 0.5,
-                            flexWrap: 'nowrap',
+                            backgroundColor: '#000',
+                            width: '100vw',
+                            marginLeft: 'calc(-50vw + 50%)',
+                            py: 1,
+                            px: 2,
                         }}
                     >
-                        {NAV_ITEMS.map((item) => {
-                            const isActive = !item.external && activeNavPath === item.path;
-                            return (
-                                <Button
-                                    key={item.path}
-                                    onClick={() => handleNavClick(item)}
-                                    sx={{
-                                        color: isActive ? '#000' : '#fff',
-                                        backgroundColor: isActive ? '#fff' : 'transparent',
-                                        textTransform: 'none',
-                                        px: 1.5,
-                                        py: 0.5,
-                                        borderRadius: '4px',
-                                        minWidth: 'auto',
-                                        lineHeight: 1.2,
-                                        '&:hover': {
-                                            backgroundColor: isActive ? '#fff' : 'rgba(255,255,255,0.1)',
-                                        },
-                                    }}
-                                >
-                                    <Typography
+                        <Box
+                            sx={{
+                                maxWidth: '600px',
+                                margin: '0 auto',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                gap: 0.5,
+                                flexWrap: 'nowrap',
+                            }}
+                        >
+                            {NAV_ITEMS.map((item) => {
+                                const isActive = !item.external && activeNavPath === item.path;
+                                return (
+                                    <Button
+                                        key={item.path}
+                                        onClick={() => handleNavClick(item)}
                                         sx={{
-                                            fontSize: { xs: '1.4rem !important', sm: '1.6rem !important' },
-                                            fontWeight: isActive ? 600 : 400,
+                                            color: isActive ? '#000' : '#fff',
+                                            backgroundColor: isActive ? '#fff' : 'transparent',
+                                            textTransform: 'none',
+                                            px: 1.5,
+                                            py: 0.5,
+                                            borderRadius: '4px',
+                                            minWidth: 'auto',
                                             lineHeight: 1.2,
-                                            whiteSpace: 'nowrap',
+                                            '&:hover': {
+                                                backgroundColor: isActive ? '#fff' : 'rgba(255,255,255,0.1)',
+                                            },
                                         }}
                                     >
-                                        {item.label}
-                                    </Typography>
-                                </Button>
-                            );
-                        })}
+                                        <Typography
+                                            sx={{
+                                                fontSize: { xs: '1.4rem !important', sm: '1.6rem !important' },
+                                                fontWeight: isActive ? 600 : 400,
+                                                lineHeight: 1.2,
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {item.label}
+                                        </Typography>
+                                    </Button>
+                                );
+                            })}
+                        </Box>
                     </Box>
-                </Box>
+                )}
 
                 <div className="shell">
                     <div style={{ maxWidth: '600px', margin: '0 auto' }}>
