@@ -2385,12 +2385,12 @@ const PACKAGING = [
         price: 50,
     },
     {
-        name: 'Cookies',
-        heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-tray.png',
+        name: 'Cupcakes',
+        heroImage: 'https://placehold.co/600x400/FFB6C1/333333?text=Cupcakes',
         glutenFree: true,
         vegan: true,
         slotCount: 6,
-        price: 30,
+        price: 45,
     },
     {
         name: 'Cookie Tray',
@@ -2994,15 +2994,19 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         // Only check if cart count decreased (items were removed)
         if (cart.length >= prevCartCount) return;
 
-        // Check if there are any catering box items remaining in cart
-        const hasCateringBoxItems = cart.some(cartItem =>
-            cartItem.item?.['Item ID']?.startsWith('cake-jar-box-') ||
-            cartItem.item?.['Item ID']?.startsWith('cookie-box-') ||
-            cartItem.item?.['Item ID']?.startsWith('cookie-tray-') ||
-            cartItem.item?.['Item ID']?.startsWith('cupcake-box-')
+        // Check if there are any catering box items of the CURRENT type remaining in cart
+        const getItemIdPrefix = () => {
+            if (selectedPackaging?.name === 'Cookie Tray') return 'cookie-tray-';
+            if (selectedPackaging?.name === 'Cookies') return 'cookie-box-';
+            if (selectedPackaging?.name === 'Cupcakes') return 'cupcake-box-';
+            return 'cake-jar-box-';
+        };
+        const currentPrefix = selectedPackaging ? getItemIdPrefix() : null;
+        const hasCateringBoxItems = currentPrefix && cart.some(cartItem =>
+            cartItem.item?.['Item ID']?.startsWith(currentPrefix)
         );
 
-        // If no catering box items remaining after removal, clear the box-building state
+        // If no catering box items of this type remaining after removal, clear the box-building state
         if (!hasCateringBoxItems) {
             setPlacedFlavors([]);
             setCompletedBoxes([]);
@@ -3088,6 +3092,20 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     // Open the availability page when clicking Explore
     const handleExploreClick = (packaging) => {
         console.log('[CategoryListView] handleExploreClick called:', packaging?.name);
+
+        // CRITICAL: Clear all state when switching to a different packaging type
+        // This prevents items from one packaging type appearing in another
+        const isSamePackaging = selectedPackaging?.name === packaging?.name;
+        if (!isSamePackaging) {
+            setPlacedFlavors([]);
+            setCompletedBoxes([]);
+            setCurrentBoxIndex(0);
+            setIsEditingCompletedBox(false);
+            setEditingCartItemId(null);
+            setOriginalEditingJars(null);
+            clearBoxState();
+        }
+
         setPendingPackagingItem(packaging);
         setAvailabilitySelectedOption('quickest'); // Pre-select quickest option
         setShowAvailabilityPage(true);
@@ -3183,10 +3201,19 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         console.log('[CategoryListView] Selecting packaging:', packaging?.name, packaging?.slotCount);
 
         // Check if we're switching to a different packaging type
-        // Get the previous packaging from localStorage to compare
-        const previousState = loadPersistedBoxState();
-        const previousPackaging = previousState?.selectedPackaging;
-        const isSamePackaging = previousPackaging?.name === packaging?.name;
+        // Compare with current state, not localStorage
+        const isSamePackaging = selectedPackaging?.name === packaging?.name;
+
+        // ALWAYS clear placedFlavors when switching to a different packaging type
+        // This prevents cookies showing up in cupcake boxes, etc.
+        if (!isSamePackaging) {
+            setPlacedFlavors([]);
+            setCompletedBoxes([]);
+            setCurrentBoxIndex(0);
+            setIsEditingCompletedBox(false);
+            setEditingCartItemId(null);
+            setOriginalEditingJars(null);
+        }
 
         setSelectedPackaging(packaging);
         sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging });
@@ -3197,11 +3224,6 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         }
         if (dateTimeInfo?.time) {
             setSelectedTime(dateTimeInfo.time);
-        }
-        // Only clear placedFlavors if switching to a DIFFERENT packaging type
-        // If same packaging, preserve items so user can continue where they left off
-        if (!isSamePackaging) {
-            setPlacedFlavors([]);
         }
         // Reset Make Your Own state - always exit the Make Your Own flow
         setMakeYourOwnActive(false);
@@ -3343,25 +3365,31 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     const maxMakeYourOwnStep = isCookiePackaging ? 2 : isCupcakePackaging ? 3 : 4;
 
     // For slot-based packaging, show list view only when there are items in the box
-    // Show list view when we have jars OR when editing from cart OR when there are boxes in cart
+    // Show list view when we have jars OR when editing from cart OR when there are boxes of this type in cart
     // Don't navigate away just because jars are removed - user can add more from the list view
     useEffect(() => {
         const isSlotBased = isCookiePackaging || isCupcakePackaging || selectedPackaging?.name === 'Cake Jar Boxes';
-        const hasCateringBoxItems = cart.some(cartItem =>
-            cartItem.item?.['Item ID']?.startsWith('cake-jar-box-') ||
-            cartItem.item?.['Item ID']?.startsWith('cookie-box-') ||
-            cartItem.item?.['Item ID']?.startsWith('cookie-tray-') ||
-            cartItem.item?.['Item ID']?.startsWith('cupcake-box-')
+
+        // Check for boxes of the CURRENT packaging type only
+        const getItemIdPrefix = () => {
+            if (selectedPackaging?.name === 'Cookie Tray') return 'cookie-tray-';
+            if (selectedPackaging?.name === 'Cookies') return 'cookie-box-';
+            if (selectedPackaging?.name === 'Cupcakes') return 'cupcake-box-';
+            return 'cake-jar-box-';
+        };
+        const currentPrefix = selectedPackaging ? getItemIdPrefix() : null;
+        const hasCateringBoxItems = currentPrefix && cart.some(cartItem =>
+            cartItem.item?.['Item ID']?.startsWith(currentPrefix)
         );
 
         if (isSlotBased && placedFlavors.length > 0) {
             setShowListView(true);
         } else if (isSlotBased && placedFlavors.length === 0 && !editingCartItemId && !hasCateringBoxItems) {
-            // Only go back to "Add a Cake Jar" if not editing and no boxes in cart
+            // Only go back to "Add a Cake Jar" if not editing and no boxes of this type in cart
             setShowListView(false);
         }
-        // If editing from cart or there are boxes in cart, stay on list view even if empty
-    }, [isCookiePackaging, isCupcakePackaging, selectedPackaging?.name, placedFlavors.length, editingCartItemId, cart]);
+        // If editing from cart or there are boxes of this type in cart, stay on list view even if empty
+    }, [isCookiePackaging, isCupcakePackaging, selectedPackaging, placedFlavors.length, editingCartItemId, cart]);
 
     const handleMakeYourOwnContinue = () => {
         if (makeYourOwnStep < maxMakeYourOwnStep) {
@@ -4456,12 +4484,16 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
 
                                     {/* Box tabs and Add Another button */}
                                     {(() => {
-                                        // Get all catering box items in cart
+                                        // Get cart items that match the CURRENT packaging type only
+                                        const getItemIdPrefix = () => {
+                                            if (selectedPackaging?.name === 'Cookie Tray') return 'cookie-tray-';
+                                            if (selectedPackaging?.name === 'Cookies') return 'cookie-box-';
+                                            if (selectedPackaging?.name === 'Cupcakes') return 'cupcake-box-';
+                                            return 'cake-jar-box-';
+                                        };
+                                        const currentPrefix = getItemIdPrefix();
                                         const cateringBoxItems = cart.filter(cartItem =>
-                                            cartItem.item?.['Item ID']?.startsWith('cake-jar-box-') ||
-                                            cartItem.item?.['Item ID']?.startsWith('cookie-box-') ||
-                                            cartItem.item?.['Item ID']?.startsWith('cookie-tray-') ||
-                                            cartItem.item?.['Item ID']?.startsWith('cupcake-box-')
+                                            cartItem.item?.['Item ID']?.startsWith(currentPrefix)
                                         );
 
                                         // When editing from cart: show tabs for all cart items
@@ -4674,11 +4706,16 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     {completedBoxes.length === 0 && (
                                         <Typography sx={{ fontSize: '1.2rem', fontWeight: 600, color: 'text.secondary', mb: 1, textTransform: 'uppercase', letterSpacing: 1 }}>
                                             {(() => {
+                                                // Get cart items that match the CURRENT packaging type only
+                                                const getItemIdPrefix = () => {
+                                                    if (selectedPackaging?.name === 'Cookie Tray') return 'cookie-tray-';
+                                                    if (selectedPackaging?.name === 'Cookies') return 'cookie-box-';
+                                                    if (selectedPackaging?.name === 'Cupcakes') return 'cupcake-box-';
+                                                    return 'cake-jar-box-';
+                                                };
+                                                const currentPrefix = getItemIdPrefix();
                                                 const cateringBoxItems = cart.filter(cartItem =>
-                                                    cartItem.item?.['Item ID']?.startsWith('cake-jar-box-') ||
-                                                    cartItem.item?.['Item ID']?.startsWith('cookie-box-') ||
-                                                    cartItem.item?.['Item ID']?.startsWith('cookie-tray-') ||
-                                                    cartItem.item?.['Item ID']?.startsWith('cupcake-box-')
+                                                    cartItem.item?.['Item ID']?.startsWith(currentPrefix)
                                                 );
                                                 // When editing from cart, show the box's position in cart
                                                 if (editingCartItemId) {
