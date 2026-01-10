@@ -1,8 +1,6 @@
-import React, { useState, useRef, useEffect, useContext } from 'react';
+import React, { useState, useRef, useEffect, useContext, useMemo } from 'react';
 import { Box, Typography, Container, ToggleButtonGroup, ToggleButton, Dialog, DialogContent, IconButton, Button } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import { LocationModal } from '@/components/commerce/LocationModal';
 import { GiWheat } from 'react-icons/gi';
 import { FaLeaf, FaRecycle } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -511,10 +509,8 @@ const FLAVOR_CATEGORIES_BY_PACKAGING = {
         { id: 'cake', label: 'Cake Jars' },
         { id: 'cheesecake', label: 'Cheesecake' },
     ],
-    'Cupcake Trays': [
-        { id: 'cake', label: 'Cake Jars' },
-        { id: 'cheesecake', label: 'Cheesecake' },
-        { id: 'cookie', label: 'Cookie' },
+    'Cupcakes': [
+        { id: 'cupcake', label: 'Cupcakes' },
     ],
     'Cookies': [
         { id: 'basecookie', label: 'Cookie' },
@@ -532,6 +528,9 @@ const MAKE_YOUR_OWN_JAR = { name: 'Make Your Own Cake Jar', image: 'https://imag
 // Make Your Own Cookie - shown in Your Cookies section
 const MAKE_YOUR_OWN_COOKIE = { name: 'Make Your Own Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-sugar-cookie.png', color: '#F5DEB3', glutenFree: false, vegan: false };
 
+// Make Your Own Cupcake - shown in Your Cupcakes section
+const MAKE_YOUR_OWN_CUPCAKE = { name: 'Make Your Own Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-vanilla.png', color: '#FFB6C1', glutenFree: false, vegan: false };
+
 // Base cookie options for Make Your Own Cookie
 const BASE_COOKIES = [
     { name: 'Sugar Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-sugar-cookie.png', color: '#F5DEB3' },
@@ -539,6 +538,42 @@ const BASE_COOKIES = [
     { name: 'Red Velvet Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-red-velvet.png', color: '#C41E3A' },
     { name: "S'mores Cookie", image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-smores.png', color: '#8B4513' },
     { name: 'Chocolate Chip Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-chocolate-chip.png', color: '#D2691E' },
+];
+
+// Base cupcake options for Make Your Own Cupcake
+const BASE_CUPCAKES = [
+    { name: 'Vanilla Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-vanilla.png', color: '#FFF8DC' },
+    { name: 'Chocolate Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-chocolate.png', color: '#3D1C02' },
+    { name: 'Red Velvet Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-red-velvet.png', color: '#C41E3A' },
+    { name: 'Strawberry Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-strawberry.png', color: '#FF6B81' },
+    { name: 'Taro Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-taro.png', color: '#9370DB' },
+    { name: 'Espresso Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-espresso.png', color: '#4A3728' },
+];
+
+// Cupcake frostings
+const CUPCAKE_FROSTINGS = [
+    { name: 'Marshmallow', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-marshmallow.png', color: '#FFFFFF' },
+    { name: 'Blue Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-blue-vanilla.png', color: '#87CEEB' },
+    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-chocolate.png', color: '#3D1C02' },
+    { name: 'Cream Cheese', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-cream-cheese.png', color: '#FFFDD0' },
+    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-strawberry.png', color: '#FF6B81' },
+];
+
+// Cupcake toppings
+const CUPCAKE_TOPPINGS = [
+    { name: 'Rainbow Sprinkles' },
+    { name: 'Chocolate Sprinkles' },
+    { name: 'Crushed Oreos' },
+    { name: 'Mini Chocolate Chips' },
+    { name: 'Toasted Coconut' },
+    { name: 'Fresh Strawberry' },
+];
+
+// Cupcake cookie add-ons (optional)
+const CUPCAKE_COOKIES = [
+    { name: 'Mini Chocolate Chip' },
+    { name: 'Mini Sugar Cookie' },
+    { name: 'Mini Oreo' },
 ];
 
 // Hardcoded flavors with colors, dietary info, and category
@@ -555,6 +590,14 @@ const FLAVORS = {
         { name: 'Strawberry', color: '#FF6B81', glutenFree: true, vegan: false },
         { name: 'Cherry', color: '#C41E3A', glutenFree: true, vegan: false },
         { name: 'Apple', color: '#90EE90', glutenFree: true, vegan: false },
+    ],
+    cupcake: [
+        { name: 'Vanilla Dream', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-vanilla.png', color: '#FFF8DC', glutenFree: false, vegan: false, ingredients: ['Vanilla Cupcake', 'Marshmallow', 'Rainbow Sprinkles'] },
+        { name: 'Chocolate Overload', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-chocolate.png', color: '#3D1C02', glutenFree: false, vegan: false, ingredients: ['Chocolate Cupcake', 'Marshmallow', 'Chocolate Sprinkles'] },
+        { name: 'Strawberry Bliss', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-strawberry.png', color: '#FF6B81', glutenFree: false, vegan: false, ingredients: ['Strawberry Cupcake', 'Marshmallow', 'Fresh Strawberry'] },
+        { name: 'Red Velvet Royale', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-redvelvet.png', color: '#C41E3A', glutenFree: false, vegan: false, ingredients: ['Red Velvet Cupcake', 'Marshmallow', 'Mini Chocolate Chips'] },
+        { name: 'Taro Dream', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-taro.png', color: '#9370DB', glutenFree: false, vegan: false, ingredients: ['Taro Cupcake', 'Marshmallow', 'Toasted Coconut'] },
+        { name: 'Espresso Buzz', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-espresso.png', color: '#4A3728', glutenFree: false, vegan: false, ingredients: ['Espresso Cupcake', 'Marshmallow', 'Chocolate Sprinkles'] },
     ],
     basecookie: [
         {
@@ -610,53 +653,53 @@ const FLAVORS = {
     ],
     frosted: [
         {
-            name: "A'mour S'more Cookie",
-            image: 'https://images.surrealcreamery.com/catering/cookies/amour-smore-cookie.png',
+            name: "A'mour S'more",
+            image: 'https://images.surrealcreamery.com/catering/frosted-cookies/frosted-cookie-amour-smore.png',
             color: '#8B4513',
             glutenFree: false,
             vegan: false,
             isFrostedCookie: true,
-            ingredients: ["S'mores Cookie Base", 'Marshmallow Frosting', 'Chocolate Drizzle', 'Graham Cracker Crumbs'],
+            ingredients: ['Graham Cracker Cookie', 'Chocolate and Marshmallow Frosting', 'Chocolate Chips', 'Chocolate Syrup'],
             allergens: ['Wheat', 'Dairy', 'Eggs', 'Soy'],
         },
         {
-            name: 'All Very Strawberry Cookie',
-            image: 'https://images.surrealcreamery.com/catering/cookies/all-very-strawberry-cookie.png',
-            color: '#FF6B81',
-            glutenFree: true,
-            vegan: true,
+            name: 'Chocolate Meltdown Overload',
+            image: 'https://images.surrealcreamery.com/catering/frosted-cookies/frosted-cookie-chocolate-meltdown-overload.png',
+            color: '#3D1C02',
+            glutenFree: false,
+            vegan: false,
             isFrostedCookie: true,
-            ingredients: ['Gluten-Free Sugar Cookie Base', 'Strawberry Frosting', 'Freeze-Dried Strawberries'],
-            allergens: [],
+            ingredients: ['Chocolate Chip Cookie', 'Chocolate Sprinkles', 'Chocolate Syrup'],
+            allergens: ['Wheat', 'Dairy', 'Eggs', 'Soy'],
         },
         {
-            name: 'Birthday Bash Cookie',
-            image: 'https://images.surrealcreamery.com/catering/cookies/birthday-bash-cookie.png',
+            name: "It's My Birthday",
+            image: 'https://images.surrealcreamery.com/catering/frosted-cookies/frosted-cookie-its-my-birthday.png',
             color: '#FFD700',
             glutenFree: false,
             vegan: false,
             isFrostedCookie: true,
-            ingredients: ['Sugar Cookie Base', 'Blue Vanilla Frosting', 'Rainbow Sprinkles'],
+            ingredients: ['Sugar Cookie', 'Cookies and Cream Frosting', 'Rainbow Sprinkles'],
             allergens: ['Wheat', 'Dairy', 'Eggs', 'Soy'],
         },
         {
-            name: 'La La Red Velvet Cookie',
-            image: 'https://images.surrealcreamery.com/catering/cookies/la-la-red-velvet-cookie.png',
+            name: 'La La Red Velvet',
+            image: 'https://images.surrealcreamery.com/catering/frosted-cookies/frosted-cookie-la-la-red-velvet.png',
             color: '#C41E3A',
             glutenFree: false,
             vegan: false,
             isFrostedCookie: true,
-            ingredients: ['Red Velvet Cookie Base', 'Cream Cheese Frosting', 'White Chocolate Chips'],
+            ingredients: ['Red Velvet Cookie', 'Cream Cheese Frosting', 'White Chocolate Curls'],
             allergens: ['Wheat', 'Dairy', 'Eggs', 'Soy'],
         },
         {
             name: 'Nom Nom Cookie',
-            image: 'https://images.surrealcreamery.com/catering/cookies/nom-nom-cookie.png',
+            image: 'https://images.surrealcreamery.com/catering/frosted-cookies/frosted-cookie-nom-nom-cookie.png',
             color: '#2C2C2C',
             glutenFree: false,
             vegan: false,
             isFrostedCookie: true,
-            ingredients: ['Chocolate Chip Cookie Base', 'Chocolate Frosting', 'Oreo Crumbles'],
+            ingredients: ['Chocolate Chip Cookie', 'Blue Vanilla Frosting', 'Chocolate Crunch', 'Marshmallows', 'Cookie Crisp'],
             allergens: ['Wheat', 'Dairy', 'Eggs', 'Soy'],
         },
     ],
@@ -763,6 +806,49 @@ const DEFAULT_INGREDIENTS = {
         cookies: [],
         syrups: [],
     },
+    'Make Your Own Cupcake': {
+        cupcake: 'Vanilla Cupcake',
+        frostings: ['Marshmallow'],
+        toppings: [],
+        cookies: [],
+    },
+    // Cupcake defaults
+    'Vanilla Dream': {
+        cupcake: 'Vanilla Cupcake',
+        frostings: ['Marshmallow'],
+        toppings: ['Rainbow Sprinkles'],
+        cookies: [],
+    },
+    'Chocolate Overload': {
+        cupcake: 'Chocolate Cupcake',
+        frostings: ['Marshmallow'],
+        toppings: ['Chocolate Sprinkles'],
+        cookies: [],
+    },
+    'Strawberry Bliss': {
+        cupcake: 'Strawberry Cupcake',
+        frostings: ['Marshmallow'],
+        toppings: ['Fresh Strawberry'],
+        cookies: [],
+    },
+    'Red Velvet Royale': {
+        cupcake: 'Red Velvet Cupcake',
+        frostings: ['Marshmallow'],
+        toppings: ['Mini Chocolate Chips'],
+        cookies: [],
+    },
+    'Taro Dream': {
+        cupcake: 'Taro Cupcake',
+        frostings: ['Marshmallow'],
+        toppings: ['Toasted Coconut'],
+        cookies: [],
+    },
+    'Espresso Buzz': {
+        cupcake: 'Espresso Cupcake',
+        frostings: ['Marshmallow'],
+        toppings: ['Chocolate Sprinkles'],
+        cookies: [],
+    },
 };
 
 // Jar Preview Modal Component - shows read-only view of jar with default ingredients
@@ -823,34 +909,44 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
             <DialogContent sx={{ p: 0, flexGrow: 1, overflow: 'auto', pb: '100px' }}>
                 {/* Jar Image - show layered frosting + toppings for custom jars */}
                 {(() => {
-                    // For custom jars/cookies, get frosting and topping images
+                    // For custom jars/cookies/cupcakes, get frosting and topping images
                     let baseImage = null;
                     let frostingImage = null;
                     let frostingColor = jar.color;
                     let toppingImages = [];
                     const isCustomCookie = jar.id?.startsWith('custom-cookie-');
+                    const isCustomCupcake = jar.id?.startsWith('custom-cupcake-');
 
                     if (jar.isCustom && jar.customizations) {
+                        const baseName = jar.customizations.cake;
+
                         // For cookies, get the base cookie image
                         if (isCustomCookie) {
-                            const baseName = jar.customizations.cake;
                             const baseObj = BASE_COOKIES.find(c => c.name === baseName);
+                            baseImage = baseObj?.image;
+                            frostingColor = baseObj?.color || jar.color;
+                        }
+                        // For cupcakes, get the base cupcake image
+                        else if (isCustomCupcake) {
+                            const baseObj = BASE_CUPCAKES.find(c => c.name === baseName);
                             baseImage = baseObj?.image;
                             frostingColor = baseObj?.color || jar.color;
                         }
 
                         const frostingName = jar.customizations.frostings?.[0];
-                        // Use cookie frostings for custom cookies, jar frostings for jars
+                        // Use appropriate frostings based on type
                         const frostingObj = isCustomCookie
                             ? COOKIE_FROSTINGS.find(f => f.name === frostingName)
+                            : isCustomCupcake
+                            ? CUPCAKE_FROSTINGS.find(f => f.name === frostingName)
                             : FROSTINGS.find(f => f.name === frostingName);
                         frostingImage = frostingObj?.image;
-                        if (!isCustomCookie) {
+                        if (!isCustomCookie && !isCustomCupcake) {
                             frostingColor = frostingObj?.color || jar.color;
                         }
 
-                        // Use cookie toppings for custom cookies, jar toppings for jars
-                        const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : AVAILABLE_TOPPINGS;
+                        // Use appropriate toppings based on type
+                        const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : isCustomCupcake ? CUPCAKE_TOPPINGS : AVAILABLE_TOPPINGS;
                         toppingImages = (jar.customizations.toppings || [])
                             .map(t => toppingsArray.find(top => top.name === t))
                             .filter(t => t && t.image)
@@ -872,11 +968,11 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                         >
                             {jar.isCustom ? (
                                 <>
-                                    {/* Base layer - cookie base (for cookies) */}
-                                    {isCustomCookie && baseImage && (
+                                    {/* Base layer - cookie/cupcake base */}
+                                    {(isCustomCookie || isCustomCupcake) && baseImage && (
                                         <img
                                             src={baseImage}
-                                            alt="cookie base"
+                                            alt={isCustomCookie ? "cookie base" : "cupcake base"}
                                             style={{
                                                 position: 'absolute',
                                                 top: 0,
@@ -900,7 +996,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                                 width: '100%',
                                                 height: '100%',
                                                 objectFit: 'cover',
-                                                zIndex: isCustomCookie ? 1 : 0,
+                                                zIndex: (isCustomCookie || isCustomCupcake) ? 1 : 0,
                                             }}
                                         />
                                     )}
@@ -917,7 +1013,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                                 width: '100%',
                                                 height: '100%',
                                                 objectFit: 'cover',
-                                                zIndex: isCustomCookie ? index + 2 : index + 1,
+                                                zIndex: (isCustomCookie || isCustomCupcake) ? index + 2 : index + 1,
                                             }}
                                         />
                                     ))}
@@ -1011,92 +1107,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                 <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Vegan</Typography>
                             </Box>
                         )}
-                        {/* All jars are sustainable - only show for jars, not cookies */}
-                        {!jar.isBaseCookie && !jar.isFrostedCookie && !jar.id?.startsWith('custom-cookie-') && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <SustainableBadge size="medium" />
-                                <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Sustainable</Typography>
-                            </Box>
-                        )}
                     </Box>
-
-                    {/* Quantity Selector for Custom Items (cookies and jars) - above Customize button */}
-                    {(jar.id?.startsWith('custom-cookie-') || jar.id?.startsWith('custom-jar-')) && (
-                        <Box sx={{ mb: 3 }}>
-                            <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 1.5 }}>
-                                Quantity {availableSlots > 0 && <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary', fontSize: '1.4rem' }}>({availableSlots} slots available)</Typography>}
-                            </Typography>
-                            <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
-                                <Box
-                                    component="button"
-                                    onClick={() => setQuantity(prev => Math.max(1, prev - 1))}
-                                    disabled={quantity <= 1}
-                                    sx={{
-                                        minWidth: 44,
-                                        height: 44,
-                                        border: 'none',
-                                        backgroundColor: 'transparent',
-                                        fontSize: '1.5rem',
-                                        fontWeight: 700,
-                                        cursor: quantity <= 1 ? 'not-allowed' : 'pointer',
-                                        opacity: quantity <= 1 ? 0.4 : 1,
-                                        '&:hover': { backgroundColor: quantity <= 1 ? 'transparent' : '#f5f5f5' },
-                                    }}
-                                >
-                                    −
-                                </Box>
-                                <Typography sx={{ px: 2, fontWeight: 700, minWidth: 30, textAlign: 'center', fontSize: '1.6rem' }}>
-                                    {quantity}
-                                </Typography>
-                                <Box
-                                    component="button"
-                                    onClick={() => setQuantity(prev => Math.min(availableSlots, prev + 1))}
-                                    disabled={quantity >= availableSlots || availableSlots <= 0}
-                                    sx={{
-                                        minWidth: 44,
-                                        height: 44,
-                                        border: 'none',
-                                        backgroundColor: 'transparent',
-                                        fontSize: '1.5rem',
-                                        fontWeight: 700,
-                                        cursor: (quantity >= availableSlots || availableSlots <= 0) ? 'not-allowed' : 'pointer',
-                                        opacity: (quantity >= availableSlots || availableSlots <= 0) ? 0.4 : 1,
-                                        '&:hover': { backgroundColor: (quantity >= availableSlots || availableSlots <= 0) ? 'transparent' : '#f5f5f5' },
-                                    }}
-                                >
-                                    +
-                                </Box>
-                            </Box>
-                        </Box>
-                    )}
-
-                    {/* Customize Button - only for custom jars */}
-                    {jar.isCustom && (
-                        <Box
-                            component="button"
-                            onClick={onCustomize}
-                            sx={{
-                                width: '100%',
-                                py: 1.5,
-                                px: 3,
-                                mb: 3,
-                                backgroundColor: 'white',
-                                color: 'black',
-                                border: '2px solid black',
-                                borderRadius: 2,
-                                fontSize: '1.6rem',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                transition: 'all 0.2s',
-                                '&:hover': {
-                                    backgroundColor: 'black',
-                                    color: 'white',
-                                },
-                            }}
-                        >
-                            {jar.id?.startsWith('custom-cookie-') ? 'Customize This Cookie' : 'Customize This Jar'}
-                        </Box>
-                    )}
 
                     {/* Ingredients Display */}
                     {(jar.isBaseCookie || jar.isFrostedCookie) ? (
@@ -1189,24 +1200,31 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                             )}
                         </Box>
                     ) : (
-                        /* Cake Jars / Custom Cookies - Three columns with images */
+                        /* Cake Jars / Custom Cookies / Custom Cupcakes - Three columns with images */
                         (() => {
                             const isCustomCookie = jar.id?.startsWith('custom-cookie-');
-                            // Use cookie arrays for custom cookies, jar arrays for jars
+                            const isCustomCupcake = jar.id?.startsWith('custom-cupcake-');
+                            // Use appropriate arrays based on type
                             const baseObj = isCustomCookie
                                 ? BASE_COOKIES.find(c => c.name === displayCake)
+                                : isCustomCupcake
+                                ? BASE_CUPCAKES.find(c => c.name === displayCake)
                                 : CAKE_FLAVORS.find(c => c.name === displayCake);
                             const frostingObj = isCustomCookie
                                 ? COOKIE_FROSTINGS.find(f => f.name === displayFrostings[0])
+                                : isCustomCupcake
+                                ? CUPCAKE_FROSTINGS.find(f => f.name === displayFrostings[0])
                                 : FROSTINGS.find(f => f.name === displayFrostings[0]);
                             const toppingObj = isCustomCookie
                                 ? COOKIE_TOPPINGS.find(t => t.name === displayToppings[0])
+                                : isCustomCupcake
+                                ? CUPCAKE_TOPPINGS.find(t => t.name === displayToppings[0])
                                 : AVAILABLE_TOPPINGS.find(t => t.name === displayToppings[0]);
 
                             return (
                                 <>
-                                    {/* Quantity Selector for Jars (not custom cookies - they have their own above) */}
-                                    {!isCustomCookie && !jar.isCustom && (
+                                    {/* Quantity Selector for all items */}
+                                    {(
                                         <Box sx={{ mb: 3 }}>
                                             <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 1.5 }}>
                                                 Quantity {availableSlots > 0 && <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary', fontSize: '1.4rem' }}>({availableSlots} slots available)</Typography>}
@@ -1279,7 +1297,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                             )}
                                         </Box>
                                         <Typography sx={{ fontWeight: 600, fontSize: '1.4rem', color: 'text.secondary' }}>
-                                            {isCustomCookie ? 'Cookie' : 'Cake'}
+                                            {isCustomCookie ? 'Cookie' : isCustomCupcake ? 'Cupcake' : 'Cake'}
                                         </Typography>
                                         <Typography sx={{ fontSize: '1.4rem' }}>
                                             {displayCake}
@@ -1353,6 +1371,34 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                         </Typography>
                                     </Box>
                                 </Box>
+
+                                {/* Customize Button - only for custom jars/cookies/cupcakes */}
+                                {jar.isCustom && (
+                                    <Box
+                                        component="button"
+                                        onClick={onCustomize}
+                                        sx={{
+                                            width: '100%',
+                                            py: 1.5,
+                                            px: 3,
+                                            mt: 3,
+                                            backgroundColor: 'white',
+                                            color: 'black',
+                                            border: '2px solid black',
+                                            borderRadius: 2,
+                                            fontSize: '1.6rem',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            '&:hover': {
+                                                backgroundColor: 'black',
+                                                color: 'white',
+                                            },
+                                        }}
+                                    >
+                                        {isCustomCookie ? 'Customize This Cookie' : isCustomCupcake ? 'Customize This Cupcake' : 'Customize This Jar'}
+                                    </Box>
+                                )}
                                 </>
                             );
                         })()
@@ -1691,11 +1737,6 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Vegan</Typography>
                             </Box>
                         )}
-                        {/* All jars are sustainable */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <SustainableBadge size="medium" />
-                            <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Sustainable</Typography>
-                        </Box>
                     </Box>
 
                     {/* Cake Flavor */}
@@ -2338,23 +2379,22 @@ const PACKAGING = [
     {
         name: 'Cake Jar Boxes',
         heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-jar-box.png',
-        sustainable: true,
         glutenFree: true,
         vegan: true,
         slotCount: 6,
         price: 50,
     },
     {
-        name: 'Cupcake Trays',
-        heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-tray.png',
-        sustainable: false,
+        name: 'Cupcakes',
+        heroImage: 'https://placehold.co/600x400/FFB6C1/333333?text=Cupcakes',
         glutenFree: true,
         vegan: true,
+        slotCount: 6,
+        price: 45,
     },
     {
         name: 'Cookies',
         heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-tray.png',
-        sustainable: false,
         glutenFree: true,
         vegan: true,
         slotCount: 6,
@@ -2363,7 +2403,6 @@ const PACKAGING = [
     {
         name: 'Cookie Tray',
         heroImage: 'https://images.surrealcreamery.com/catering/packaging/cake-tray.png',
-        sustainable: false,
         glutenFree: true,
         vegan: true,
         slotCount: 12,
@@ -2384,32 +2423,40 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced, onDelete }) => {
         if (onDelete) onDelete(flavor);
     };
 
-    // For custom jars/cookies, get base, frosting, and topping images
+    // For custom jars/cookies/cupcakes, get base, frosting, and topping images
     const getCustomJarImages = () => {
-        if (!flavor.isCustom || !flavor.customizations) return { baseImage: null, frostingImage: null, frostingColor: null, toppingImages: [], isCustomCookie: false };
+        if (!flavor.isCustom || !flavor.customizations) return { baseImage: null, frostingImage: null, frostingColor: null, toppingImages: [], isCustomCookie: false, isCustomCupcake: false };
 
-        // Detect if it's a cookie by checking if the base (cake) name is in BASE_COOKIES or by name/id
+        // Detect type by checking the base name or id/name
         const baseName = flavor.customizations.cake;
         const isCookieBase = BASE_COOKIES.some(c => c.name === baseName);
+        const isCupcakeBase = BASE_CUPCAKES.some(c => c.name === baseName);
         const isCustomCookie = isCookieBase || flavor.name?.includes('Cookie') || flavor.id?.includes('cookie');
+        const isCustomCupcake = isCupcakeBase || flavor.name?.includes('Cupcake') || flavor.id?.includes('cupcake');
 
-        // For cookies, get the base cookie image
+        // For cookies/cupcakes, get the base image
         let baseImage = null;
         let baseColor = null;
         if (isCustomCookie) {
             const baseObj = BASE_COOKIES.find(c => c.name === baseName);
             baseImage = baseObj?.image;
             baseColor = baseObj?.color;
+        } else if (isCustomCupcake) {
+            const baseObj = BASE_CUPCAKES.find(c => c.name === baseName);
+            baseImage = baseObj?.image;
+            baseColor = baseObj?.color;
         }
 
         const frostingName = flavor.customizations.frostings?.[0];
-        // Use cookie frostings for custom cookies, jar frostings for jars
+        // Use appropriate frostings array based on type
         const frostingObj = isCustomCookie
             ? COOKIE_FROSTINGS.find(f => f.name === frostingName)
+            : isCustomCupcake
+            ? CUPCAKE_FROSTINGS.find(f => f.name === frostingName)
             : FROSTINGS.find(f => f.name === frostingName);
 
-        // Use cookie toppings for custom cookies, jar toppings for jars
-        const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : AVAILABLE_TOPPINGS;
+        // Use appropriate toppings array based on type
+        const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : isCustomCupcake ? CUPCAKE_TOPPINGS : AVAILABLE_TOPPINGS;
         const toppingImages = (flavor.customizations.toppings || [])
             .map(t => toppingsArray.find(top => top.name === t))
             .filter(t => t && t.image)
@@ -2418,13 +2465,14 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced, onDelete }) => {
         return {
             baseImage,
             frostingImage: frostingObj?.image,
-            frostingColor: isCustomCookie ? baseColor : frostingObj?.color,
+            frostingColor: (isCustomCookie || isCustomCupcake) ? baseColor : frostingObj?.color,
             toppingImages,
             isCustomCookie,
+            isCustomCupcake,
         };
     };
 
-    const { baseImage, frostingImage, frostingColor, toppingImages, isCustomCookie } = getCustomJarImages();
+    const { baseImage, frostingImage, frostingColor, toppingImages, isCustomCookie, isCustomCupcake } = getCustomJarImages();
 
     // Custom jars can always be clicked, so they shouldn't look as disabled
     const showAsDisabled = isPlaced && !flavor.isCustom;
@@ -2487,11 +2535,11 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced, onDelete }) => {
                         {/* For custom jars, show layered frosting + toppings */}
                         {flavor.isCustom ? (
                             <>
-                                {/* Base layer - cookie base (for cookies) */}
-                                {isCustomCookie && baseImage && (
+                                {/* Base layer - cookie/cupcake base */}
+                                {(isCustomCookie || isCustomCupcake) && baseImage && (
                                     <img
                                         src={baseImage}
-                                        alt="cookie base"
+                                        alt={isCustomCookie ? "cookie base" : "cupcake base"}
                                         style={{
                                             position: 'absolute',
                                             top: 0,
@@ -2515,7 +2563,7 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced, onDelete }) => {
                                             width: '100%',
                                             height: '100%',
                                             objectFit: 'cover',
-                                            zIndex: isCustomCookie ? 1 : 0,
+                                            zIndex: (isCustomCookie || isCustomCupcake) ? 1 : 0,
                                         }}
                                     />
                                 )}
@@ -2532,7 +2580,7 @@ const AnimatedFlavorCircle = ({ flavor, onSelect, isPlaced, onDelete }) => {
                                             width: '100%',
                                             height: '100%',
                                             objectFit: 'cover',
-                                            zIndex: isCustomCookie ? index + 2 : index + 1,
+                                            zIndex: (isCustomCookie || isCustomCupcake) ? index + 2 : index + 1,
                                         }}
                                     />
                                 ))}
@@ -2752,11 +2800,6 @@ const AnimatedPackaging = ({ item, onSelect, isSelected, isHighlighted }) => {
             >
                 {item.name}
             </Typography>
-            {item.sustainable && (
-                <Box sx={{ mt: 0.5 }}>
-                    <SustainableBadge size="small" />
-                </Box>
-            )}
         </Box>
     );
 };
@@ -2804,7 +2847,7 @@ const initialPersistedState = loadPersistedBoxState();
 
 export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onClearEditingCakeJarBox }) => {
     const { cateringState } = useContext(CateringLayoutContext);
-    const { packagingResetCounter } = cateringState.context;
+    const { packagingResetCounter, cart = [] } = cateringState.context;
 
     const categories = Object.entries(menu);
 
@@ -2870,20 +2913,22 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     });
     const [editingJar, setEditingJar] = useState(null); // The jar being customized (null = Make Your Own)
     const [editingCartItemId, setEditingCartItemId] = useState(null); // Cart item ID when editing from cart
+    const [originalEditingJars, setOriginalEditingJars] = useState(null); // Store original jars when editing to detect changes
     const [selectedDate, setSelectedDate] = useState(null);
     const [selectedTime, setSelectedTime] = useState(null);
     const [showAvailabilityPage, setShowAvailabilityPage] = useState(false);
     const [pendingPackagingItem, setPendingPackagingItem] = useState(null);
     const [availabilitySelectedOption, setAvailabilitySelectedOption] = useState(null); // 'browsing' or 'earliest'
     const [showAdvancedDateSelection, setShowAdvancedDateSelection] = useState(false);
-    const [selectedLocation, setSelectedLocation] = useState(() => {
-        return localStorage.getItem('selectedLocation') || 'kips-bay';
-    });
-    const [locationModalOpen, setLocationModalOpen] = useState(false);
     const [advancedPackagingItem, setAdvancedPackagingItem] = useState(null);
     const [slotPage, setSlotPage] = useState(0); // 0 = slots 1-6, 1 = slots 7-12 (for Cookie Tray)
     const [showListView, setShowListView] = useState(false); // Toggle to full page list view
     const [addingFromListView, setAddingFromListView] = useState(false); // Track when adding cookie from list view
+    // Multi-box support - unlimited boxes
+    const [completedBoxes, setCompletedBoxes] = useState([]); // Array of completed boxes (each is array of items)
+    const [currentBoxIndex, setCurrentBoxIndex] = useState(0); // Which box user is viewing (0 = first, etc.)
+    const [showAddMoreBoxModal, setShowAddMoreBoxModal] = useState(false); // Modal asking if they want another box
+    const [isEditingCompletedBox, setIsEditingCompletedBox] = useState(false); // Track when viewing/editing a previously completed box
     const heroRef = useRef(null);
     const isInitialMount = useRef(true);
     const prevResetCounter = useRef(packagingResetCounter);
@@ -2909,6 +2954,11 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         localStorage.setItem('cateringCustomJars', JSON.stringify(customJars));
     }, [customJars]);
 
+    // Sync showAvailabilityPage to catering machine context for header location selector
+    useEffect(() => {
+        sendToCatering({ type: 'SET_SHOWING_AVAILABILITY_PAGE', showing: showAvailabilityPage });
+    }, [showAvailabilityPage, sendToCatering]);
+
     // Reset packaging selection when logo is clicked (counter increments)
     // Skip initial mount to preserve loaded state
     useEffect(() => {
@@ -2921,10 +2971,16 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             prevResetCounter.current = packagingResetCounter;
             setSelectedPackaging(null);
             sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: null });
-            setPlacedFlavors([]);
+            // DON'T clear placedFlavors or localStorage - keep items so user can continue later
+            // setPlacedFlavors([]);
+            // clearBoxState();
             setSelectedFlavorCategory('cake');
             setSlotPage(0); // Reset to first page for paginated trays
-            clearBoxState(); // Also clear localStorage
+            // Reset Make Your Own state but keep items
+            setMakeYourOwnActive(false);
+            setMakeYourOwnStep(0);
+            setMakeYourOwnSelections({ cake: null, frosting: null, topping: null, cookie: null, syrup: null });
+            setEditingJar(null);
             // Also close availability page and advanced date selection if open
             setShowAvailabilityPage(false);
             setPendingPackagingItem(null);
@@ -2934,12 +2990,57 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         }
     }, [packagingResetCounter, sendToCatering]);
 
+    // Track previous cart count to detect when items are removed
+    const prevCartCountRef = useRef(cart.length);
+
+    // Clear box state when cart has no catering box items AND items were just removed
+    // This ensures the UI resets when user removes all boxes from cart, but not when building first box
+    useEffect(() => {
+        const prevCartCount = prevCartCountRef.current;
+        prevCartCountRef.current = cart.length;
+
+        // Only check if cart count decreased (items were removed)
+        if (cart.length >= prevCartCount) return;
+
+        // Check if there are any catering box items remaining in cart
+        const hasCateringBoxItems = cart.some(cartItem =>
+            cartItem.item?.['Item ID']?.startsWith('cake-jar-box-') ||
+            cartItem.item?.['Item ID']?.startsWith('cookie-box-') ||
+            cartItem.item?.['Item ID']?.startsWith('cookie-tray-') ||
+            cartItem.item?.['Item ID']?.startsWith('cupcake-box-')
+        );
+
+        // If no catering box items remaining after removal, clear the box-building state
+        if (!hasCateringBoxItems) {
+            setPlacedFlavors([]);
+            setCompletedBoxes([]);
+            setCurrentBoxIndex(0);
+            setIsEditingCompletedBox(false);
+            setSelectedPackaging(null);
+            sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: null });
+            clearBoxState();
+        }
+    }, [cart, sendToCatering]);
+
+    // Clear editing state if the cart item being edited no longer exists
+    useEffect(() => {
+        if (editingCartItemId) {
+            const cartItemExists = cart.some(item => item.id === editingCartItemId);
+            if (!cartItemExists) {
+                // Cart item was removed - clear editing state
+                setEditingCartItemId(null);
+                setOriginalEditingJars(null);
+            }
+        }
+    }, [cart, editingCartItemId]);
+
     // Handle editing cake jar box from cart
     useEffect(() => {
         if (editingCakeJarBox && editingCakeJarBox.jars) {
             // Find the appropriate packaging based on the first jar type
             const firstJar = editingCakeJarBox.jars[0];
             const isCookieItem = firstJar?.id?.includes('cookie') || firstJar?.isBaseCookie || firstJar?.isFrostedCookie;
+            const isCupcakeItem = firstJar?.id?.includes('cupcake');
 
             let targetPackaging;
             if (isCookieItem) {
@@ -2947,6 +3048,8 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 targetPackaging = editingCakeJarBox.jars.length === 12
                     ? PACKAGING.find(p => p.name === 'Cookie Tray')
                     : PACKAGING.find(p => p.name === 'Cookies');
+            } else if (isCupcakeItem) {
+                targetPackaging = PACKAGING.find(p => p.name === 'Cupcakes');
             } else {
                 targetPackaging = PACKAGING.find(p => p.name === 'Cake Jar Boxes');
             }
@@ -2956,6 +3059,10 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: targetPackaging });
                 // Store the cart item ID for updating later
                 setEditingCartItemId(editingCakeJarBox.cartItemId);
+                // Clear multi-box state - we're editing a single box from cart
+                setCompletedBoxes([]);
+                setCurrentBoxIndex(0);
+                setIsEditingCompletedBox(false);
                 // Restore the jars with slot indices
                 const restoredJars = editingCakeJarBox.jars.map((jar, index) => ({
                     ...jar,
@@ -2963,6 +3070,12 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                     id: jar.id || `restored-${index}-${Date.now()}`,
                 }));
                 setPlacedFlavors(restoredJars);
+                // Store original jars to detect changes
+                setOriginalEditingJars(JSON.stringify(editingCakeJarBox.jars.map(j => ({
+                    name: j.name,
+                    displayName: j.displayName,
+                    customizations: j.customizations,
+                }))));
                 setSelectedFlavorCategory('cake');
                 // Show the list view so user can see their items
                 setShowListView(true);
@@ -2978,12 +3091,6 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         if (newCategory !== null) {
             setSelectedFlavorCategory(newCategory);
         }
-    };
-
-    // Handle location change
-    const handleLocationChange = (locationId) => {
-        setSelectedLocation(locationId);
-        localStorage.setItem('selectedLocation', locationId);
     };
 
     // Open the availability page when clicking Explore
@@ -3082,6 +3189,13 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
 
     const handlePackagingSelect = (packaging, dateTimeInfo) => {
         console.log('[CategoryListView] Selecting packaging:', packaging?.name, packaging?.slotCount);
+
+        // Check if we're switching to a different packaging type
+        // Get the previous packaging from localStorage to compare
+        const previousState = loadPersistedBoxState();
+        const previousPackaging = previousState?.selectedPackaging;
+        const isSamePackaging = previousPackaging?.name === packaging?.name;
+
         setSelectedPackaging(packaging);
         sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging });
         console.log('[CategoryListView] Sent SET_SELECTED_PACKAGING to context');
@@ -3092,8 +3206,16 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         if (dateTimeInfo?.time) {
             setSelectedTime(dateTimeInfo.time);
         }
-        // Clear placed flavors when changing packaging
-        setPlacedFlavors([]);
+        // Only clear placedFlavors if switching to a DIFFERENT packaging type
+        // If same packaging, preserve items so user can continue where they left off
+        if (!isSamePackaging) {
+            setPlacedFlavors([]);
+        }
+        // Reset Make Your Own state - always exit the Make Your Own flow
+        setMakeYourOwnActive(false);
+        setMakeYourOwnStep(0);
+        setMakeYourOwnSelections({ cake: null, frosting: null, topping: null, cookie: null, syrup: null });
+        setEditingJar(null);
         // Scroll to top when entering packaging flow
         window.scrollTo(0, 0);
         // Set default flavor category to first available for this packaging
@@ -3124,14 +3246,15 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     };
 
     // Generate composition name from customizations (e.g., "Vanilla Cake, Tres Leches Frosting, and Chocolate Crunch")
-    const getCompositionName = (customizations, isCookie = false) => {
+    const getCompositionName = (customizations, isCookie = false, isCupcake = false) => {
         if (!customizations) return 'Custom Item';
 
         const parts = [];
 
-        // Add base (cake for jars, cookie for cookies) with label
+        // Add base (cake for jars, cookie for cookies, cupcake for cupcakes) with label
         if (customizations.cake) {
-            parts.push(`${customizations.cake} ${isCookie ? 'Cookie' : 'Cake'}`);
+            const baseLabel = isCookie ? 'Cookie' : isCupcake ? 'Cupcake' : 'Cake';
+            parts.push(`${customizations.cake} ${baseLabel}`);
         }
 
         // Add frosting with label
@@ -3162,7 +3285,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         setSelectedJarForModal(jarObj);
 
         // Make Your Own goes to inline flow on page
-        if ((flavor.name === 'Make Your Own Cake Jar' || flavor.name === 'Make Your Own Cookie') && !flavor.isCustom) {
+        if ((flavor.name === 'Make Your Own Cake Jar' || flavor.name === 'Make Your Own Cookie' || flavor.name === 'Make Your Own Cupcake') && !flavor.isCustom) {
             // Reset selections and activate inline Make Your Own
             setMakeYourOwnSelections({
                 cake: null,
@@ -3221,19 +3344,32 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     };
 
     // For cookies: 3 steps (cookie base, frosting, topping)
+    // For cupcakes: 4 steps (cupcake, frosting, topping, cookie) - no syrup
     // For cake jars: 5 steps (cake, frosting, topping, cookies, syrup)
     const isCookiePackaging = selectedPackaging?.name === 'Cookies' || selectedPackaging?.name === 'Cookie Tray';
-    const maxMakeYourOwnStep = isCookiePackaging ? 2 : 4;
+    const isCupcakePackaging = selectedPackaging?.name === 'Cupcakes';
+    const maxMakeYourOwnStep = isCookiePackaging ? 2 : isCupcakePackaging ? 3 : 4;
 
-    // For cookie packaging, show list view only after at least one cookie is added
-    // This way, selecting Cookie Tray goes directly to cookie selection (better UX)
+    // For slot-based packaging, show list view only when there are items in the box
+    // Show list view when we have jars OR when editing from cart OR when there are boxes in cart
+    // Don't navigate away just because jars are removed - user can add more from the list view
     useEffect(() => {
-        if (isCookiePackaging && placedFlavors.length > 0) {
+        const isSlotBased = isCookiePackaging || isCupcakePackaging || selectedPackaging?.name === 'Cake Jar Boxes';
+        const hasCateringBoxItems = cart.some(cartItem =>
+            cartItem.item?.['Item ID']?.startsWith('cake-jar-box-') ||
+            cartItem.item?.['Item ID']?.startsWith('cookie-box-') ||
+            cartItem.item?.['Item ID']?.startsWith('cookie-tray-') ||
+            cartItem.item?.['Item ID']?.startsWith('cupcake-box-')
+        );
+
+        if (isSlotBased && placedFlavors.length > 0) {
             setShowListView(true);
-        } else if (isCookiePackaging && placedFlavors.length === 0) {
+        } else if (isSlotBased && placedFlavors.length === 0 && !editingCartItemId && !hasCateringBoxItems) {
+            // Only go back to "Add a Cake Jar" if not editing and no boxes in cart
             setShowListView(false);
         }
-    }, [isCookiePackaging, placedFlavors.length]);
+        // If editing from cart or there are boxes in cart, stay on list view even if empty
+    }, [isCookiePackaging, isCupcakePackaging, selectedPackaging?.name, placedFlavors.length, editingCartItemId, cart]);
 
     const handleMakeYourOwnContinue = () => {
         if (makeYourOwnStep < maxMakeYourOwnStep) {
@@ -3245,8 +3381,10 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         if (makeYourOwnStep > 0) {
             setMakeYourOwnStep(prev => prev - 1);
         } else {
-            // Exit Make Your Own mode
+            // Exit Make Your Own mode and reset state
             setMakeYourOwnActive(false);
+            setMakeYourOwnStep(0);
+            setMakeYourOwnSelections({ cake: null, frosting: null, topping: null, cookie: null, syrup: null });
         }
     };
 
@@ -3343,20 +3481,22 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 );
             });
 
-            let itemToAdd;
+            let itemToShow;
 
             if (existingItem) {
                 // Use the existing item instead of creating a duplicate
-                itemToAdd = existingItem;
+                itemToShow = existingItem;
             } else {
                 // Create new custom item
                 const frostingColor = isCookiePackaging
                     ? COOKIE_FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color
+                    : isCupcakePackaging
+                    ? CUPCAKE_FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color
                     : FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)?.color;
 
                 const newCustomItem = {
-                    id: isCookiePackaging ? `custom-cookie-${Date.now()}` : `custom-jar-${Date.now()}`,
-                    name: isCookiePackaging ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar',
+                    id: isCookiePackaging ? `custom-cookie-${Date.now()}` : isCupcakePackaging ? `custom-cupcake-${Date.now()}` : `custom-jar-${Date.now()}`,
+                    name: isCookiePackaging ? 'Make Your Own Cookie' : isCupcakePackaging ? 'Make Your Own Cupcake' : 'Make Your Own Cake Jar',
                     image: null,
                     color: frostingColor || '#FFD700',
                     glutenFree: false,
@@ -3366,34 +3506,30 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 };
 
                 // Generate composition name from customizations
-                const compositionName = getCompositionName(newCustomItem.customizations, isCookiePackaging);
-                itemToAdd = { ...newCustomItem, displayName: compositionName };
+                const compositionName = getCompositionName(newCustomItem.customizations, isCookiePackaging, isCupcakePackaging);
+                itemToShow = { ...newCustomItem, displayName: compositionName };
 
                 // Add to custom jars/cookies list (only if new)
-                setCustomJars(prev => [...prev, itemToAdd]);
+                setCustomJars(prev => [...prev, itemToShow]);
             }
 
-            // Add to box if there's room
-            const maxSlots = selectedPackaging?.slotCount || 6;
-            setPlacedFlavors(prev => {
-                if (prev.length >= maxSlots) return prev;
+            // Exit Make Your Own mode and reset state
+            setMakeYourOwnActive(false);
+            setEditingJar(null);
+            setMakeYourOwnStep(0);
+            setMakeYourOwnSelections({ cake: null, frosting: null, topping: null, cookie: null, syrup: null });
 
-                const usedSlots = prev.map(f => f.slotIndex);
-                let nextSlot = 0;
-                for (let i = 0; i < maxSlots; i++) {
-                    if (!usedSlots.includes(i)) {
-                        nextSlot = i;
-                        break;
-                    }
-                }
-
-                return [...prev, { ...itemToAdd, slotIndex: nextSlot }];
-            });
+            // Open the preview modal so user can select quantity and add to box
+            setSelectedJarForModal(itemToShow);
+            setPreviewModalOpen(true);
+            return; // Don't navigate to list view yet - let modal handle it
         }
 
-        // Exit Make Your Own mode and clear editing state
+        // Exit Make Your Own mode and clear editing state (for editing existing jars)
         setMakeYourOwnActive(false);
         setEditingJar(null);
+        setMakeYourOwnStep(0);
+        setMakeYourOwnSelections({ cake: null, frosting: null, topping: null, cookie: null, syrup: null });
         // Navigate to list view to show the box contents
         setShowListView(true);
     };
@@ -3413,57 +3549,77 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         // Determine item details based on packaging type
         const slotCount = selectedPackaging?.slotCount || 6;
         const packagingPrice = selectedPackaging?.price || 50;
-        let itemId, itemName;
 
-        if (selectedPackaging?.name === 'Cookie Tray') {
-            itemId = `cookie-tray-${Date.now()}`;
-            itemName = `Cookie Tray (${slotCount} Cookies)`;
-        } else if (isCookiePackaging) {
-            itemId = `cookie-box-${Date.now()}`;
-            itemName = `Cookie Box (${slotCount} Cookies)`;
-        } else {
-            itemId = `cake-jar-box-${Date.now()}`;
-            itemName = `Cake Jar Box (${slotCount} Jars)`;
-        }
+        // Helper to create a box item from flavors array
+        const createBoxItem = (flavors, timestamp) => {
+            let itemId, itemName;
 
-        // Create a cart item for the Box
-        const boxItem = {
-            'Item ID': itemId,
-            'Item Name': itemName,
-            'Item Price': packagingPrice,
-            'Item Image': selectedPackaging?.heroImage,
-            // Store the items data for display and order processing
-            jars: placedFlavors.map(item => ({
-                name: item.name,
-                displayName: item.displayName,
-                image: item.image,
-                color: item.color,
-                glutenFree: item.glutenFree,
-                vegan: item.vegan,
-                customizations: item.customizations,
-                isCustom: item.isCustom,
-            })),
-            // Store fulfillment date/time
-            fulfillmentDate: selectedDate?.toISOString(),
-            fulfillmentTime: selectedTime,
+            if (selectedPackaging?.name === 'Cookie Tray') {
+                itemId = `cookie-tray-${timestamp}`;
+                itemName = `Cookie Tray (${slotCount} Cookies)`;
+            } else if (isCookiePackaging) {
+                itemId = `cookie-box-${timestamp}`;
+                itemName = `Cookie Box (${slotCount} Cookies)`;
+            } else if (isCupcakePackaging) {
+                itemId = `cupcake-box-${timestamp}`;
+                itemName = `Cupcakes (${slotCount} Cupcakes)`;
+            } else {
+                itemId = `cake-jar-box-${timestamp}`;
+                itemName = `Cake Jar Box (${slotCount} Jars)`;
+            }
+
+            return {
+                'Item ID': itemId,
+                'Item Name': itemName,
+                'Item Price': packagingPrice,
+                'Item Image': selectedPackaging?.heroImage,
+                jars: flavors.map(item => ({
+                    name: item.name,
+                    displayName: item.displayName,
+                    image: item.image,
+                    color: item.color,
+                    glutenFree: item.glutenFree,
+                    vegan: item.vegan,
+                    customizations: item.customizations,
+                    isCustom: item.isCustom,
+                })),
+                fulfillmentDate: selectedDate?.toISOString(),
+                fulfillmentTime: selectedTime,
+            };
         };
 
-        // Send to cart via XState
+        // Add all completed boxes first
+        completedBoxes.forEach((boxFlavors, index) => {
+            const boxItem = createBoxItem(boxFlavors, Date.now() + index);
+            sendToCatering({
+                type: 'ADD_TO_CART',
+                item: boxItem,
+                selectedModifiers: {},
+                quantity: 1,
+            });
+        });
+
+        // Add the current box
+        const currentBoxItem = createBoxItem(placedFlavors, Date.now() + completedBoxes.length);
         sendToCatering({
             type: 'ADD_TO_CART',
-            item: boxItem,
+            item: currentBoxItem,
             selectedModifiers: {},
             quantity: 1,
         });
 
-        // Reset everything
+        // Reset everything including multi-box state
         setSelectedDate(null);
         setSelectedTime(null);
         setPlacedFlavors([]);
+        setCompletedBoxes([]);
+        setCurrentBoxIndex(0);
+        setIsEditingCompletedBox(false);
         setSelectedPackaging(null);
         sendToCatering({ type: 'SET_SELECTED_PACKAGING', packaging: null });
         setSelectedFlavorCategory('cake');
         setEditingCartItemId(null); // Clear editing state
+        setOriginalEditingJars(null); // Clear original jars tracking
         clearBoxState();
 
         // Open cart drawer to show the added item
@@ -3481,7 +3637,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             ));
 
             // Always add copies to the box based on quantity (user can fill box with same custom item)
-            const isSlotBasedPkg = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging;
+            const isSlotBasedPkg = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging || isCupcakePackaging;
             if (isSlotBasedPkg) {
                 const maxSlots = selectedPackaging?.slotCount || 6;
                 setPlacedFlavors(prev => {
@@ -3512,13 +3668,14 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                     return [...prev, ...newPlacements];
                 });
             }
-        } else if (updatedJar.name === 'Make Your Own Cake Jar' || updatedJar.name === 'Make Your Own Cookie') {
+        } else if (updatedJar.name === 'Make Your Own Cake Jar' || updatedJar.name === 'Make Your Own Cookie' || updatedJar.name === 'Make Your Own Cupcake') {
             // Creating a new custom item from "Make Your Own"
             const isCookie = updatedJar.name === 'Make Your Own Cookie';
-            const compositionName = getCompositionName(updatedJar.customizations, isCookie);
+            const isCupcake = updatedJar.name === 'Make Your Own Cupcake';
+            const compositionName = getCompositionName(updatedJar.customizations, isCookie, isCupcake);
             const customItem = {
                 ...updatedJar,
-                id: `custom-${isCookie ? 'cookie' : 'jar'}-${Date.now()}`,
+                id: `custom-${isCookie ? 'cookie' : isCupcake ? 'cupcake' : 'jar'}-${Date.now()}`,
                 displayName: compositionName,
                 isCustom: true,
             };
@@ -3526,8 +3683,8 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             // Add to custom items list
             setCustomJars(prev => [...prev, customItem]);
 
-            // For slot-based packaging (Cake Jar Boxes, Cookies, Cookie Tray), add to slot
-            const isSlotBased = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging;
+            // For slot-based packaging (Cake Jar Boxes, Cookies, Cookie Tray, Cupcakes), add to slot
+            const isSlotBased = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging || isCupcakePackaging;
             if (isSlotBased) {
                 const maxSlots = selectedPackaging?.slotCount || 6;
                 if (placedFlavors.length >= maxSlots) return;
@@ -3544,8 +3701,8 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 setPlacedFlavors(prev => [...prev, { ...customItem, slotIndex: nextSlot }]);
             }
         } else {
-            // For slot-based packaging (Cake Jar Boxes, Cookies, Cookie Tray), find empty slots and add items
-            const isSlotBased = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging;
+            // For slot-based packaging (Cake Jar Boxes, Cookies, Cookie Tray, Cupcakes), find empty slots and add items
+            const isSlotBased = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging || isCupcakePackaging;
             if (isSlotBased) {
                 const maxSlots = selectedPackaging?.slotCount || 6;
 
@@ -3587,28 +3744,41 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             }
         }
 
-        // If we were adding from list view, return to list view
+        // Always navigate to list view after adding to show the box contents
+        setShowListView(true);
         if (addingFromListView) {
-            setShowListView(true);
             setAddingFromListView(false);
         }
     };
 
     const currentFlavors = FLAVORS[selectedFlavorCategory] || [];
 
-    // Filter custom items based on packaging type (cookies vs jars)
+    // Filter custom items based on packaging type (cookies, cupcakes, or jars)
     const filteredCustomItems = customJars.filter(item => {
         if (isCookiePackaging) {
             return item.id?.startsWith('custom-cookie-');
+        } else if (isCupcakePackaging) {
+            return item.id?.startsWith('custom-cupcake-');
         } else {
             return item.id?.startsWith('custom-jar-');
         }
     });
 
     // Check if the box/tray is complete (based on slotCount)
-    const isSlotBasedPackaging = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging;
+    const isSlotBasedPackaging = selectedPackaging?.name === 'Cake Jar Boxes' || isCookiePackaging || isCupcakePackaging;
     const totalSlots = selectedPackaging?.slotCount || 6;
     const isBoxComplete = isSlotBasedPackaging && placedFlavors.length === totalSlots;
+
+    // Check if the box has changed from original (when editing cart item)
+    const hasBoxChanged = useMemo(() => {
+        if (!editingCartItemId || !originalEditingJars) return false;
+        const currentJarsString = JSON.stringify(placedFlavors.map(j => ({
+            name: j.name,
+            displayName: j.displayName,
+            customizations: j.customizations,
+        })));
+        return currentJarsString !== originalEditingJars;
+    }, [editingCartItemId, originalEditingJars, placedFlavors]);
 
     // Check if a flavor is already placed
     const isFlavorPlaced = (flavorId) => {
@@ -3641,28 +3811,10 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     // Show Availability Page (earliest pickup/delivery selection)
     if (showAvailabilityPage) {
         const availability = getNextAvailablePickup();
-        const currentLocationName = STORE_LOCATIONS.find(loc => loc.id === selectedLocation)?.name || 'Select Location';
 
         return (
             <Box sx={{ backgroundColor: 'white' }}>
-                {/* Location Selector - only on availability page */}
-                <Box
-                    sx={{
-                        py: 2,
-                        px: 3,
-                        display: 'flex',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                    }}
-                    onClick={() => setLocationModalOpen(true)}
-                >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>
-                            {currentLocationName}
-                        </Typography>
-                        <KeyboardArrowDownIcon sx={{ fontSize: 24, color: 'text.secondary' }} />
-                    </Box>
-                </Box>
+                {/* Location Selector is now in the header for catering mode */}
 
                 <Box sx={{ p: 3, maxWidth: 600, margin: '0 auto' }}>
                     {/* Earliest Pickup & Delivery Times - Two Column */}
@@ -3683,7 +3835,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     mb: 1,
                                 }}
                             >
-                                Earliest Pickup {isToday(availability.pickupTime) ? 'Today' : isTomorrow(availability.pickupTime) ? 'Tomorrow' : format(availability.pickupTime, 'EEE')}
+                                Earliest Pickup<br />{isToday(availability.pickupTime) ? 'Today' : isTomorrow(availability.pickupTime) ? 'Tomorrow' : format(availability.pickupTime, 'EEE')}
                             </Typography>
                             <FlipClockDisplay time={availability.pickupTime} small />
                         </Box>
@@ -3697,7 +3849,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     mb: 1,
                                 }}
                             >
-                                Earliest Delivery {isToday(availability.deliveryTime) ? 'Today' : isTomorrow(availability.deliveryTime) ? 'Tomorrow' : format(availability.deliveryTime, 'EEE')}
+                                Earliest Delivery<br />{isToday(availability.deliveryTime) ? 'Today' : isTomorrow(availability.deliveryTime) ? 'Tomorrow' : format(availability.deliveryTime, 'EEE')}
                             </Typography>
                             <FlipClockDisplay time={availability.deliveryTime} small />
                         </Box>
@@ -3914,15 +4066,6 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                         </Box>
                     </Box>
                 </Box>
-
-                {/* Location Modal */}
-                <LocationModal
-                    open={locationModalOpen}
-                    onClose={() => setLocationModalOpen(false)}
-                    selectedLocationId={selectedLocation}
-                    onSelectLocation={handleLocationChange}
-                    locations={STORE_LOCATIONS}
-                />
             </Box>
         );
     }
@@ -4228,14 +4371,6 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
 
                                         {/* Dietary badges with labels */}
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                                            {item.sustainable && (
-                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                    <SustainableBadge size="small" />
-                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
-                                                        Sustainable
-                                                    </Typography>
-                                                </Box>
-                                            )}
                                             {item.glutenFree && (
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                                     <GlutenFreeBadge size="small" />
@@ -4293,27 +4428,277 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                         {/* FULL PAGE LIST VIEW - shows all slots with Add Cookie CTA for empty ones */}
                         {(showListView || isBoxComplete) ? (
                             <>
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-                                    <Typography
-                                        variant="h3"
-                                        component="h2"
-                                        sx={{
-                                            fontWeight: 700,
-                                            fontSize: { xs: '1.75rem', md: '2.25rem' },
-                                        }}
-                                    >
-                                        {selectedPackaging?.name === 'Cookie Tray' ? 'Your Cookie Tray' :
-                                         isCookiePackaging ? 'Your Cookie Box' :
-                                         'Your Cake Jar Box'}
-                                    </Typography>
-                                </Box>
+                                <Box sx={{ mb: 3 }}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Typography
+                                            variant="h3"
+                                            component="h2"
+                                            sx={{
+                                                fontWeight: 700,
+                                                fontSize: { xs: '1.75rem', md: '2.25rem' },
+                                            }}
+                                        >
+                                            {completedBoxes.length > 0 ? (
+                                                // Multiple boxes - show ordinal
+                                                <>
+                                                    Your {['First', 'Second', 'Third', 'Fourth', 'Fifth'][currentBoxIndex] || `Box ${currentBoxIndex + 1}`}{' '}
+                                                    {selectedPackaging?.name === 'Cookie Tray' ? 'Cookie Tray' :
+                                                     isCookiePackaging ? 'Cookie Box' :
+                                                     isCupcakePackaging ? 'Cupcakes' :
+                                                     'Cake Jar Box'}
+                                                </>
+                                            ) : (
+                                                // Single box
+                                                selectedPackaging?.name === 'Cookie Tray' ? 'Your Cookie Tray' :
+                                                isCookiePackaging ? 'Your Cookie Box' :
+                                                isCupcakePackaging ? 'Your Cupcakes' :
+                                                'Your Cake Jar Box'
+                                            )}
+                                        </Typography>
+                                        <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>
+                                            <Typography component="span" sx={{ fontSize: '2.0rem', fontWeight: 600, color: 'text.primary' }}>
+                                                {placedFlavors.length}
+                                            </Typography>
+                                            {' '}of {totalSlots} {isCookiePackaging ? 'cookies' : isCupcakePackaging ? 'cupcakes' : 'jars'} filled
+                                        </Typography>
+                                    </Box>
 
-                                <Typography sx={{ mb: 3, color: 'text.secondary', fontSize: '1.4rem' }}>
-                                    {placedFlavors.length}/{totalSlots} filled
-                                </Typography>
+                                    {/* Box tabs and Add Another button */}
+                                    {(() => {
+                                        // Get all catering box items in cart
+                                        const cateringBoxItems = cart.filter(cartItem =>
+                                            cartItem.item?.['Item ID']?.startsWith('cake-jar-box-') ||
+                                            cartItem.item?.['Item ID']?.startsWith('cookie-box-') ||
+                                            cartItem.item?.['Item ID']?.startsWith('cookie-tray-') ||
+                                            cartItem.item?.['Item ID']?.startsWith('cupcake-box-')
+                                        );
+
+                                        // When editing from cart: show tabs for all cart items
+                                        if (editingCartItemId && cateringBoxItems.length > 0) {
+                                            const currentEditingIndex = cateringBoxItems.findIndex(item => item.id === editingCartItemId);
+                                            return (
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2, flexWrap: 'wrap' }}>
+                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                        {selectedPackaging?.name === 'Cookie Tray' ? 'Cookie Trays:' :
+                                                         isCookiePackaging ? 'Cookie Boxes:' :
+                                                         isCupcakePackaging ? 'Cupcake Boxes:' :
+                                                         'Cake Jar Boxes:'}
+                                                    </Typography>
+                                                    {cateringBoxItems.map((cartItem, index) => (
+                                                        <Box
+                                                            key={cartItem.id}
+                                                            onClick={() => {
+                                                                if (cartItem.id !== editingCartItemId) {
+                                                                    // Switch to editing a different cart item
+                                                                    // First, trigger edit for this cart item via context
+                                                                    const jars = cartItem.item?.jars || [];
+                                                                    const restoredJars = jars.map((jar, idx) => ({
+                                                                        ...jar,
+                                                                        slotIndex: idx,
+                                                                        id: jar.id || `restored-${idx}-${Date.now()}`,
+                                                                    }));
+                                                                    setPlacedFlavors(restoredJars);
+                                                                    setEditingCartItemId(cartItem.id);
+                                                                    // Store original jars to detect changes
+                                                                    setOriginalEditingJars(JSON.stringify(jars.map(j => ({
+                                                                        name: j.name,
+                                                                        displayName: j.displayName,
+                                                                        customizations: j.customizations,
+                                                                    }))));
+                                                                }
+                                                            }}
+                                                            sx={{
+                                                                width: 32,
+                                                                height: 32,
+                                                                borderRadius: 1,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                cursor: 'pointer',
+                                                                fontSize: '1.4rem',
+                                                                fontWeight: 600,
+                                                                backgroundColor: cartItem.id === editingCartItemId ? 'black' : 'transparent',
+                                                                color: cartItem.id === editingCartItemId ? 'white' : 'text.primary',
+                                                                border: cartItem.id === editingCartItemId ? 'none' : '1px solid',
+                                                                borderColor: 'grey.300',
+                                                                '&:hover': {
+                                                                    backgroundColor: cartItem.id === editingCartItemId ? 'black' : 'grey.100',
+                                                                },
+                                                            }}
+                                                        >
+                                                            {index + 1}
+                                                        </Box>
+                                                    ))}
+                                                    {/* Add Another button when editing from cart */}
+                                                    <Box
+                                                        component="button"
+                                                        onClick={() => {
+                                                            // Clear editing state and start a new box
+                                                            setEditingCartItemId(null);
+                                                            setOriginalEditingJars(null);
+                                                            setPlacedFlavors([]);
+                                                            setCompletedBoxes([]);
+                                                            setCurrentBoxIndex(0);
+                                                            setIsEditingCompletedBox(false);
+                                                        }}
+                                                        sx={{
+                                                            px: 2,
+                                                            py: 0.75,
+                                                            backgroundColor: 'white',
+                                                            color: 'black',
+                                                            border: '1px solid black',
+                                                            borderRadius: 1,
+                                                            fontSize: '1.3rem',
+                                                            fontWeight: 600,
+                                                            cursor: 'pointer',
+                                                            whiteSpace: 'nowrap',
+                                                            '&:hover': {
+                                                                backgroundColor: 'grey.100',
+                                                            },
+                                                        }}
+                                                    >
+                                                        + Add {selectedPackaging?.name === 'Cookie Tray' ? 'Tray' :
+                                                               isCookiePackaging ? 'Box' :
+                                                               isCupcakePackaging ? 'Box' :
+                                                               'Box'}
+                                                    </Box>
+                                                </Box>
+                                            );
+                                        }
+
+                                        // When NOT editing from cart but there are boxes in cart: show cart item tabs
+                                        // Show tabs even if current box isn't complete (so user can switch to edit other boxes)
+                                        if (!editingCartItemId && cateringBoxItems.length > 0) {
+                                            // The new box being built will be the next number after cart items
+                                            const newBoxNumber = cateringBoxItems.length + 1;
+                                            return (
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2, flexWrap: 'wrap' }}>
+                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                        {selectedPackaging?.name === 'Cookie Tray' ? 'Cookie Trays:' :
+                                                         isCookiePackaging ? 'Cookie Boxes:' :
+                                                         isCupcakePackaging ? 'Cupcake Boxes:' :
+                                                         'Cake Jar Boxes:'}
+                                                    </Typography>
+                                                    {/* Show tabs for existing cart items */}
+                                                    {cateringBoxItems.map((cartItem, index) => (
+                                                        <Box
+                                                            key={cartItem.id}
+                                                            onClick={() => {
+                                                                // Switch to editing this cart item
+                                                                const jars = cartItem.item?.jars || [];
+                                                                const restoredJars = jars.map((jar, idx) => ({
+                                                                    ...jar,
+                                                                    slotIndex: idx,
+                                                                    id: jar.id || `restored-${idx}-${Date.now()}`,
+                                                                }));
+                                                                setPlacedFlavors(restoredJars);
+                                                                setEditingCartItemId(cartItem.id);
+                                                                setOriginalEditingJars(JSON.stringify(jars.map(j => ({
+                                                                    name: j.name,
+                                                                    displayName: j.displayName,
+                                                                    customizations: j.customizations,
+                                                                }))));
+                                                            }}
+                                                            sx={{
+                                                                width: 32,
+                                                                height: 32,
+                                                                borderRadius: 1,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                cursor: 'pointer',
+                                                                fontSize: '1.4rem',
+                                                                fontWeight: 600,
+                                                                backgroundColor: 'transparent',
+                                                                color: 'text.primary',
+                                                                border: '1px solid',
+                                                                borderColor: 'grey.300',
+                                                                '&:hover': {
+                                                                    backgroundColor: 'grey.100',
+                                                                },
+                                                            }}
+                                                        >
+                                                            {index + 1}
+                                                        </Box>
+                                                    ))}
+                                                    {/* Show current box being built as active tab */}
+                                                    <Box
+                                                        sx={{
+                                                            width: 32,
+                                                            height: 32,
+                                                            borderRadius: 1,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            fontSize: '1.4rem',
+                                                            fontWeight: 600,
+                                                            backgroundColor: 'black',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                        }}
+                                                    >
+                                                        {newBoxNumber}
+                                                    </Box>
+                                                    {/* Add Another button - only when current box is complete */}
+                                                    {isBoxComplete && (
+                                                        <Box
+                                                            component="button"
+                                                            onClick={() => {
+                                                                // This will trigger the modal which now adds to cart first
+                                                                setShowAddMoreBoxModal(true);
+                                                            }}
+                                                            sx={{
+                                                                px: 2,
+                                                                py: 0.75,
+                                                                backgroundColor: 'white',
+                                                                color: 'black',
+                                                                border: '1px solid black',
+                                                                borderRadius: 1,
+                                                                fontSize: '1.3rem',
+                                                                fontWeight: 600,
+                                                                cursor: 'pointer',
+                                                                whiteSpace: 'nowrap',
+                                                                '&:hover': {
+                                                                    backgroundColor: 'grey.100',
+                                                                },
+                                                            }}
+                                                        >
+                                                            + Add {selectedPackaging?.name === 'Cookie Tray' ? 'Tray' :
+                                                                   isCookiePackaging ? 'Box' :
+                                                                   isCupcakePackaging ? 'Box' :
+                                                                   'Box'}
+                                                        </Box>
+                                                    )}
+                                                </Box>
+                                            );
+                                        }
+
+                                        return null;
+                                    })()}
+                                </Box>
 
                                 {/* All slots list */}
                                 <Box sx={{ maxWidth: 500, margin: '0 auto', pb: isBoxComplete ? 10 : 0 }}>
+                                    {/* Box label - show box number above slots */}
+                                    {completedBoxes.length === 0 && (
+                                        <Typography sx={{ fontSize: '1.2rem', fontWeight: 600, color: 'text.secondary', mb: 1, textTransform: 'uppercase', letterSpacing: 1 }}>
+                                            {(() => {
+                                                const cateringBoxItems = cart.filter(cartItem =>
+                                                    cartItem.item?.['Item ID']?.startsWith('cake-jar-box-') ||
+                                                    cartItem.item?.['Item ID']?.startsWith('cookie-box-') ||
+                                                    cartItem.item?.['Item ID']?.startsWith('cookie-tray-') ||
+                                                    cartItem.item?.['Item ID']?.startsWith('cupcake-box-')
+                                                );
+                                                // When editing from cart, show the box's position in cart
+                                                if (editingCartItemId) {
+                                                    const boxIndex = cateringBoxItems.findIndex(cartItem => cartItem.id === editingCartItemId);
+                                                    return `Box ${boxIndex >= 0 ? boxIndex + 1 : 1}`;
+                                                }
+                                                // When building a new box, show next number after cart items
+                                                return `Box ${cateringBoxItems.length + 1}`;
+                                            })()}
+                                        </Typography>
+                                    )}
                                     {Array.from({ length: totalSlots }, (_, i) => i).map((slotIndex) => {
                                         const flavorInSlot = placedFlavors.find(f => f.slotIndex === slotIndex);
                                         return (
@@ -4338,18 +4723,25 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                     <>
                                                         {(() => {
                                                             // For custom items, render layered images
-                                                            // Detect cookie vs jar by checking if base name is in BASE_COOKIES
+                                                            // Detect cookie vs cupcake vs jar by checking if base name is in respective arrays
                                                             const baseName = flavorInSlot.customizations?.cake;
                                                             const isCookieBase = baseName && BASE_COOKIES.some(c => c.name === baseName);
+                                                            const isCupcakeBase = baseName && BASE_CUPCAKES.some(c => c.name === baseName);
                                                             const isCustomCookie = flavorInSlot.isCustom && (isCookieBase || flavorInSlot.name?.includes('Cookie') || flavorInSlot.id?.includes('cookie'));
-                                                            const isCustomJar = flavorInSlot.isCustom && !isCustomCookie;
+                                                            const isCustomCupcake = flavorInSlot.isCustom && (isCupcakeBase || flavorInSlot.name?.includes('Cupcake') || flavorInSlot.id?.includes('cupcake'));
+                                                            const isCustomJar = flavorInSlot.isCustom && !isCustomCookie && !isCustomCupcake;
 
-                                                            if (isCustomCookie && flavorInSlot.customizations) {
-                                                                const baseObj = BASE_COOKIES.find(c => c.name === baseName);
+                                                            if ((isCustomCookie || isCustomCupcake) && flavorInSlot.customizations) {
+                                                                const baseObj = isCustomCookie
+                                                                    ? BASE_COOKIES.find(c => c.name === baseName)
+                                                                    : BASE_CUPCAKES.find(c => c.name === baseName);
                                                                 const frostingName = flavorInSlot.customizations.frostings?.[0];
-                                                                const frostingObj = COOKIE_FROSTINGS.find(f => f.name === frostingName);
+                                                                const frostingObj = isCustomCookie
+                                                                    ? COOKIE_FROSTINGS.find(f => f.name === frostingName)
+                                                                    : CUPCAKE_FROSTINGS.find(f => f.name === frostingName);
+                                                                const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : CUPCAKE_TOPPINGS;
                                                                 const toppingImages = (flavorInSlot.customizations.toppings || [])
-                                                                    .map(t => COOKIE_TOPPINGS.find(top => top.name === t))
+                                                                    .map(t => toppingsArray.find(top => top.name === t))
                                                                     .filter(t => t && t.image)
                                                                     .map(t => t.image);
 
@@ -4366,7 +4758,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                             position: 'relative',
                                                                         }}
                                                                     >
-                                                                        {/* Base cookie layer */}
+                                                                        {/* Base cookie/cupcake layer */}
                                                                         {baseObj?.image && (
                                                                             <img src={baseObj.image} alt="base" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
                                                                         )}
@@ -4505,7 +4897,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             +
                                                         </Box>
                                                         <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: '#666' }}>
-                                                            {isCookiePackaging ? 'Add a Cookie' : 'Add a Cake Jar'}
+                                                            {isCookiePackaging ? 'Add a Cookie' : isCupcakePackaging ? 'Add a Cupcake' : 'Add a Cake Jar'}
                                                         </Typography>
                                                     </Box>
                                                 ) : (
@@ -4518,6 +4910,130 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                         );
                                     })}
                                 </Box>
+
+                                {/* Modal asking if user wants to add more boxes */}
+                                <Dialog
+                                    open={showAddMoreBoxModal}
+                                    onClose={() => setShowAddMoreBoxModal(false)}
+                                    PaperProps={{
+                                        sx: {
+                                            borderRadius: 3,
+                                            maxWidth: 400,
+                                            mx: 2,
+                                        }
+                                    }}
+                                >
+                                    <DialogContent sx={{ p: 4, textAlign: 'center' }}>
+                                        <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>
+                                            Add Another {selectedPackaging?.name === 'Cookie Tray' ? 'Cookie Tray' :
+                                                         isCookiePackaging ? 'Cookie Box' :
+                                                         isCupcakePackaging ? 'Cupcake Box' :
+                                                         'Cake Jar Box'}?
+                                        </Typography>
+                                        <Typography sx={{ color: 'text.secondary', mb: 4, fontSize: '1.4rem' }}>
+                                            Your {selectedPackaging?.name === 'Cookie Tray' ? 'cookie tray' :
+                                                   isCookiePackaging ? 'cookie box' :
+                                                   isCupcakePackaging ? 'cupcake box' :
+                                                   'cake jar box'} is complete! Would you like to add more to another box?
+                                        </Typography>
+                                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                            <Box
+                                                component="button"
+                                                onClick={() => {
+                                                    // Add current box to cart FIRST, then start new one
+                                                    const slotCount = selectedPackaging?.slotCount || 6;
+                                                    const packagingPrice = selectedPackaging?.price || 50;
+
+                                                    let itemId, itemName;
+                                                    const timestamp = Date.now();
+
+                                                    if (selectedPackaging?.name === 'Cookie Tray') {
+                                                        itemId = `cookie-tray-${timestamp}`;
+                                                        itemName = `Cookie Tray (${slotCount} Cookies)`;
+                                                    } else if (isCookiePackaging) {
+                                                        itemId = `cookie-box-${timestamp}`;
+                                                        itemName = `Cookie Box (${slotCount} Cookies)`;
+                                                    } else if (isCupcakePackaging) {
+                                                        itemId = `cupcake-box-${timestamp}`;
+                                                        itemName = `Cupcakes (${slotCount} Cupcakes)`;
+                                                    } else {
+                                                        itemId = `cake-jar-box-${timestamp}`;
+                                                        itemName = `Cake Jar Box (${slotCount} Jars)`;
+                                                    }
+
+                                                    const boxItem = {
+                                                        'Item ID': itemId,
+                                                        'Item Name': itemName,
+                                                        'Item Price': packagingPrice,
+                                                        'Item Image': selectedPackaging?.heroImage,
+                                                        jars: placedFlavors.map(item => ({
+                                                            name: item.name,
+                                                            displayName: item.displayName,
+                                                            image: item.image,
+                                                            color: item.color,
+                                                            glutenFree: item.glutenFree,
+                                                            vegan: item.vegan,
+                                                            customizations: item.customizations,
+                                                            isCustom: item.isCustom,
+                                                        })),
+                                                        fulfillmentDate: selectedDate?.toISOString(),
+                                                        fulfillmentTime: selectedTime,
+                                                    };
+
+                                                    // Add box to cart
+                                                    sendToCatering({
+                                                        type: 'ADD_TO_CART',
+                                                        item: boxItem,
+                                                        selectedModifiers: {},
+                                                        quantity: 1,
+                                                    });
+
+                                                    // Start fresh new box (keep selectedPackaging)
+                                                    setPlacedFlavors([]);
+                                                    setCompletedBoxes([]);
+                                                    setCurrentBoxIndex(0);
+                                                    setShowAddMoreBoxModal(false);
+                                                    setIsEditingCompletedBox(false);
+                                                }}
+                                                sx={{
+                                                    py: 2,
+                                                    px: 4,
+                                                    backgroundColor: 'black',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: 2,
+                                                    fontSize: '1.6rem',
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                    '&:hover': { backgroundColor: '#333' },
+                                                }}
+                                            >
+                                                Yes, Add More
+                                            </Box>
+                                            <Box
+                                                component="button"
+                                                onClick={() => {
+                                                    setShowAddMoreBoxModal(false);
+                                                    handleAddBoxToCart();
+                                                }}
+                                                sx={{
+                                                    py: 2,
+                                                    px: 4,
+                                                    backgroundColor: 'white',
+                                                    color: 'black',
+                                                    border: '2px solid black',
+                                                    borderRadius: 2,
+                                                    fontSize: '1.6rem',
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                    '&:hover': { backgroundColor: 'grey.100' },
+                                                }}
+                                            >
+                                                No, Continue to Cart
+                                            </Box>
+                                        </Box>
+                                    </DialogContent>
+                                </Dialog>
 
                                 {/* Sticky Add to Cart Button - always visible */}
                                 <Box
@@ -4535,31 +5051,58 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     }}
                                 >
                                     <Box sx={{ maxWidth: 500, margin: '0 auto' }}>
-                                        <Box
-                                            component="button"
-                                            onClick={isBoxComplete ? handleAddBoxToCart : undefined}
-                                            disabled={!isBoxComplete}
-                                            sx={{
-                                                width: '100%',
-                                                py: 2,
-                                                px: 4,
-                                                backgroundColor: isBoxComplete ? 'black' : 'grey.300',
-                                                color: isBoxComplete ? 'white' : 'grey.500',
-                                                border: 'none',
-                                                borderRadius: 2,
-                                                fontSize: '1.6rem',
-                                                fontWeight: 700,
-                                                cursor: isBoxComplete ? 'pointer' : 'not-allowed',
-                                                '&:hover': {
-                                                    backgroundColor: isBoxComplete ? '#333' : 'grey.300',
-                                                },
-                                            }}
-                                        >
-                                            {isBoxComplete
-                                                ? (editingCartItemId ? 'Update Cart' : 'Add to Cart')
-                                                : `Add ${totalSlots - placedFlavors.length} More ${isCookiePackaging ? 'Cookie' : 'Jar'}${totalSlots - placedFlavors.length !== 1 ? 's' : ''}`
-                                            }
-                                        </Box>
+                                        {(() => {
+                                            // Determine button state
+                                            const isUpdateMode = editingCartItemId && isBoxComplete;
+                                            const canUpdate = isUpdateMode && hasBoxChanged;
+                                            const isEnabled = isBoxComplete && (!editingCartItemId || hasBoxChanged);
+
+                                            return (
+                                                <Box
+                                                    component="button"
+                                                    onClick={isEnabled ? () => {
+                                                        if (editingCartItemId) {
+                                                            // Editing existing cart item - update directly without modal
+                                                            handleAddBoxToCart();
+                                                        } else if (isEditingCompletedBox) {
+                                                            // Save changes to completed box and return to current working box
+                                                            const workingBoxIndex = completedBoxes.length;
+                                                            setCompletedBoxes(prev => {
+                                                                const newBoxes = [...prev];
+                                                                newBoxes[currentBoxIndex] = [...placedFlavors];
+                                                                return newBoxes;
+                                                            });
+                                                            setPlacedFlavors(completedBoxes[currentBoxIndex]);
+                                                            setCurrentBoxIndex(workingBoxIndex);
+                                                            setIsEditingCompletedBox(false);
+                                                        } else {
+                                                            setShowAddMoreBoxModal(true);
+                                                        }
+                                                    } : undefined}
+                                                    disabled={!isEnabled}
+                                                    sx={{
+                                                        width: '100%',
+                                                        py: 2,
+                                                        px: 4,
+                                                        backgroundColor: isEnabled ? 'black' : 'grey.300',
+                                                        color: isEnabled ? 'white' : 'grey.500',
+                                                        border: 'none',
+                                                        borderRadius: 2,
+                                                        fontSize: '1.6rem',
+                                                        fontWeight: 700,
+                                                        cursor: isEnabled ? 'pointer' : 'not-allowed',
+                                                        '&:hover': {
+                                                            backgroundColor: isEnabled ? '#333' : 'grey.300',
+                                                        },
+                                                    }}
+                                                >
+                                                    {isBoxComplete
+                                                        ? (isEditingCompletedBox ? 'Update' : (editingCartItemId ? 'Update Cart' : 'Add to Cart'))
+                                                        : `Add ${totalSlots - placedFlavors.length} More ${isCookiePackaging ? 'Cookie' : isCupcakePackaging ? 'Cupcake' : 'Jar'}${totalSlots - placedFlavors.length !== 1 ? 's' : ''}`
+                                                    }
+                                                </Box>
+                                            );
+                                        })()}
                                     </Box>
                                 </Box>
                             </>
@@ -4581,9 +5124,9 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                         >
                                             {editingJar
                                                 ? (editingJar.isCustom
-                                                    ? (isCookiePackaging ? 'Update Your Custom Cookie' : 'Update Your Custom Cake Jar')
+                                                    ? (isCookiePackaging ? 'Update Your Custom Cookie' : isCupcakePackaging ? 'Update Your Custom Cupcake' : 'Update Your Custom Cake Jar')
                                                     : editingJar.name)
-                                                : (isCookiePackaging ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar')}
+                                                : (isCookiePackaging ? 'Make Your Own Cookie' : isCupcakePackaging ? 'Make Your Own Cupcake' : 'Make Your Own Cake Jar')}
                                         </Typography>
 
                                         {/* Dynamic Preview Image - updates based on current step and selections */}
@@ -4592,28 +5135,34 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 // Get selected items from appropriate arrays based on packaging type
                                                 const selectedBase = isCookiePackaging
                                                     ? BASE_COOKIES.find(c => c.name === makeYourOwnSelections.cake)
+                                                    : isCupcakePackaging
+                                                    ? BASE_CUPCAKES.find(c => c.name === makeYourOwnSelections.cake)
                                                     : CAKE_FLAVORS.find(c => c.name === makeYourOwnSelections.cake);
                                                 const selectedFrosting = isCookiePackaging
                                                     ? COOKIE_FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)
+                                                    : isCupcakePackaging
+                                                    ? CUPCAKE_FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting)
                                                     : FROSTINGS.find(f => f.name === makeYourOwnSelections.frosting);
                                                 const selectedTopping = isCookiePackaging
                                                     ? COOKIE_TOPPINGS.find(t => t.name === makeYourOwnSelections.topping)
+                                                    : isCupcakePackaging
+                                                    ? CUPCAKE_TOPPINGS.find(t => t.name === makeYourOwnSelections.topping)
                                                     : AVAILABLE_TOPPINGS.find(t => t.name === makeYourOwnSelections.topping);
 
-                                                // For cookies: layer frosting on top of cookie
+                                                // For cookies/cupcakes: layer frosting on top of base
                                                 // For cake jars: frosting replaces the base image
                                                 let bgColor = '#f5f0e6';
                                                 let baseImage = null;
                                                 let frostingOverlay = null;
                                                 let showTopping = false;
 
-                                                if (isCookiePackaging) {
-                                                    // Cookies: Show nothing until cookie is selected
+                                                if (isCookiePackaging || isCupcakePackaging) {
+                                                    // Cookies/Cupcakes: Layer frosting on top of base
                                                     if (selectedBase) {
                                                         baseImage = selectedBase.image;
                                                         bgColor = selectedBase.color;
                                                     }
-                                                    // Layer frosting on top of cookie
+                                                    // Layer frosting on top
                                                     if (selectedFrosting && makeYourOwnStep >= 1) {
                                                         frostingOverlay = selectedFrosting.image;
                                                     }
@@ -4665,7 +5214,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             position: 'relative',
                                                         }}
                                                     >
-                                                        {/* Base layer - cookie or cake/frosting */}
+                                                        {/* Base layer - cookie/cupcake or cake/frosting */}
                                                         {baseImage && (
                                                             <img
                                                                 src={baseImage}
@@ -4681,7 +5230,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 }}
                                                             />
                                                         )}
-                                                        {/* Frosting overlay - for cookies only */}
+                                                        {/* Frosting overlay - for cookies and cupcakes */}
                                                         {frostingOverlay && (
                                                             <img
                                                                 src={frostingOverlay}
@@ -4718,14 +5267,14 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                             })()}
                                         </Box>
 
-                                        {/* Step 0: Select Cake/Cookie Base */}
+                                        {/* Step 0: Select Cake/Cookie/Cupcake Base */}
                                         {makeYourOwnStep === 0 && (
                                             <Box>
                                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 2, textAlign: 'center' }}>
-                                                    {isCookiePackaging ? 'Select Your Cookie' : 'Select Your Cake'}
+                                                    {isCookiePackaging ? 'Select Your Cookie' : isCupcakePackaging ? 'Select Your Cupcake' : 'Select Your Cake'}
                                                 </Typography>
                                                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, maxWidth: '350px', margin: '0 auto' }}>
-                                                    {(isCookiePackaging ? BASE_COOKIES : CAKE_FLAVORS).map((item) => (
+                                                    {(isCookiePackaging ? BASE_COOKIES : isCupcakePackaging ? BASE_CUPCAKES : CAKE_FLAVORS).map((item) => (
                                                         <Box
                                                             key={item.name}
                                                             onClick={() => handleMakeYourOwnSelect('cake', item.name)}
@@ -4763,34 +5312,73 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                     Select Your Frosting
                                                 </Typography>
                                                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, maxWidth: '350px', margin: '0 auto' }}>
-                                                    {(isCookiePackaging ? COOKIE_FROSTINGS : FROSTINGS).map((frosting) => (
-                                                        <Box
-                                                            key={frosting.name}
-                                                            onClick={() => handleMakeYourOwnSelect('frosting', frosting.name)}
-                                                            sx={{
-                                                                display: 'flex',
-                                                                flexDirection: 'column',
-                                                                alignItems: 'center',
-                                                                cursor: 'pointer',
-                                                            }}
-                                                        >
+                                                    {(isCookiePackaging ? COOKIE_FROSTINGS : isCupcakePackaging ? CUPCAKE_FROSTINGS : FROSTINGS).map((frosting) => {
+                                                        // Get selected cupcake image for layered preview (cupcakes only)
+                                                        const selectedCupcakeImage = isCupcakePackaging && makeYourOwnSelections.cake
+                                                            ? BASE_CUPCAKES.find(c => c.name === makeYourOwnSelections.cake)?.image
+                                                            : null;
+
+                                                        return (
                                                             <Box
+                                                                key={frosting.name}
+                                                                onClick={() => handleMakeYourOwnSelect('frosting', frosting.name)}
                                                                 sx={{
-                                                                    width: 80,
-                                                                    height: 80,
-                                                                    borderRadius: '50%',
-                                                                    overflow: 'hidden',
-                                                                    backgroundColor: 'white',
-                                                                    border: `3px solid ${frosting.color}`,
-                                                                    boxShadow: makeYourOwnSelections.frosting === frosting.name ? `0 0 0 2px ${frosting.color}` : '0 2px 8px rgba(0,0,0,0.15)',
-                                                                    transition: 'all 0.2s',
+                                                                    display: 'flex',
+                                                                    flexDirection: 'column',
+                                                                    alignItems: 'center',
+                                                                    cursor: 'pointer',
                                                                 }}
                                                             >
-                                                                {frosting.image && <img src={frosting.image} alt={frosting.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                                                                <Box
+                                                                    sx={{
+                                                                        width: 80,
+                                                                        height: 80,
+                                                                        borderRadius: '50%',
+                                                                        overflow: 'hidden',
+                                                                        backgroundColor: 'white',
+                                                                        border: makeYourOwnSelections.frosting === frosting.name ? `3px solid ${frosting.color}` : '2px solid #e0e0e0',
+                                                                        boxShadow: makeYourOwnSelections.frosting === frosting.name ? `0 0 0 2px ${frosting.color}` : '0 2px 8px rgba(0,0,0,0.15)',
+                                                                        transition: 'all 0.2s',
+                                                                        position: 'relative',
+                                                                    }}
+                                                                >
+                                                                    {/* Cupcake base layer (for cupcakes only) */}
+                                                                    {selectedCupcakeImage && (
+                                                                        <img
+                                                                            src={selectedCupcakeImage}
+                                                                            alt="Cupcake base"
+                                                                            style={{
+                                                                                position: 'absolute',
+                                                                                top: 0,
+                                                                                left: 0,
+                                                                                width: '100%',
+                                                                                height: '100%',
+                                                                                objectFit: 'cover',
+                                                                                zIndex: 0,
+                                                                            }}
+                                                                        />
+                                                                    )}
+                                                                    {/* Frosting layer on top */}
+                                                                    {frosting.image && (
+                                                                        <img
+                                                                            src={frosting.image}
+                                                                            alt={frosting.name}
+                                                                            style={{
+                                                                                position: selectedCupcakeImage ? 'absolute' : 'relative',
+                                                                                top: 0,
+                                                                                left: 0,
+                                                                                width: '100%',
+                                                                                height: '100%',
+                                                                                objectFit: 'cover',
+                                                                                zIndex: 1,
+                                                                            }}
+                                                                        />
+                                                                    )}
+                                                                </Box>
+                                                                <Typography sx={{ fontSize: '1.4rem', mt: 1, textAlign: 'center' }}>{frosting.name}</Typography>
                                                             </Box>
-                                                            <Typography sx={{ fontSize: '1.4rem', mt: 1, textAlign: 'center' }}>{frosting.name}</Typography>
-                                                        </Box>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </Box>
                                             </Box>
                                         )}
@@ -4802,7 +5390,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                     Add Topping <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>(Optional)</Typography>
                                                 </Typography>
                                                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, maxWidth: '350px', margin: '0 auto' }}>
-                                                    {(isCookiePackaging ? COOKIE_TOPPINGS : AVAILABLE_TOPPINGS).map((topping) => (
+                                                    {(isCookiePackaging ? COOKIE_TOPPINGS : isCupcakePackaging ? CUPCAKE_TOPPINGS : AVAILABLE_TOPPINGS).map((topping) => (
                                                         <Box
                                                             key={topping.name}
                                                             component="button"
@@ -4828,41 +5416,43 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                             </Box>
                                         )}
 
-                                        {/* Step 3: Select Cookie (Optional) */}
-                                        {makeYourOwnStep === 3 && (
+                                        {/* Step 3: Select Cookie (Optional) - for cake jars and cupcakes */}
+                                        {makeYourOwnStep === 3 && !isCookiePackaging && (
                                             <Box>
                                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 2, textAlign: 'center' }}>
                                                     Add Cookie <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>(Optional)</Typography>
                                                 </Typography>
                                                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, maxWidth: '350px', margin: '0 auto' }}>
-                                                    {AVAILABLE_COOKIES.map((cookie) => (
+                                                    {(isCupcakePackaging ? CUPCAKE_COOKIES : AVAILABLE_COOKIES).map((cookieItem) => {
+                                                        const cookieName = typeof cookieItem === 'string' ? cookieItem : cookieItem.name;
+                                                        return (
                                                         <Box
-                                                            key={cookie}
+                                                            key={cookieName}
                                                             component="button"
-                                                            onClick={() => handleMakeYourOwnSelect('cookie', makeYourOwnSelections.cookie === cookie ? null : cookie)}
+                                                            onClick={() => handleMakeYourOwnSelect('cookie', makeYourOwnSelections.cookie === cookieName ? null : cookieName)}
                                                             sx={{
                                                                 display: 'flex',
                                                                 alignItems: 'center',
                                                                 gap: 1,
                                                                 px: 1.5,
                                                                 py: 1,
-                                                                border: makeYourOwnSelections.cookie === cookie ? '2px solid black' : '1px solid #e0e0e0',
+                                                                border: makeYourOwnSelections.cookie === cookieName ? '2px solid black' : '1px solid #e0e0e0',
                                                                 borderRadius: 2,
-                                                                backgroundColor: makeYourOwnSelections.cookie === cookie ? '#f5f5f5' : 'white',
+                                                                backgroundColor: makeYourOwnSelections.cookie === cookieName ? '#f5f5f5' : 'white',
                                                                 cursor: 'pointer',
                                                                 fontSize: '1.4rem',
                                                                 textAlign: 'left',
                                                             }}
                                                         >
-                                                            {cookie}
+                                                            {cookieName}
                                                         </Box>
-                                                    ))}
+                                                    );})}
                                                 </Box>
                                             </Box>
                                         )}
 
-                                        {/* Step 4: Select Syrup (Optional) */}
-                                        {makeYourOwnStep === 4 && (
+                                        {/* Step 4: Select Syrup (Optional) - cake jars only, not for cupcakes */}
+                                        {makeYourOwnStep === 4 && !isCupcakePackaging && (
                                             <Box>
                                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 2, textAlign: 'center' }}>
                                                     Add Syrup <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>(Optional)</Typography>
@@ -4911,7 +5501,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 {/* X button to exit */}
                                                 <Box
                                                     component="button"
-                                                    onClick={() => { setMakeYourOwnActive(false); setEditingJar(null); }}
+                                                    onClick={() => { setMakeYourOwnActive(false); setEditingJar(null); setMakeYourOwnStep(0); setMakeYourOwnSelections({ cake: null, frosting: null, topping: null, cookie: null, syrup: null }); }}
                                                     sx={{
                                                         py: 1.5,
                                                         px: 2,
@@ -4972,7 +5562,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             cursor: 'pointer',
                                                         }}
                                                     >
-                                                        {editingJar ? (isCookiePackaging ? 'Update Cookie' : 'Update Cake Jar') : 'Add to Box'}
+                                                        {editingJar ? (isCookiePackaging ? 'Update Cookie' : isCupcakePackaging ? 'Update Cupcake' : 'Update Cake Jar') : 'Continue'}
                                                     </Box>
                                                 )}
                                             </Box>
@@ -4991,7 +5581,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 textAlign: 'center'
                                             }}
                                         >
-                                            {isCookiePackaging ? 'Add a Cookie' : 'Add a Cake Jar'}
+                                            {isCookiePackaging ? 'Add a Cookie' : isCupcakePackaging ? 'Add a Cupcake' : 'Add a Cake Jar'}
                                         </Typography>
 
                                         {/* Legend */}
@@ -5047,7 +5637,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 },
                                             }}
                                         >
-                                            {isCookiePackaging ? 'Your Cookies' : 'Your Jars'}
+                                            {isCookiePackaging ? 'Your Cookies' : isCupcakePackaging ? 'Your Cupcakes' : 'Your Jars'}
                                         </Box>
                                     )}
                                     {(FLAVOR_CATEGORIES_BY_PACKAGING[selectedPackaging?.name] || []).map((category) => (
@@ -5083,7 +5673,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                 </Box>
                                 )}
 
-                                {/* Your Jars/Cookies Section - only show when user has custom items */}
+                                {/* Your Jars/Cookies/Cupcakes Section - only show when user has custom items */}
                                 {filteredCustomItems.length > 0 && (
                                     <Box id="your-jars-section" sx={{ mb: 0 }}>
                                         <Typography
@@ -5096,12 +5686,12 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 margin: '0 auto',
                                             }}
                                         >
-                                            {isCookiePackaging ? 'Your Cookies' : 'Your Jars'}
+                                            {isCookiePackaging ? 'Your Cookies' : isCupcakePackaging ? 'Your Cupcakes' : 'Your Jars'}
                                         </Typography>
                                         <Box sx={{ maxWidth: 500, margin: '0 auto' }}>
                                             {/* Make Your Own - moves here when custom items exist */}
                                             <Box
-                                                onClick={() => handleOpenJarModal(isCookiePackaging ? MAKE_YOUR_OWN_COOKIE : MAKE_YOUR_OWN_JAR)}
+                                                onClick={() => handleOpenJarModal(isCookiePackaging ? MAKE_YOUR_OWN_COOKIE : isCupcakePackaging ? MAKE_YOUR_OWN_CUPCAKE : MAKE_YOUR_OWN_JAR)}
                                                 sx={{
                                                     display: 'flex',
                                                     alignItems: 'center',
@@ -5118,26 +5708,27 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                         width: 80,
                                                         height: 80,
                                                         borderRadius: '50%',
-                                                        backgroundColor: isCookiePackaging ? MAKE_YOUR_OWN_COOKIE.color : MAKE_YOUR_OWN_JAR.color,
+                                                        backgroundColor: isCookiePackaging ? MAKE_YOUR_OWN_COOKIE.color : isCupcakePackaging ? MAKE_YOUR_OWN_CUPCAKE.color : MAKE_YOUR_OWN_JAR.color,
                                                         overflow: 'hidden',
                                                         flexShrink: 0,
                                                         boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
                                                     }}
                                                 >
                                                     <img
-                                                        src={isCookiePackaging ? MAKE_YOUR_OWN_COOKIE.image : MAKE_YOUR_OWN_JAR.image}
-                                                        alt={isCookiePackaging ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar'}
+                                                        src={isCookiePackaging ? MAKE_YOUR_OWN_COOKIE.image : isCupcakePackaging ? MAKE_YOUR_OWN_CUPCAKE.image : MAKE_YOUR_OWN_JAR.image}
+                                                        alt={isCookiePackaging ? 'Make Your Own Cookie' : isCupcakePackaging ? 'Make Your Own Cupcake' : 'Make Your Own Cake Jar'}
                                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                     />
                                                 </Box>
                                                 <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
-                                                    {isCookiePackaging ? 'Make Your Own Cookie' : 'Make Your Own Cake Jar'}
+                                                    {isCookiePackaging ? 'Make Your Own Cookie' : isCupcakePackaging ? 'Make Your Own Cupcake' : 'Make Your Own Cake Jar'}
                                                 </Typography>
                                             </Box>
-                                            {/* User's custom jars/cookies */}
+                                            {/* User's custom jars/cookies/cupcakes */}
                                             {filteredCustomItems.map((item, index) => {
                                                 const isCustomCookie = item.isCustom && (item.name?.includes('Cookie') || item.id?.includes('cookie'));
-                                                const isCustomJar = item.isCustom && !isCustomCookie;
+                                                const isCustomCupcake = item.isCustom && (item.name?.includes('Cupcake') || item.id?.includes('cupcake'));
+                                                const isCustomJar = item.isCustom && !isCustomCookie && !isCustomCupcake;
 
                                                 return (
                                                     <Box
@@ -5156,13 +5747,18 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                     >
                                                         {/* Layered image */}
                                                         {(() => {
-                                                            if (isCustomCookie && item.customizations) {
+                                                            if ((isCustomCookie || isCustomCupcake) && item.customizations) {
                                                                 const baseName = item.customizations?.cake;
-                                                                const baseObj = BASE_COOKIES.find(c => c.name === baseName);
+                                                                const baseObj = isCustomCookie
+                                                                    ? BASE_COOKIES.find(c => c.name === baseName)
+                                                                    : BASE_CUPCAKES.find(c => c.name === baseName);
                                                                 const frostingName = item.customizations.frostings?.[0];
-                                                                const frostingObj = COOKIE_FROSTINGS.find(f => f.name === frostingName);
+                                                                const frostingObj = isCustomCookie
+                                                                    ? COOKIE_FROSTINGS.find(f => f.name === frostingName)
+                                                                    : CUPCAKE_FROSTINGS.find(f => f.name === frostingName);
+                                                                const toppingsArray = isCustomCookie ? COOKIE_TOPPINGS : CUPCAKE_TOPPINGS;
                                                                 const toppingImages = (item.customizations.toppings || [])
-                                                                    .map(t => COOKIE_TOPPINGS.find(top => top.name === t))
+                                                                    .map(t => toppingsArray.find(top => top.name === t))
                                                                     .filter(t => t && t.image)
                                                                     .map(t => t.image);
 
@@ -5279,6 +5875,9 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                             : []),
                                         ...(category.id === 'frosted' && filteredCustomItems.length === 0 && isCookiePackaging
                                             ? [{ ...MAKE_YOUR_OWN_COOKIE, isMakeYourOwn: true }]
+                                            : []),
+                                        ...(category.id === 'cupcake' && filteredCustomItems.length === 0 && isCupcakePackaging
+                                            ? [{ ...MAKE_YOUR_OWN_CUPCAKE, isMakeYourOwn: true }]
                                             : []),
                                         ...(FLAVORS[category.id] || [])
                                     ];

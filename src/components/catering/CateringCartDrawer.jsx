@@ -393,18 +393,42 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
                                                 {/* Product Details */}
                                                 <Box sx={{ flex: 1 }}>
                                                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                        <Typography
-                                                            variant="body1"
-                                                            onClick={isCakeJarBox ? handleEditCakeJarBox : undefined}
-                                                            sx={{
-                                                                fontWeight: 500,
-                                                                fontSize: '1.6rem',
-                                                                cursor: isCakeJarBox ? 'pointer' : 'default',
-                                                                '&:hover': isCakeJarBox ? { textDecoration: 'underline' } : {},
-                                                            }}
-                                                        >
-                                                            {item['Item Name'] || 'Unknown Item'}
-                                                        </Typography>
+                                                        <Box>
+                                                            <Typography
+                                                                variant="body1"
+                                                                onClick={isCakeJarBox ? handleEditCakeJarBox : undefined}
+                                                                sx={{
+                                                                    fontWeight: 500,
+                                                                    fontSize: '1.6rem',
+                                                                    cursor: isCakeJarBox ? 'pointer' : 'default',
+                                                                    '&:hover': isCakeJarBox ? { textDecoration: 'underline' } : {},
+                                                                }}
+                                                            >
+                                                                {item['Item Name'] || 'Unknown Item'}
+                                                            </Typography>
+                                                            {/* Box number label for cake jar boxes */}
+                                                            {isCakeJarBox && (() => {
+                                                                // Count how many cake jar boxes are before this one
+                                                                const boxIndex = cart.filter((c, i) =>
+                                                                    i < cart.findIndex(ci => ci.id === cartItem.id) &&
+                                                                    c.item?.jars?.length > 0
+                                                                ).length + 1;
+                                                                return (
+                                                                    <Typography
+                                                                        variant="body2"
+                                                                        sx={{
+                                                                            fontSize: '1.2rem',
+                                                                            color: 'text.secondary',
+                                                                            fontWeight: 600,
+                                                                            textTransform: 'uppercase',
+                                                                            letterSpacing: 0.5,
+                                                                        }}
+                                                                    >
+                                                                        Box {boxIndex}
+                                                                    </Typography>
+                                                                );
+                                                            })()}
+                                                        </Box>
                                                         <Button
                                                             color="primary"
                                                             onClick={() => handleRemoveItem(cartItem.id)}

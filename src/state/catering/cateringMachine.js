@@ -594,6 +594,7 @@ export const cateringMachine = setup({
         cartDrawerOpen: false, // Controls cart drawer overlay
         packagingResetCounter: 0, // Increments when logo is clicked to reset packaging selection
         selectedPackaging: null, // Current packaging selection (Cookie Tray, Cake Jar Boxes, etc.)
+        showingAvailabilityPage: false, // True when on the availability page (for header location selector)
     },
     initial: 'booting',
     on: {
@@ -688,6 +689,12 @@ export const cateringMachine = setup({
                     return event.packaging;
                 }}),
                 'persistState'
+            ]
+        },
+        // Track if we're showing the availability page (for header location selector)
+        SET_SHOWING_AVAILABILITY_PAGE: {
+            actions: [
+                assign({ showingAvailabilityPage: ({ event }) => event.showing })
             ]
         },
         TRIGGER_AUTH: {
