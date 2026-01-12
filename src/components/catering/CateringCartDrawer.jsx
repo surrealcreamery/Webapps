@@ -153,6 +153,36 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
         return sortedDiscounts.find(d => quantity >= d.minimumQuantity) || null;
     };
 
+    // Calculate customization charges for a cart item
+    const calculateCustomizationCharges = (cartItem) => {
+        if (!cartItem?.item?.customizations || cartItem.item.customizations.length === 0) {
+            return { total: 0, details: [] };
+        }
+
+        const customizations = cartItem.item.customizations;
+        const jarCount = cartItem.item.jars?.length || 6;
+        const details = [];
+        let total = 0;
+
+        customizations.forEach(customizationId => {
+            if (customizationId === 'custom-logo-jars') {
+                const charge = 1.25 * jarCount;
+                total += charge;
+                details.push({ label: 'Custom Logos on Jars', charge, perUnit: '$1.25/jar', count: jarCount });
+            } else if (customizationId === 'custom-logo-boxes') {
+                const charge = 3.00;
+                total += charge;
+                details.push({ label: 'Custom Logo on Box', charge });
+            } else if (customizationId === 'custom-logo-trays') {
+                const charge = 3.00;
+                total += charge;
+                details.push({ label: 'Custom Logo on Tray', charge });
+            }
+        });
+
+        return { total, details };
+    };
+
     const calculateLineItemTotal = (cartItem) => {
         if (!cartItem?.item) {
             return 0;
@@ -176,7 +206,11 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
             }
             return modTotal + (modifierPrice * (quantity || 0));
         }, 0);
-        return ((itemPrice + modifiersPrice) * (cartItem.quantity || 0));
+
+        // Add customization charges
+        const customizationCharges = calculateCustomizationCharges(cartItem);
+
+        return ((itemPrice + modifiersPrice + customizationCharges.total) * (cartItem.quantity || 0));
     };
 
     const total = cart.reduce((acc, cartItem) => acc + calculateLineItemTotal(cartItem), 0).toFixed(2);
@@ -498,6 +532,30 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
                                                                     })}
                                                             </Box>
                                                         )}
+
+                                                    {/* Customization Charges */}
+                                                    {(() => {
+                                                        const customizationInfo = calculateCustomizationCharges(cartItem);
+                                                        if (customizationInfo.details.length === 0) return null;
+                                                        return (
+                                                            <Box sx={{ mt: 1, pt: 1, borderTop: '1px dashed', borderColor: 'grey.300' }}>
+                                                                <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '1.6rem', mb: 0.5 }}>
+                                                                    Customizations:
+                                                                </Typography>
+                                                                {customizationInfo.details.map((detail, idx) => (
+                                                                    <Box key={idx} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                        <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>
+                                                                            + {detail.label}
+                                                                            {detail.perUnit && ` (${detail.count} × ${detail.perUnit})`}
+                                                                        </Typography>
+                                                                        <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>
+                                                                            +${detail.charge.toFixed(2)}
+                                                                        </Typography>
+                                                                    </Box>
+                                                                ))}
+                                                            </Box>
+                                                        );
+                                                    })()}
 
                                                     {/* Individual Jars for Cake Jar Box */}
                                                     {item.jars && item.jars.length > 0 && (() => {

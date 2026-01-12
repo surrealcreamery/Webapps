@@ -498,6 +498,7 @@ export const ShopifyProvider = ({ children }) => {
                     node {
                       id
                       title
+                      sku
                       availableForSale
                       quantityAvailable
                       price {
@@ -947,6 +948,7 @@ export const ShopifyProvider = ({ children }) => {
         return {
           id: variantNode.id,
           title: variantNode.title,
+          sku: variantNode.sku || null,
           price: variantNode.price?.amount,
           availableForSale: variantNode.availableForSale,
           quantityAvailable: variantNode.quantityAvailable,

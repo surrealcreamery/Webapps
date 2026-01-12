@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 const DISCOUNTS_URL = 'https://data.surrealcreamery.com/discounts.json';
+const SHOPIFY_DOMAIN = 'surreal-9940.myshopify.com';
+const STOREFRONT_ACCESS_TOKEN = 'b826d9dc5dacd8d58a91e1de899e2c9a';
 
 // Module-level lock to prevent duplicate adds across re-renders
 let isAddingGifts = false;
@@ -12,13 +14,15 @@ let isAddingGifts = false;
  * @param {Function} addToCart - Function to add items to cart
  * @param {Function} removeFromCart - Function to remove items from cart
  * @param {Object} selectedRewards - User's selected rewards { [threshold]: discountId }
+ * @param {Array} products - Shopify products array (for identifying blind boxes)
  */
-export const useDiscounts = (checkout, addToCart, removeFromCart, selectedRewards = {}) => {
+export const useDiscounts = (checkout, addToCart, removeFromCart, selectedRewards = {}, products = []) => {
     const [discounts, setDiscounts] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const addedGifts = useRef(new Set()); // Track which gifts we've already added
     const previousSelectedRewards = useRef({}); // Track previous selections for swap logic
+    const [qualifyingProductIds, setQualifyingProductIds] = useState({}); // { collectionHandle: [productIds] }
 
     // Fetch discounts JSON
     useEffect(() => {
@@ -47,6 +51,69 @@ export const useDiscounts = (checkout, addToCart, removeFromCart, selectedReward
         fetchDiscounts();
     }, []);
 
+    // Fetch products from a collection by handle
+    const fetchCollectionProducts = useCallback(async (collectionHandle) => {
+        try {
+            const query = `
+                query getCollectionProducts($handle: String!) {
+                    collection(handle: $handle) {
+                        products(first: 100) {
+                            edges {
+                                node {
+                                    id
+                                }
+                            }
+                        }
+                    }
+                }
+            `;
+
+            const response = await fetch(`https://${SHOPIFY_DOMAIN}/api/2024-01/graphql.json`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Shopify-Storefront-Access-Token': STOREFRONT_ACCESS_TOKEN
+                },
+                body: JSON.stringify({ query, variables: { handle: collectionHandle } })
+            });
+
+            const { data } = await response.json();
+            const productIds = data?.collection?.products?.edges?.map(e => e.node.id) || [];
+            console.log(`🎁 Fetched ${productIds.length} products from collection "${collectionHandle}"`);
+            return productIds;
+        } catch (err) {
+            console.error(`Failed to fetch collection "${collectionHandle}":`, err);
+            return [];
+        }
+    }, []);
+
+    // Load qualifying products when discounts change
+    useEffect(() => {
+        if (!discounts) return;
+
+        const loadQualifyingProducts = async () => {
+            const newQualifyingIds = {};
+
+            for (const d of discounts) {
+                const collections = d.discount?.customerBuys?.items?.collections;
+                if (collections?.length) {
+                    for (const col of collections) {
+                        if (col.handle && !qualifyingProductIds[col.handle]) {
+                            const productIds = await fetchCollectionProducts(col.handle);
+                            newQualifyingIds[col.handle] = productIds;
+                        }
+                    }
+                }
+            }
+
+            if (Object.keys(newQualifyingIds).length > 0) {
+                setQualifyingProductIds(prev => ({ ...prev, ...newQualifyingIds }));
+            }
+        };
+
+        loadQualifyingProducts();
+    }, [discounts, fetchCollectionProducts]);
+
     // Get cart total
     const cartTotal = parseFloat(checkout?.subtotalPrice?.amount || 0);
     
@@ -57,6 +124,42 @@ export const useDiscounts = (checkout, addToCart, removeFromCart, selectedReward
     const isInCart = useCallback((variantId) => {
         return cartItems.some(item => item.variant?.id === variantId);
     }, [cartItems]);
+
+    // Count cart items that qualify for a discount based on its collection requirements
+    const getQualifyingCount = useCallback((discount) => {
+        if (!cartItems.length) return 0;
+
+        // Get qualifying collection handles from the discount
+        const collections = discount?.customerBuys?.items?.collections || [];
+        const qualifyingCollectionHandles = collections.map(c => c.handle);
+
+        // If no specific collection, count all items (shouldn't happen for BXGY)
+        if (qualifyingCollectionHandles.length === 0) {
+            return cartItems.reduce((sum, item) => sum + item.quantity, 0);
+        }
+
+        // Get all qualifying product IDs from the collections
+        const allQualifyingIds = new Set();
+        qualifyingCollectionHandles.forEach(handle => {
+            const productIds = qualifyingProductIds[handle] || [];
+            productIds.forEach(id => allQualifyingIds.add(id));
+        });
+
+        // If we haven't loaded the collection products yet, return 0
+        if (allQualifyingIds.size === 0) {
+            console.log('🎁 No qualifying product IDs loaded yet');
+            return 0;
+        }
+
+        // Count cart items that match qualifying products
+        return cartItems.reduce((count, item) => {
+            const productId = item.variant?.product?.id;
+            if (productId && allQualifyingIds.has(productId)) {
+                return count + item.quantity;
+            }
+            return count;
+        }, 0);
+    }, [cartItems, qualifyingProductIds]);
 
     // Parse app discounts (like DealEasy)
     const getAppDiscounts = useCallback(() => {
@@ -215,7 +318,8 @@ export const useDiscounts = (checkout, addToCart, removeFromCart, selectedReward
                     endsAt: discount.endsAt,
                     trigger,
                     freeProducts, // Array of all free products
-                    freeProduct: freeProducts[0] // Keep for backward compatibility
+                    freeProduct: freeProducts[0], // Keep for backward compatibility
+                    customerBuys: discount.customerBuys // Include qualifying items info
                 };
             });
     }, [discounts]);
@@ -264,18 +368,19 @@ export const useDiscounts = (checkout, addToCart, removeFromCart, selectedReward
                     conditionMet = cartTotal >= gift.trigger.amount;
                     console.log(`🎁 Checking ${gift.title}: cart $${cartTotal} >= $${gift.trigger.amount}? ${conditionMet}`);
                 } else if (gift.trigger?.type === 'minQuantity') {
-                    const totalQty = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+                    // Count qualifying items based on discount's collection requirements
+                    const qualifyingQty = getQualifyingCount(gift);
                     const threshold = gift.trigger.quantity;
-                    conditionMet = totalQty >= threshold;
-                    
+                    conditionMet = qualifyingQty >= threshold;
+
                     console.log(`🎁 Checking ${gift.title}: threshold=${threshold}, thresholdsNeedingSelection=${thresholdsNeedingSelection}`);
-                    
+
                     // Check if this threshold has multiple options
                     if (thresholdsNeedingSelection.includes(threshold)) {
                         // Multiple options at this threshold - MUST have explicit user selection
                         const userSelectedId = selectedRewards[threshold];
                         console.log(`🎁 Multiple options at threshold ${threshold}. User selected: ${userSelectedId}, this gift id: ${gift.id}`);
-                        
+
                         if (!userSelectedId) {
                             console.log(`🎁 NO USER SELECTION - skipping ${gift.title}`);
                             continue; // Skip - user hasn't selected yet
@@ -286,8 +391,8 @@ export const useDiscounts = (checkout, addToCart, removeFromCart, selectedReward
                         }
                         console.log(`🎁 User explicitly selected ${gift.title}`);
                     }
-                    
-                    console.log(`🎁 Checking ${gift.title}: qty ${totalQty} >= ${threshold}? ${conditionMet}`);
+
+                    console.log(`🎁 Checking ${gift.title}: qualifying qty ${qualifyingQty} >= ${threshold}? ${conditionMet}`);
                 }
 
                 // Add all free products if condition met
@@ -334,7 +439,7 @@ export const useDiscounts = (checkout, addToCart, removeFromCart, selectedReward
         if (cartItems.length > 0) {
             checkFreeGifts();
         }
-    }, [discounts, cartTotal, cartItems, addToCart, isInCart, getFreeGiftDiscounts, selectedRewards]);
+    }, [discounts, cartTotal, cartItems, addToCart, isInCart, getFreeGiftDiscounts, selectedRewards, getQualifyingCount]);
 
     // Reset added gifts when cart is emptied
     useEffect(() => {
@@ -395,8 +500,7 @@ export const useDiscounts = (checkout, addToCart, removeFromCart, selectedReward
     // Get applicable discounts for display in UI
     const getApplicableDiscounts = useCallback(() => {
         const freeGifts = getFreeGiftDiscounts();
-        const totalQuantity = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-        
+
         return freeGifts.map(gift => {
             if (gift.trigger?.type === 'minCartTotal') {
                 const progress = (cartTotal / gift.trigger.amount) * 100;
@@ -409,22 +513,24 @@ export const useDiscounts = (checkout, addToCart, removeFromCart, selectedReward
                     threshold: gift.trigger.amount
                 };
             } else if (gift.trigger?.type === 'minQuantity') {
+                // Count qualifying items based on discount's collection requirements
+                const qualifyingQuantity = getQualifyingCount(gift);
                 const requiredQty = gift.trigger.quantity;
-                const progress = (totalQuantity / requiredQty) * 100;
+                const progress = (qualifyingQuantity / requiredQty) * 100;
                 return {
                     ...gift,
                     triggerType: 'quantity',
                     progress: Math.min(progress, 100),
-                    unlocked: totalQuantity >= requiredQty,
-                    remaining: Math.max(0, requiredQty - totalQuantity),
-                    currentQuantity: totalQuantity,
+                    unlocked: qualifyingQuantity >= requiredQty,
+                    remaining: Math.max(0, requiredQty - qualifyingQuantity),
+                    currentQuantity: qualifyingQuantity,
                     requiredQuantity: requiredQty,
                     threshold: requiredQty
                 };
             }
             return { ...gift, triggerType: 'unknown' };
         });
-    }, [getFreeGiftDiscounts, cartTotal, cartItems]);
+    }, [getFreeGiftDiscounts, cartTotal, getQualifyingCount]);
 
     // Group quantity-based discounts by threshold for reward selection UI
     const getQuantityDiscountsByThreshold = useCallback(() => {

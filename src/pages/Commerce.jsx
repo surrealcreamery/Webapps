@@ -64,7 +64,7 @@ export default function Commerce() {
         }));
     };
     
-    const { freeGiftDiscounts, orderDiscounts, getApplicableDiscounts, getQuantityDiscountsByThreshold, isDiscountActive, loading: discountsLoading } = useDiscounts(checkout, addToCart, removeFromCart, selectedRewards);
+    const { freeGiftDiscounts, orderDiscounts, getApplicableDiscounts, getQuantityDiscountsByThreshold, isDiscountActive, loading: discountsLoading } = useDiscounts(checkout, addToCart, removeFromCart, selectedRewards, shopifyProducts);
     
     // Get quantity-based discounts grouped by threshold
     const quantityDiscountGroups = getQuantityDiscountsByThreshold ? getQuantityDiscountsByThreshold() : [];
@@ -444,10 +444,10 @@ export default function Commerce() {
     };
     
     // Handle add to cart
-    const handleAddToCart = async (productId, variantId, quantity = 1) => {
-        console.log('🛒 handleAddToCart called:', { productId, variantId, quantity });
+    const handleAddToCart = async (productId, variantId, quantity = 1, customAttributes = []) => {
+        console.log('🛒 handleAddToCart called:', { productId, variantId, quantity, customAttributes });
         try {
-            await addToCart(variantId, quantity);
+            await addToCart(variantId, quantity, customAttributes);
             console.log('✅ Added to cart');
             
             // Find the product and variant info

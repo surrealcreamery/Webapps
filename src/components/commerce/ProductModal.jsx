@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -19,6 +19,8 @@ import { ProductImageCarousel } from './ProductImageCarousel';
 import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
 import { DiscountZonePlaceholder } from './DiscountZonePlaceholder';
 import { getBestDeliveryEstimate, getShippingEstimate, getEstimatedDeliveryDates } from '@/components/commerce/geolocation';
+import { ModifierSelector } from './ModifierSelector';
+import { selectionsToCustomAttributes } from '@/services/squareModifiers';
 
 // Placeholder image
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=Product';
@@ -57,6 +59,19 @@ export const ProductModal = ({
     
     // Nearest store for pickup
     const [nearestStore, setNearestStore] = useState(null);
+
+    // Modifier selections state
+    const [modifierSelections, setModifierSelections] = useState({});
+    const [modifierCategories, setModifierCategories] = useState([]);
+    const [modifierPrice, setModifierPrice] = useState(0);
+    const [modifierValidation, setModifierValidation] = useState({ valid: true, errors: [] });
+    const [hasModifiers, setHasModifiers] = useState(false);
+    const [allModifierStepsComplete, setAllModifierStepsComplete] = useState(false);
+    const [canContinueModifiers, setCanContinueModifiers] = useState(false);
+    const [isLastModifierStep, setIsLastModifierStep] = useState(false);
+
+    // Ref for ModifierSelector to call continueToNextStep
+    const modifierSelectorRef = useRef(null);
     
     // Store locations for delivery estimate (you can pass these as props or get from context)
     const STORE_LOCATIONS = [
@@ -73,6 +88,14 @@ export const ProductModal = ({
             setDeliveryEstimate(null);
             setShippingEstimate(null);
             setNearestStore(null);
+            setModifierSelections({});
+            setModifierCategories([]);
+            setModifierPrice(0);
+            setModifierValidation({ valid: true, errors: [] });
+            setHasModifiers(false);
+            setAllModifierStepsComplete(false);
+            setCanContinueModifiers(false);
+            setIsLastModifierStep(false);
             return;
         }
         
@@ -202,29 +225,42 @@ export const ProductModal = ({
     const handleAddToCart = async () => {
         // Use selected variant or fall back to product's variant
         const variantIdToAdd = selectedVariantId || product?.variantId;
-        
+
         console.log('🎯 ProductModal: Add to Cart clicked');
         console.log('🎯 Product:', product);
         console.log('🎯 Selected Variant ID:', variantIdToAdd);
-        
+
         if (!variantIdToAdd) {
             console.error('❌ No variant ID available for product:', product);
             alert('Please select a size option.');
             return;
         }
 
+        // Check modifier validation
+        if (!modifierValidation.valid) {
+            alert(modifierValidation.errors.join('\n'));
+            return;
+        }
+
         try {
             setAddingToCart(true);
+
+            // Convert modifier selections to Shopify custom attributes
+            const customAttributes = modifierCategories.length > 0
+                ? selectionsToCustomAttributes(modifierCategories, modifierSelections)
+                : [];
+
             console.log('🎯 Calling onAddToCart callback with:', {
                 productId: product.id,
                 variantId: variantIdToAdd,
-                quantity: quantity
+                quantity: quantity,
+                customAttributes: customAttributes
             });
-            
+
             // Call parent's onAddToCart handler - it will handle cart, banner, and modal closing
-            await onAddToCart(product.id, variantIdToAdd, quantity);
+            await onAddToCart(product.id, variantIdToAdd, quantity, customAttributes);
             console.log('🎯 ✅ onAddToCart callback completed');
-            
+
         } catch (error) {
             console.error('❌ Error adding to cart:', error);
             alert('Failed to add item to cart. Please try again.');
@@ -311,6 +347,21 @@ export const ProductModal = ({
         : product.price;
 
     const productName = product.name || product.title || 'Product';
+
+    // Get SKU for modifier lookup (check variant first, then product)
+    const productSku = selectedVariant?.sku || product.sku || product.variants?.[0]?.sku || null;
+
+    // Handlers for modifier selections
+    const handleModifierSelectionsChange = (selections, categories) => {
+        setModifierSelections(selections);
+        setModifierCategories(categories);
+        setHasModifiers(categories && categories.length > 0);
+    };
+
+    // Calculate total price including modifiers
+    const basePrice = parseFloat(displayPrice.replace('$', '')) || 0;
+    const totalUnitPrice = basePrice + modifierPrice;
+    const totalPrice = totalUnitPrice * quantity;
 
     return (
         <Dialog
@@ -508,6 +559,20 @@ export const ProductModal = ({
                         </Box>
                     )}
 
+                    {/* Modifier Selector (for products with Square modifiers) */}
+                    {productSku && (
+                        <ModifierSelector
+                            ref={modifierSelectorRef}
+                            sku={productSku}
+                            onSelectionsChange={handleModifierSelectionsChange}
+                            onPriceChange={setModifierPrice}
+                            onValidationChange={setModifierValidation}
+                            onAllStepsComplete={setAllModifierStepsComplete}
+                            onCanContinueChange={setCanContinueModifiers}
+                            onIsLastStepChange={setIsLastModifierStep}
+                        />
+                    )}
+
                     {/* Fulfillment Options - Apple style */}
                     <Box sx={{ mb: 3 }}>
                         {/* Check inventory for tracked products */}
@@ -647,8 +712,8 @@ export const ProductModal = ({
                     justifyContent: 'flex-start',
                     zIndex: 1300,
                     // Safe area for mobile devices with notch/home indicator
-                    paddingBottom: isSmallScreen 
-                        ? 'calc(16px + env(safe-area-inset-bottom, 0px))' 
+                    paddingBottom: isSmallScreen
+                        ? 'calc(16px + env(safe-area-inset-bottom, 0px))'
                         : '16px',
                 }}
             >
@@ -679,51 +744,69 @@ export const ProductModal = ({
                     <CloseIcon />
                 </Button>
 
-                {/* Add to Cart Button */}
-                <Button
-                    variant="contained"
-                    fullWidth
-                    startIcon={addingToCart ? <CircularProgress size={28} color="inherit" /> : <ShoppingCartIcon sx={{ fontSize: '1.6rem' }} />}
-                    onClick={handleAddToCart}
-                    disabled={
-                        addingToCart || 
+                {/* Action Button - Continue or Add to Cart */}
+                {(() => {
+                    // Determine button state
+                    const isOutOfStock = product.inventoryTracked && product.totalInventory === 0;
+                    const showContinue = hasModifiers && !isLastModifierStep && !allModifierStepsComplete;
+                    const continueDisabled = showContinue && !canContinueModifiers;
+                    const addToCartDisabled = !showContinue && (
+                        addingToCart ||
                         (!selectedVariantId && !product.variantId) ||
-                        (product.inventoryTracked && product.totalInventory === 0)
-                    }
-                    sx={{
-                        backgroundColor: '#000000',
-                        color: '#ffffff',
-                        py: 1.5,
-                        '& .MuiButton-startIcon': {
-                            marginRight: 1,
-                        },
-                        '&:hover': {
-                            backgroundColor: '#333333'
-                        },
-                        '&:disabled': {
-                            backgroundColor: 'grey.300',
-                            color: 'grey.500'
+                        isOutOfStock ||
+                        (hasModifiers && !allModifierStepsComplete)
+                    );
+
+                    const handleButtonClick = () => {
+                        if (showContinue) {
+                            modifierSelectorRef.current?.continueToNextStep();
+                        } else {
+                            handleAddToCart();
                         }
-                    }}
-                >
-                    {addingToCart 
-                        ? <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Adding...</Typography>
-                        : (product.inventoryTracked && product.totalInventory === 0)
-                            ? <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Out of Stock</Typography>
-                            : (
+                    };
+
+                    return (
+                        <Button
+                            variant="contained"
+                            fullWidth
+                            startIcon={
+                                addingToCart ? <CircularProgress size={28} color="inherit" /> :
+                                showContinue ? null :
+                                <ShoppingCartIcon sx={{ fontSize: '1.6rem' }} />
+                            }
+                            onClick={handleButtonClick}
+                            disabled={showContinue ? continueDisabled : addToCartDisabled}
+                            sx={{
+                                backgroundColor: '#000000',
+                                color: '#ffffff',
+                                py: 1.5,
+                                '& .MuiButton-startIcon': {
+                                    marginRight: 1,
+                                },
+                                '&:hover': {
+                                    backgroundColor: '#333333'
+                                },
+                                '&:disabled': {
+                                    backgroundColor: 'grey.300',
+                                    color: 'grey.500'
+                                }
+                            }}
+                        >
+                            {addingToCart ? (
+                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Adding...</Typography>
+                            ) : isOutOfStock ? (
+                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Out of Stock</Typography>
+                            ) : showContinue ? (
+                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Continue</Typography>
+                            ) : (
                                 <Typography component="span" sx={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '1.6rem', fontWeight: 600 }}>
-                                    <span>Add{quantity > 1 ? ` (${quantity})` : ''} to order</span>
-                                    <span>
-                                        {(() => {
-                                            const unitPrice = parseFloat(displayPrice.replace('$', ''));
-                                            const totalPrice = unitPrice * quantity;
-                                            return `$${totalPrice.toFixed(2)}`;
-                                        })()}
-                                    </span>
+                                    <span>Add{quantity > 1 ? ` (${quantity})` : ''} to Cart</span>
+                                    <span>${totalPrice.toFixed(2)}</span>
                                 </Typography>
-                            )
-                    }
-                </Button>
+                            )}
+                        </Button>
+                    );
+                })()}
             </DialogActions>
         </Dialog>
     );

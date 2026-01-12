@@ -2913,6 +2913,9 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     const [availabilitySelectedOption, setAvailabilitySelectedOption] = useState(null); // 'browsing' or 'earliest'
     const [showAdvancedDateSelection, setShowAdvancedDateSelection] = useState(false);
     const [advancedPackagingItem, setAdvancedPackagingItem] = useState(null);
+    const [showCustomizationOptions, setShowCustomizationOptions] = useState(false);
+    const [selectedCustomizations, setSelectedCustomizations] = useState([]);
+    const [minimumBoxesRequired, setMinimumBoxesRequired] = useState(1); // Default 1, set to 8 for large events
     const [slotPage, setSlotPage] = useState(0); // 0 = slots 1-6, 1 = slots 7-12 (for Cookie Tray)
     const [showListView, setShowListView] = useState(false); // Toggle to full page list view
     const [addingFromListView, setAddingFromListView] = useState(false); // Track when adding cookie from list view
@@ -3128,6 +3131,9 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         const availability = getNextAvailablePickup();
         if (availabilitySelectedOption === 'quickest') {
             console.log('[CategoryListView] Quickest option selected, calling handlePackagingSelect');
+            // Reset minimum boxes for quickest orders
+            setMinimumBoxesRequired(1);
+            setSelectedCustomizations([]);
             // Quickest order - go directly to selecting cake jars with earliest time
             handlePackagingSelect(pendingPackagingItem, {
                 date: availability.pickupTime,
@@ -3137,11 +3143,11 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             setPendingPackagingItem(null);
             setAvailabilitySelectedOption(null);
         } else if (availabilitySelectedOption === 'future') {
-            console.log('[CategoryListView] Future option selected, calling handleAdvancedCustomization');
-            // Future customizations - go to date/time selection page
-            handleAdvancedCustomization(pendingPackagingItem);
+            console.log('[CategoryListView] Future option selected, showing customization options');
+            // Future customizations - show customization options page first
+            setShowCustomizationOptions(true);
+            setSelectedCustomizations([]);
             setShowAvailabilityPage(false);
-            setPendingPackagingItem(null);
             setAvailabilitySelectedOption(null);
         } else {
             console.log('[CategoryListView] No option selected! availabilitySelectedOption is:', availabilitySelectedOption);
@@ -3156,11 +3162,141 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
         setSelectedTime(null);
     };
 
+    // Get customization options based on packaging type
+    const getCustomizationOptions = () => {
+        const packagingName = pendingPackagingItem?.name || selectedPackaging?.name;
+        if (packagingName === 'Cake Jar Boxes') {
+            return [
+                { id: 'custom-logo-jars', label: 'Custom Logos on Jars', description: 'Minimum 48 Jars (8 Boxes)', price: '$1.25/jar' },
+                { id: 'custom-logo-boxes', label: 'Custom Logo on Boxes', description: 'Minimum 8 Boxes', price: '$3.00/box' },
+            ];
+        } else if (packagingName === 'Cookie Tray') {
+            return [
+                { id: 'custom-logo-trays', label: 'Custom Logos on Trays', description: 'Minimum 8 Trays', price: '$3.00/tray' },
+            ];
+        } else if (packagingName === 'Cupcakes') {
+            return [
+                { id: 'custom-logo-boxes', label: 'Custom Logos on Boxes', description: 'Minimum 8 Boxes', price: '$3.00/box' },
+            ];
+        }
+        return [];
+    };
+
+    const handleCustomizationToggle = (optionId) => {
+        setSelectedCustomizations(prev => {
+            if (prev.includes(optionId)) {
+                return prev.filter(id => id !== optionId);
+            } else {
+                return [...prev, optionId];
+            }
+        });
+    };
+
+    const handleBackFromCustomizationOptions = () => {
+        setShowCustomizationOptions(false);
+        setSelectedCustomizations([]);
+        setShowAvailabilityPage(true);
+    };
+
+    const handleContinueFromCustomizationOptions = () => {
+        console.log('[CategoryListView] Continuing from customization options with:', selectedCustomizations);
+        // Set minimum boxes to 8 for large event customizations
+        if (selectedCustomizations.length > 0) {
+            setMinimumBoxesRequired(8);
+        } else {
+            setMinimumBoxesRequired(1);
+        }
+        // Proceed to date/time selection
+        handleAdvancedCustomization(pendingPackagingItem);
+        setShowCustomizationOptions(false);
+    };
+
+    // Helper function to add current box to cart and start a new one
+    const addBoxToCartAndStartNew = () => {
+        const slotCount = selectedPackaging?.slotCount || 6;
+        const packagingPrice = selectedPackaging?.price || 50;
+
+        let itemId, itemName;
+        const timestamp = Date.now();
+
+        if (selectedPackaging?.name === 'Cookie Tray') {
+            itemId = `cookie-tray-${timestamp}`;
+            itemName = `Cookie Tray (${slotCount} Cookies)`;
+        } else if (selectedPackaging?.name === 'Cookies') {
+            itemId = `cookie-box-${timestamp}`;
+            itemName = `Cookie Box (${slotCount} Cookies)`;
+        } else if (selectedPackaging?.name === 'Cupcakes') {
+            itemId = `cupcake-box-${timestamp}`;
+            itemName = `Cupcakes (${slotCount} Cupcakes)`;
+        } else {
+            itemId = `cake-jar-box-${timestamp}`;
+            itemName = `Cake Jar Box (${slotCount} Jars)`;
+        }
+
+        const boxItem = {
+            'Item ID': itemId,
+            'Item Name': itemName,
+            'Item Price': packagingPrice,
+            'Item Image': selectedPackaging?.heroImage,
+            jars: placedFlavors.map(item => ({
+                name: item.name,
+                displayName: item.displayName,
+                image: item.image,
+                color: item.color,
+                glutenFree: item.glutenFree,
+                vegan: item.vegan,
+                customizations: item.customizations,
+                isCustom: item.isCustom,
+            })),
+            fulfillmentDate: selectedDate?.toISOString(),
+            fulfillmentTime: selectedTime,
+            customizations: selectedCustomizations, // Include selected customizations
+        };
+
+        // Add box to cart
+        sendToCatering({
+            type: 'ADD_TO_CART',
+            item: boxItem,
+            selectedModifiers: {},
+            quantity: 1,
+        });
+
+        // Start fresh new box (keep selectedPackaging)
+        setPlacedFlavors([]);
+        setCompletedBoxes([]);
+        setCurrentBoxIndex(0);
+    };
+
+    // Handle clicking "Add Box" - either auto-add or show modal based on minimum
+    const handleAddBoxClick = () => {
+        // Get current count of boxes in cart for this packaging type
+        const currentPrefix = selectedPackaging?.name === 'Cookie Tray' ? 'cookie-tray-' :
+                              selectedPackaging?.name === 'Cookies' ? 'cookie-box-' :
+                              selectedPackaging?.name === 'Cupcakes' ? 'cupcake-box-' :
+                              'cake-jar-box-';
+        const boxesInCart = cart.filter(cartItem =>
+            cartItem.item?.['Item ID']?.startsWith(currentPrefix)
+        ).length;
+
+        // After adding this box, we'll have boxesInCart + 1 boxes
+        const boxCountAfterAdding = boxesInCart + 1;
+
+        if (boxCountAfterAdding < minimumBoxesRequired) {
+            // Haven't reached minimum yet - auto-add to cart and start next box
+            addBoxToCartAndStartNew();
+        } else {
+            // Reached minimum - show the modal to ask if they want more
+            setShowAddMoreBoxModal(true);
+        }
+    };
+
     const handleBackFromAdvancedDateSelection = () => {
         setShowAdvancedDateSelection(false);
         setAdvancedPackagingItem(null);
         setSelectedDate(null);
         setSelectedTime(null);
+        // Go back to customization options page
+        setShowCustomizationOptions(true);
     };
 
     const handleAdvancedDateChange = (newDate) => {
@@ -3605,6 +3741,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                 })),
                 fulfillmentDate: selectedDate?.toISOString(),
                 fulfillmentTime: selectedTime,
+                customizations: selectedCustomizations, // Include selected customizations
             };
         };
 
@@ -3836,7 +3973,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
             <Box sx={{ backgroundColor: 'white' }}>
                 {/* Location Selector is now in the header for catering mode */}
 
-                <Box sx={{ p: 3, maxWidth: 600, margin: '0 auto' }}>
+                <Box sx={{ px: 2, py: 0, maxWidth: 600, margin: '0 auto' }}>
                     {/* Earliest Pickup & Delivery Times - Two Column */}
                     <Box
                         sx={{
@@ -3934,7 +4071,9 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     mb: 0.5,
                                 }}
                             >
-                                Ready Today
+                                {isToday(availability.pickupTime) || isToday(availability.deliveryTime)
+                                    ? 'Ready As Soon As Today'
+                                    : 'Ready As Soon As Tomorrow'}
                             </Typography>
                             <Typography
                                 sx={{
@@ -4084,6 +4223,167 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                         >
                             Continue
                         </Box>
+                    </Box>
+                </Box>
+            </Box>
+        );
+    }
+
+    // Show Customization Options Page (for "Make Your Next Large Event So Surreal" option)
+    if (showCustomizationOptions) {
+        const customizationOptions = getCustomizationOptions();
+        const packagingName = pendingPackagingItem?.name || selectedPackaging?.name || 'Product';
+
+        return (
+            <Box sx={{ backgroundColor: 'white', minHeight: '100vh', pb: '100px' }}>
+                <Box sx={{ px: 2, py: 0, maxWidth: 600, margin: '0 auto' }}>
+                    {/* Title */}
+                    <Typography
+                        variant="h4"
+                        sx={{
+                            fontWeight: 700,
+                            mb: 2,
+                            fontSize: '2rem',
+                            textAlign: 'center',
+                        }}
+                    >
+                        Customization Options
+                    </Typography>
+
+                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', mb: 3, textAlign: 'center' }}>
+                        Select any customizations you'd like for your {packagingName}.
+                    </Typography>
+
+                    {/* Checkbox Options */}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 4 }}>
+                        {customizationOptions.map((option) => (
+                            <Box
+                                key={option.id}
+                                component="button"
+                                onClick={() => handleCustomizationToggle(option.id)}
+                                sx={{
+                                    width: '100%',
+                                    p: 2,
+                                    backgroundColor: 'white',
+                                    border: '2px solid',
+                                    borderColor: selectedCustomizations.includes(option.id) ? 'black' : 'grey.300',
+                                    borderRadius: 2,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 2,
+                                    textAlign: 'left',
+                                    transition: 'all 0.2s',
+                                    '&:hover': {
+                                        borderColor: selectedCustomizations.includes(option.id) ? 'black' : 'grey.500',
+                                    },
+                                }}
+                            >
+                                {/* Checkbox */}
+                                <Box
+                                    sx={{
+                                        width: 24,
+                                        height: 24,
+                                        borderRadius: 1,
+                                        border: '2px solid',
+                                        borderColor: selectedCustomizations.includes(option.id) ? 'black' : 'grey.400',
+                                        backgroundColor: selectedCustomizations.includes(option.id) ? 'black' : 'transparent',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    {selectedCustomizations.includes(option.id) && (
+                                        <Box
+                                            component="svg"
+                                            viewBox="0 0 24 24"
+                                            sx={{
+                                                width: 16,
+                                                height: 16,
+                                                fill: 'white',
+                                            }}
+                                        >
+                                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                                        </Box>
+                                    )}
+                                </Box>
+                                {/* Label and Details */}
+                                <Box sx={{ flex: 1 }}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Typography
+                                            sx={{
+                                                fontSize: '1.6rem',
+                                                fontWeight: 600,
+                                                color: 'text.primary',
+                                            }}
+                                        >
+                                            {option.label}
+                                        </Typography>
+                                        <Typography
+                                            sx={{
+                                                fontSize: '1.6rem',
+                                                fontWeight: 600,
+                                                color: 'text.primary',
+                                            }}
+                                        >
+                                            {option.price}
+                                        </Typography>
+                                    </Box>
+                                    <Typography
+                                        sx={{
+                                            fontSize: '1.4rem',
+                                            color: 'text.secondary',
+                                            mt: 0.5,
+                                        }}
+                                    >
+                                        {option.description}
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        ))}
+                    </Box>
+
+                    {/* Action Buttons */}
+                    <Box sx={{ display: 'flex', gap: 2 }}>
+                        <Button
+                            variant="contained"
+                            onClick={handleBackFromCustomizationOptions}
+                            sx={{
+                                flex: 1,
+                                py: 1.5,
+                                fontSize: '1.6rem',
+                                fontWeight: 600,
+                                backgroundColor: 'grey.200',
+                                color: 'text.primary',
+                                boxShadow: 'none',
+                                '&:hover': {
+                                    backgroundColor: 'grey.300',
+                                    boxShadow: 'none',
+                                },
+                            }}
+                        >
+                            Back
+                        </Button>
+                        <Button
+                            variant="contained"
+                            onClick={handleContinueFromCustomizationOptions}
+                            sx={{
+                                flex: 1,
+                                py: 1.5,
+                                fontSize: '1.6rem',
+                                fontWeight: 600,
+                                backgroundColor: 'black',
+                                color: 'white',
+                                boxShadow: 'none',
+                                '&:hover': {
+                                    backgroundColor: '#333',
+                                    boxShadow: 'none',
+                                },
+                            }}
+                        >
+                            Continue
+                        </Button>
                     </Box>
                 </Box>
             </Box>
@@ -4666,10 +4966,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                     {isBoxComplete && (
                                                         <Box
                                                             component="button"
-                                                            onClick={() => {
-                                                                // This will trigger the modal which now adds to cart first
-                                                                setShowAddMoreBoxModal(true);
-                                                            }}
+                                                            onClick={handleAddBoxClick}
                                                             sx={{
                                                                 px: 2,
                                                                 py: 0.75,
@@ -4704,28 +5001,47 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                 <Box sx={{ maxWidth: 500, margin: '0 auto', pb: isBoxComplete ? 10 : 0 }}>
                                     {/* Box label - show box number above slots */}
                                     {completedBoxes.length === 0 && (
-                                        <Typography sx={{ fontSize: '1.2rem', fontWeight: 600, color: 'text.secondary', mb: 1, textTransform: 'uppercase', letterSpacing: 1 }}>
-                                            {(() => {
-                                                // Get cart items that match the CURRENT packaging type only
-                                                const getItemIdPrefix = () => {
-                                                    if (selectedPackaging?.name === 'Cookie Tray') return 'cookie-tray-';
-                                                    if (selectedPackaging?.name === 'Cookies') return 'cookie-box-';
-                                                    if (selectedPackaging?.name === 'Cupcakes') return 'cupcake-box-';
-                                                    return 'cake-jar-box-';
-                                                };
-                                                const currentPrefix = getItemIdPrefix();
-                                                const cateringBoxItems = cart.filter(cartItem =>
-                                                    cartItem.item?.['Item ID']?.startsWith(currentPrefix)
-                                                );
-                                                // When editing from cart, show the box's position in cart
-                                                if (editingCartItemId) {
-                                                    const boxIndex = cateringBoxItems.findIndex(cartItem => cartItem.id === editingCartItemId);
-                                                    return `Box ${boxIndex >= 0 ? boxIndex + 1 : 1}`;
-                                                }
-                                                // When building a new box, show next number after cart items
-                                                return `Box ${cateringBoxItems.length + 1}`;
-                                            })()}
-                                        </Typography>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                            <Typography sx={{ fontSize: '1.2rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                                                {(() => {
+                                                    // Get cart items that match the CURRENT packaging type only
+                                                    const getItemIdPrefix = () => {
+                                                        if (selectedPackaging?.name === 'Cookie Tray') return 'cookie-tray-';
+                                                        if (selectedPackaging?.name === 'Cookies') return 'cookie-box-';
+                                                        if (selectedPackaging?.name === 'Cupcakes') return 'cupcake-box-';
+                                                        return 'cake-jar-box-';
+                                                    };
+                                                    const currentPrefix = getItemIdPrefix();
+                                                    const cateringBoxItems = cart.filter(cartItem =>
+                                                        cartItem.item?.['Item ID']?.startsWith(currentPrefix)
+                                                    );
+                                                    // When editing from cart, show the box's position in cart
+                                                    if (editingCartItemId) {
+                                                        const boxIndex = cateringBoxItems.findIndex(cartItem => cartItem.id === editingCartItemId);
+                                                        return `Box ${boxIndex >= 0 ? boxIndex + 1 : 1}${minimumBoxesRequired > 1 ? ` of ${minimumBoxesRequired}` : ''}`;
+                                                    }
+                                                    // When building a new box, show next number after cart items
+                                                    const currentBoxNum = cateringBoxItems.length + 1;
+                                                    return `Box ${currentBoxNum}${minimumBoxesRequired > 1 ? ` of ${minimumBoxesRequired}` : ''}`;
+                                                })()}
+                                            </Typography>
+                                            {minimumBoxesRequired > 1 && selectedCustomizations.length > 0 && (
+                                                <Typography sx={{ fontSize: '1.1rem', color: 'text.secondary', textAlign: 'right' }}>
+                                                    {(() => {
+                                                        // Get the customization option labels for display
+                                                        const customizationLabels = selectedCustomizations.map(id => {
+                                                            if (id === 'custom-logo-jars') return 'Custom Logos on Jars';
+                                                            if (id === 'custom-logo-boxes') return 'Custom Logo on Boxes';
+                                                            if (id === 'custom-logo-trays') return 'Custom Logos on Trays';
+                                                            return id;
+                                                        });
+                                                        // Show the first/primary customization that requires 8 boxes
+                                                        const primaryCustomization = customizationLabels[0];
+                                                        return `(${minimumBoxesRequired} Box Minimum Required For ${primaryCustomization})`;
+                                                    })()}
+                                                </Typography>
+                                            )}
+                                        </Box>
                                     )}
                                     {Array.from({ length: totalSlots }, (_, i) => i).map((slotIndex) => {
                                         const flavorInSlot = placedFlavors.find(f => f.slotIndex === slotIndex);
@@ -5006,6 +5322,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                         })),
                                                         fulfillmentDate: selectedDate?.toISOString(),
                                                         fulfillmentTime: selectedTime,
+                                                        customizations: selectedCustomizations, // Include selected customizations
                                                     };
 
                                                     // Add box to cart
@@ -5104,7 +5421,8 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             setCurrentBoxIndex(workingBoxIndex);
                                                             setIsEditingCompletedBox(false);
                                                         } else {
-                                                            setShowAddMoreBoxModal(true);
+                                                            // Use handleAddBoxClick which auto-adds until minimum is reached
+                                                            handleAddBoxClick();
                                                         }
                                                     } : undefined}
                                                     disabled={!isEnabled}

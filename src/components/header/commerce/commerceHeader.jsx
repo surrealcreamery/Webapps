@@ -402,7 +402,7 @@ const Header = () => {
                             <Box
                                 sx={{
                                     mt: 0,
-                                    mb: 2,
+                                    mb: 0,
                                     display: 'flex',
                                     justifyContent: 'center',
                                     cursor: 'pointer'

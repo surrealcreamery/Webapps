@@ -341,8 +341,8 @@ export function CartDrawer({
                     });
                   });
                   
-                  // 3. Quantity-based rewards
-                  if (quantityProgress?.hasActiveReward) {
+                  // 3. Quantity-based rewards (only show if there are qualifying items in cart)
+                  if (quantityProgress?.hasActiveReward && quantityProgress.current > 0) {
                     allDiscounts.push({
                       id: 'quantity-reward',
                       type: 'quantity',
@@ -765,6 +765,21 @@ export function CartDrawer({
                             <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5, fontSize: '1.6rem' }}>
                               {variantTitle}
                             </Typography>
+                          )}
+
+                          {/* Custom Attributes (Modifiers) */}
+                          {item.customAttributes?.length > 0 && (
+                            <Box sx={{ mt: 0.5 }}>
+                              {item.customAttributes.map((attr, idx) => (
+                                <Typography
+                                  key={idx}
+                                  variant="body2"
+                                  sx={{ color: 'text.secondary', fontSize: '1.6rem' }}
+                                >
+                                  {attr.key}: {attr.value}
+                                </Typography>
+                              ))}
+                            </Box>
                           )}
 
                           <Typography variant="body1" sx={{ mt: 0.5, fontSize: '1.6rem' }}>
