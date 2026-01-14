@@ -138,29 +138,60 @@ export const validateSelections = (modifierCategories, selections) => {
  * Convert selections to Shopify custom attributes
  * @param {Array} modifierCategories - Modifier categories from API
  * @param {object} selections - Selected modifiers { categoryId: [modifierIds] }
+ * @param {object} modifierData - Full modifier data from API (contains productId, variationId)
  * @returns {Array} - Shopify custom attributes [{ key, value }]
  */
-export const selectionsToCustomAttributes = (modifierCategories, selections) => {
+export const selectionsToCustomAttributes = (modifierCategories, selections, modifierData = null) => {
   if (!modifierCategories || !selections) return [];
 
   const attributes = [];
+  const squareModifiers = [];
 
   modifierCategories.forEach((category) => {
     const selectedIds = selections[category.id] || [];
     if (selectedIds.length === 0) return;
 
-    // Get modifier names for display
-    const selectedNames = selectedIds
-      .map((id) => category.modifiers.find((m) => m.id === id)?.name)
+    // Get modifier details for display and Square IDs
+    const selectedModifiers = selectedIds
+      .map((id) => category.modifiers.find((m) => m.id === id))
       .filter(Boolean);
 
+    const selectedNames = selectedModifiers.map(m => m.name);
+
     if (selectedNames.length > 0) {
+      // Human-readable attribute for order display
       attributes.push({
         key: category.name,
         value: selectedNames.join(', '),
       });
+
+      // Collect Square catalog IDs for webhook
+      selectedModifiers.forEach(modifier => {
+        squareModifiers.push({
+          categoryId: category.id,
+          categoryName: category.name,
+          modifierId: modifier.id,
+          modifierName: modifier.name,
+          price: modifier.price || 0,
+        });
+      });
     }
   });
+
+  // Add Square catalog IDs as a special attribute for webhook processing
+  if (squareModifiers.length > 0) {
+    const squareData = {
+      productId: modifierData?.productId || null,
+      variationId: modifierData?.variationId || null,
+      sku: modifierData?.sku || null,
+      modifiers: squareModifiers,
+    };
+
+    attributes.push({
+      key: '_square_catalog',
+      value: JSON.stringify(squareData),
+    });
+  }
 
   return attributes;
 };

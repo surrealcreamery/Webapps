@@ -30,12 +30,92 @@ export const Section = ({
     sectionDiscount = null,
     productDiscount = null,
     subcategoryName = 'items',
-    allProducts = []
+    allProducts = [],
+    groupByContainer = false
 }) => {
 
     if (!products || products.length === 0) {
         return null; // Don't render empty sections
     }
+
+    // Group products by container if enabled
+    const groupedProducts = React.useMemo(() => {
+        if (!groupByContainer) return null;
+
+        const groups = {};
+        products.forEach(product => {
+            // Get container from product or first variant
+            const containerTitle = product.containerData?.title
+                || product.availableVariants?.[0]?.containerData?.title
+                || 'Other';
+
+            if (!groups[containerTitle]) {
+                groups[containerTitle] = {
+                    products: [],
+                    minPrice: Infinity,
+                    maxPrice: 0
+                };
+            }
+            groups[containerTitle].products.push(product);
+
+            // Calculate price range
+            const getPrice = (p) => {
+                if (p.availableVariants?.length > 0) {
+                    return p.availableVariants.map(v => parseFloat(v.price) || 0);
+                }
+                const priceStr = p.price?.toString() || '0';
+                return [parseFloat(priceStr.replace(/[^0-9.]/g, '')) || 0];
+            };
+
+            const prices = getPrice(product);
+            prices.forEach(price => {
+                if (price < groups[containerTitle].minPrice) {
+                    groups[containerTitle].minPrice = price;
+                }
+                if (price > groups[containerTitle].maxPrice) {
+                    groups[containerTitle].maxPrice = price;
+                }
+            });
+        });
+
+        // Sort products within each group: "Make Your Own" (MYO in SKU) first, then alphabetically
+        Object.values(groups).forEach(group => {
+            group.products.sort((a, b) => {
+                // Check SKU for "MYO" - check product SKU or first variant's SKU
+                const aSkuHasMYO = a.sku?.toUpperCase().includes('MYO')
+                    || a.availableVariants?.[0]?.sku?.toUpperCase().includes('MYO');
+                const bSkuHasMYO = b.sku?.toUpperCase().includes('MYO')
+                    || b.availableVariants?.[0]?.sku?.toUpperCase().includes('MYO');
+
+                if (aSkuHasMYO && !bSkuHasMYO) return -1;
+                if (!aSkuHasMYO && bSkuHasMYO) return 1;
+                return (a.name || '').localeCompare(b.name || '');
+            });
+        });
+
+        // Sort groups alphabetically, but put "Other" at the end
+        return Object.entries(groups).sort(([a], [b]) => {
+            if (a === 'Other') return 1;
+            if (b === 'Other') return -1;
+            return a.localeCompare(b);
+        });
+    }, [products, groupByContainer]);
+
+    // Generate anchor ID from container name
+    const getContainerAnchorId = (containerName, sectionTitle) => {
+        const sectionSlug = sectionTitle?.toLowerCase().replace(/\s+/g, '-') || 'section';
+        const containerSlug = containerName.toLowerCase().replace(/\s+/g, '-');
+        return `${sectionSlug}-${containerSlug}`;
+    };
+
+    // Scroll to container group
+    const scrollToContainer = (containerName) => {
+        const anchorId = getContainerAnchorId(containerName, title);
+        const element = document.getElementById(anchorId);
+        if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    };
 
     return (
         <Box
@@ -54,7 +134,8 @@ export const Section = ({
                     sx={{
                         fontWeight: 700,
                         mb: 1,
-                        fontSize: { xs: '1.75rem', md: '2.25rem' }
+                        fontSize: { xs: '1.75rem', md: '2.25rem' },
+                        textAlign: 'center'
                     }}
                 >
                     {title}
@@ -64,10 +145,70 @@ export const Section = ({
                     <Typography
                         variant="body1"
                         color="text.secondary"
-                        sx={{ mb: 2 }}
+                        sx={{ mb: 2, textAlign: 'center' }}
                     >
                         {description}
                     </Typography>
+                )}
+
+                {/* Container anchor links with price ranges */}
+                {groupByContainer && groupedProducts && groupedProducts.length > 1 && (
+                    <Box
+                        sx={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            justifyContent: 'center',
+                            gap: 1,
+                            mb: 3
+                        }}
+                    >
+                        {groupedProducts.map(([containerName, groupData]) => {
+                            const { minPrice, maxPrice } = groupData;
+                            const priceRange = minPrice === maxPrice
+                                ? `$${minPrice.toFixed(2)}`
+                                : `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
+
+                            return (
+                                <Box
+                                    key={containerName}
+                                    onClick={() => scrollToContainer(containerName)}
+                                    sx={{
+                                        display: 'inline-flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        px: 2,
+                                        py: 1,
+                                        borderRadius: 2,
+                                        backgroundColor: 'grey.100',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s',
+                                        '&:hover': {
+                                            backgroundColor: 'grey.200',
+                                            transform: 'translateY(-1px)'
+                                        }
+                                    }}
+                                >
+                                    <Typography
+                                        sx={{
+                                            fontWeight: 600,
+                                            fontSize: '1.6rem',
+                                            color: 'text.primary'
+                                        }}
+                                    >
+                                        {containerName}
+                                    </Typography>
+                                    <Typography
+                                        sx={{
+                                            fontSize: '1.4rem',
+                                            color: 'text.secondary'
+                                        }}
+                                    >
+                                        {priceRange}
+                                    </Typography>
+                                </Box>
+                            );
+                        })}
+                    </Box>
                 )}
 
                 {/* ZONE 2: Below subcategory description - Collection/subcategory level discounts */}
@@ -86,29 +227,94 @@ export const Section = ({
                 )}
 
                 {/* Product Grid - 3 columns on desktop, 2 on mobile */}
-                <Box
-                    sx={{
-                        display: 'grid',
-                        gridTemplateColumns: {
-                            xs: '1fr 1fr',    // Mobile: 2 columns
-                            sm: '1fr 1fr',    // Small tablet: 2 columns
-                            md: '1fr 1fr 1fr' // Desktop: 3 columns
-                        },
-                        gap: 3
-                    }}
-                >
-                    {products.map((product) => (
-                        <ProductCard
-                            key={product.id}
-                            product={product}
-                            onClick={() => onProductClick(product.id)}
-                            discountPercent={discountPercent}
-                            productDiscount={productDiscount}
-                            subcategoryName={subcategoryName}
-                            allProducts={allProducts}
-                        />
-                    ))}
-                </Box>
+                {groupByContainer && groupedProducts ? (
+                    // Grouped by container
+                    groupedProducts.map(([containerName, groupData]) => (
+                        <Box
+                            key={containerName}
+                            id={getContainerAnchorId(containerName, title)}
+                            sx={{ mb: 4, scrollMarginTop: '80px' }}
+                        >
+                            {/* Container Group Header */}
+                            <Typography
+                                variant="h6"
+                                sx={{
+                                    fontWeight: 600,
+                                    mb: 2,
+                                    color: 'text.primary',
+                                    fontSize: '1.6rem',
+                                    textAlign: 'center'
+                                }}
+                            >
+                                {containerName}
+                            </Typography>
+                            <Box
+                                sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: {
+                                        xs: 'repeat(2, 1fr)',
+                                        sm: 'repeat(2, 1fr)',
+                                        md: 'repeat(3, 1fr)'
+                                    },
+                                    gap: 3
+                                }}
+                            >
+                                {groupData.products.map((product) => {
+                                    // Check if this is a Make Your Own product (MYO in SKU)
+                                    const isMYO = product.sku?.toUpperCase().includes('MYO')
+                                        || product.availableVariants?.[0]?.sku?.toUpperCase().includes('MYO');
+
+                                    return (
+                                        <Box
+                                            key={product.id}
+                                            sx={{
+                                                gridColumn: isMYO ? {
+                                                    xs: 'span 2',
+                                                    md: 'span 2'
+                                                } : 'span 1'
+                                            }}
+                                        >
+                                            <ProductCard
+                                                product={product}
+                                                onClick={() => onProductClick(product.id)}
+                                                discountPercent={discountPercent}
+                                                productDiscount={productDiscount}
+                                                subcategoryName={subcategoryName}
+                                                allProducts={allProducts}
+                                                featured={isMYO}
+                                            />
+                                        </Box>
+                                    );
+                                })}
+                            </Box>
+                        </Box>
+                    ))
+                ) : (
+                    // Flat list (original behavior)
+                    <Box
+                        sx={{
+                            display: 'grid',
+                            gridTemplateColumns: {
+                                xs: '1fr 1fr',    // Mobile: 2 columns
+                                sm: '1fr 1fr',    // Small tablet: 2 columns
+                                md: '1fr 1fr 1fr' // Desktop: 3 columns
+                            },
+                            gap: 3
+                        }}
+                    >
+                        {products.map((product) => (
+                            <ProductCard
+                                key={product.id}
+                                product={product}
+                                onClick={() => onProductClick(product.id)}
+                                discountPercent={discountPercent}
+                                productDiscount={productDiscount}
+                                subcategoryName={subcategoryName}
+                                allProducts={allProducts}
+                            />
+                        ))}
+                    </Box>
+                )}
             </Container>
         </Box>
     );
@@ -118,7 +324,7 @@ export const Section = ({
  * ProductCard Component
  * Individual product card within a section
  */
-const ProductCard = ({ product, onClick, discountPercent, productDiscount, subcategoryName, allProducts }) => {
+const ProductCard = ({ product, onClick, discountPercent, productDiscount, subcategoryName, allProducts, featured = false }) => {
     return (
         <Box
             onClick={onClick}
@@ -134,11 +340,15 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
             <Box
                 sx={{
                     position: 'relative',
-                    paddingTop: '100%', // Square aspect ratio
+                    paddingTop: featured ? '60%' : '100%', // Wider aspect ratio for featured
                     borderRadius: 2,
                     overflow: 'hidden',
-                    backgroundColor: 'grey.200',
-                    mb: 1
+                    backgroundColor: featured ? 'primary.light' : 'grey.200',
+                    mb: 1,
+                    ...(featured && {
+                        border: '2px solid',
+                        borderColor: 'primary.main',
+                    })
                 }}
             >
                 <img
@@ -168,16 +378,33 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
             <Typography
                 variant="body1"
                 sx={{
-                    fontWeight: 600,
-                    mb: 0.5
+                    fontWeight: featured ? 700 : 600,
+                    mb: 0.5,
+                    fontSize: featured ? '1.8rem' : 'inherit',
+                    textAlign: 'center'
                 }}
             >
                 {product.name}
             </Typography>
 
+            {/* Featured badge for MYO products */}
+            {featured && (
+                <Typography
+                    sx={{
+                        fontSize: '1.4rem',
+                        color: 'primary.main',
+                        fontWeight: 600,
+                        mb: 0.5,
+                        textAlign: 'center'
+                    }}
+                >
+                    Build Your Own
+                </Typography>
+            )}
+
             {/* Size Options with Prices */}
             {product.availableVariants && product.availableVariants.length > 0 ? (
-                <Box sx={{ mt: 0.5 }}>
+                <Box sx={{ mt: 0.5, textAlign: 'center' }}>
                     {product.availableVariants.map((variant, idx) => {
                         const originalPrice = parseFloat(variant.price);
                         const discountedPrice = discountPercent
@@ -185,7 +412,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                             : null;
 
                         return (
-                            <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                            <Box key={idx} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
                                 <Typography
                                     variant="body2"
                                     color="text.secondary"
@@ -235,7 +462,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                         : null;
 
                     return discountPercent ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                             <Typography
                                 variant="body2"
                                 sx={{
@@ -259,6 +486,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                         <Typography
                             variant="body2"
                             color="text.secondary"
+                            sx={{ textAlign: 'center' }}
                         >
                             {product.price}
                         </Typography>

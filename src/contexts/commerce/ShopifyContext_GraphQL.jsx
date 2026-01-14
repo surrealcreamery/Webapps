@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import Client from 'shopify-buy';
 
 // Your Shopify credentials
@@ -24,6 +24,48 @@ export const ShopifyProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [checkout, setCheckout] = useState(null);
+
+  // Test mode - hidden products tagged "test-item" are shown when user types "test"
+  const [testModeEnabled, setTestModeEnabled] = useState(() => {
+    return localStorage.getItem('testModeEnabled') === 'true';
+  });
+  const keySequenceRef = useRef('');
+
+  // Listen for "test" keyboard sequence to toggle test mode
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if user is typing in an input/textarea
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+        return;
+      }
+
+      // Only track letter keys
+      if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
+        keySequenceRef.current += e.key.toLowerCase();
+
+        // Keep only last 4 characters
+        if (keySequenceRef.current.length > 4) {
+          keySequenceRef.current = keySequenceRef.current.slice(-4);
+        }
+
+        console.log('🔑 Key sequence:', keySequenceRef.current);
+
+        // Check if sequence matches "test"
+        if (keySequenceRef.current === 'test') {
+          setTestModeEnabled(prev => {
+            const newValue = !prev;
+            localStorage.setItem('testModeEnabled', newValue.toString());
+            alert(`🧪 Test mode ${newValue ? 'ENABLED' : 'DISABLED'}`);
+            return newValue;
+          });
+          keySequenceRef.current = '';
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     initializeShopify();
@@ -1045,12 +1087,15 @@ export const ShopifyProvider = ({ children }) => {
     try {
       const newCheckout = await client.checkout.create();
       setCheckout(newCheckout);
-      
+
       // Save checkout ID to localStorage
       localStorage.setItem('shopifyCheckoutId', newCheckout.id);
       console.log('✅ Created new checkout:', newCheckout.id);
+
+      return newCheckout;
     } catch (err) {
       console.error('Error creating checkout:', err);
+      throw err;
     }
   };
 
@@ -1058,34 +1103,152 @@ export const ShopifyProvider = ({ children }) => {
    * Add item to cart
    * @param {string} variantId - Shopify variant ID
    * @param {number} quantity - Quantity to add
-   * @param {Array} customAttributes - Custom attributes for the line item (e.g., pickup location, delivery address)
+   * @param {Array} customAttributes - Custom attributes for the line item (e.g., modifiers)
    */
   const addToCart = async (variantId, quantity = 1, customAttributes = []) => {
     console.log('🛒 addToCart called:', { variantId, quantity, customAttributes });
     console.log('🛒 Current checkout:', checkout);
-    console.log('🛒 Client initialized:', !!client);
-    
+
     try {
-      if (!checkout) {
+      let currentCheckout = checkout;
+      if (!currentCheckout) {
         console.log('🛒 No checkout exists, creating new one...');
-        await createCheckout();
+        currentCheckout = await createCheckout();
       }
 
-      console.log('🛒 Adding line items to checkout:', checkout.id);
-      const lineItemsToAdd = [{
-        variantId,
-        quantity,
-        customAttributes
-      }];
-      
-      const updatedCheckout = await client.checkout.addLineItems(
-        checkout.id,
-        lineItemsToAdd
-      );
-      
+      console.log('🛒 Adding line items to cart:', currentCheckout.id);
+
+      // Use Cart API (not Checkout API) - Shopify Buy SDK v3 uses Cart API
+      const mutation = `
+        mutation cartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
+          cartLinesAdd(cartId: $cartId, lines: $lines) {
+            cart {
+              id
+              checkoutUrl
+              cost {
+                subtotalAmount {
+                  amount
+                  currencyCode
+                }
+                totalAmount {
+                  amount
+                  currencyCode
+                }
+              }
+              lines(first: 250) {
+                edges {
+                  node {
+                    id
+                    quantity
+                    attributes {
+                      key
+                      value
+                    }
+                    merchandise {
+                      ... on ProductVariant {
+                        id
+                        title
+                        price {
+                          amount
+                          currencyCode
+                        }
+                        image {
+                          url
+                          altText
+                        }
+                        product {
+                          id
+                          title
+                          handle
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            userErrors {
+              code
+              field
+              message
+            }
+          }
+        }
+      `;
+
+      const variables = {
+        cartId: currentCheckout.id,
+        lines: [{
+          merchandiseId: variantId,
+          quantity,
+          attributes: customAttributes.map(attr => ({
+            key: attr.key,
+            value: attr.value
+          }))
+        }]
+      };
+
+      console.log('🛒 GraphQL mutation variables:', JSON.stringify(variables, null, 2));
+
+      const response = await fetch(STOREFRONT_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Storefront-Access-Token': STOREFRONT_ACCESS_TOKEN
+        },
+        body: JSON.stringify({ query: mutation, variables })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const { data, errors } = await response.json();
+
+      if (errors) {
+        console.error('🛒 ❌ GraphQL errors:', errors);
+        throw new Error(errors[0]?.message || 'GraphQL error');
+      }
+
+      if (data?.cartLinesAdd?.userErrors?.length > 0) {
+        const userErrors = data.cartLinesAdd.userErrors;
+        console.error('🛒 ❌ Cart user errors:', userErrors);
+        throw new Error(userErrors[0]?.message || 'Cart error');
+      }
+
+      // Transform the GraphQL response to match the SDK's checkout format
+      const cartData = data.cartLinesAdd.cart;
+      const updatedCheckout = {
+        id: cartData.id,
+        webUrl: cartData.checkoutUrl,
+        subtotalPrice: cartData.cost?.subtotalAmount,
+        totalPrice: cartData.cost?.totalAmount,
+        currencyCode: cartData.cost?.totalAmount?.currencyCode,
+        lineItems: cartData.lines.edges.map(edge => ({
+          id: edge.node.id,
+          title: edge.node.merchandise?.product?.title || edge.node.merchandise?.title,
+          quantity: edge.node.quantity,
+          customAttributes: edge.node.attributes || [],
+          variant: edge.node.merchandise ? {
+            id: edge.node.merchandise.id,
+            title: edge.node.merchandise.title,
+            price: edge.node.merchandise.price?.amount,
+            image: edge.node.merchandise.image ? {
+              src: edge.node.merchandise.image.url,
+              altText: edge.node.merchandise.image.altText
+            } : null,
+            product: edge.node.merchandise.product
+          } : null
+        }))
+      };
+
       console.log('🛒 ✅ Successfully added to cart!', updatedCheckout);
+      console.log('🛒 Line items with attributes:', updatedCheckout.lineItems.map(li => ({
+        title: li.title,
+        customAttributes: li.customAttributes
+      })));
       setCheckout(updatedCheckout);
-      
+
       return updatedCheckout;
     } catch (err) {
       console.error('🛒 ❌ Error adding to cart:', err);
@@ -1134,30 +1297,25 @@ export const ShopifyProvider = ({ children }) => {
    * Uses form submission so discount apps (DealEasy, Buy X Get Y) work
    */
   /**
-   * Go to Shopify checkout via Online Store channel
-   * DealEasy discounts should apply at checkout
+   * Go to Shopify checkout via cart's checkoutUrl
+   * This preserves line item attributes (modifiers)
    */
   const goToCheckout = async () => {
     if (!checkout?.lineItems?.length) return;
-    
-    // Build cart items
-    const cartItems = checkout.lineItems.map(item => {
-      const variantId = item.variant.id.split('/').pop();
-      return `${variantId}:${item.quantity}`;
-    }).join(',');
-    
-    // Clear Online Store cart first (cross-origin, may fail silently)
-    try {
-      await fetch(`https://${SHOPIFY_DOMAIN}/cart/clear.js`, { 
-        method: 'POST',
-        mode: 'no-cors'
-      });
-    } catch (e) {
-      // Ignore - cart clear is best effort
+
+    // Use the cart's checkoutUrl to preserve line item attributes
+    if (checkout.webUrl) {
+      console.log('🛒 Redirecting to checkout:', checkout.webUrl);
+      window.location.href = checkout.webUrl;
+    } else {
+      // Fallback: Build cart URL (loses attributes - not ideal)
+      console.warn('🛒 No checkoutUrl available, using fallback (attributes may be lost)');
+      const cartItems = checkout.lineItems.map(item => {
+        const variantId = item.variant.id.split('/').pop();
+        return `${variantId}:${item.quantity}`;
+      }).join(',');
+      window.location.href = `https://${SHOPIFY_DOMAIN}/cart/${cartItems}?redirect=checkout`;
     }
-    
-    // Redirect to checkout directly with cart items
-    window.location.href = `https://${SHOPIFY_DOMAIN}/cart/${cartItems}?redirect=checkout`;
   };
 
   /**
@@ -1176,20 +1334,34 @@ export const ShopifyProvider = ({ children }) => {
     return `$${checkout.totalPrice}`;
   };
 
+  // Filter out test-item tagged products unless test mode is enabled
+  const filteredProducts = testModeEnabled
+    ? products
+    : products.filter(product => {
+        const hasTestTag = product.tags?.some(tag =>
+          tag.toLowerCase() === 'test-item'
+        );
+        return !hasTestTag;
+      });
+
   const value = {
-    // Products
-    products,
+    // Products (filtered based on test mode)
+    products: filteredProducts,
+    allProducts: products, // Unfiltered for admin purposes
     loading,
     error,
     fetchProducts: fetchProductsWithMetafields,
-    
+
+    // Test mode
+    testModeEnabled,
+
     // Categories (top-level)
     categories,
-    
+
     // Subcategories
     dessertSubcategories,
     merchandiseSubcategories,
-    
+
     // Cart
     checkout,
     addToCart,
@@ -1198,7 +1370,7 @@ export const ShopifyProvider = ({ children }) => {
     goToCheckout,
     getCartCount,
     getCartTotal,
-    
+
     // Client (for advanced usage)
     client
   };

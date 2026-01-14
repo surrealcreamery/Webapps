@@ -6215,14 +6215,15 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     };
 
                                     const allFlavors = [
-                                        // Make Your Own - show first when no custom items yet
-                                        ...(category.id === 'cake' && filteredCustomItems.length === 0 && selectedPackaging?.name === 'Cake Jar Boxes'
+                                        // Make Your Own - only show in category list when NO custom items exist
+                                        // (when custom items exist, Make Your Own is shown in "Your Cookies/Jars/Cupcakes" section above)
+                                        ...(category.id === 'cake' && selectedPackaging?.name === 'Cake Jar Boxes' && filteredCustomItems.length === 0
                                             ? [{ ...MAKE_YOUR_OWN_JAR, isMakeYourOwn: true }]
                                             : []),
-                                        ...(category.id === 'frosted' && filteredCustomItems.length === 0 && isCookiePackaging
+                                        ...(category.id === 'basecookie' && isCookiePackaging && filteredCustomItems.length === 0
                                             ? [{ ...MAKE_YOUR_OWN_COOKIE, isMakeYourOwn: true }]
                                             : []),
-                                        ...(category.id === 'cupcake' && filteredCustomItems.length === 0 && isCupcakePackaging
+                                        ...(category.id === 'cupcake' && isCupcakePackaging && filteredCustomItems.length === 0
                                             ? [{ ...MAKE_YOUR_OWN_CUPCAKE, isMakeYourOwn: true }]
                                             : []),
                                         ...(FLAVORS[category.id] || [])

@@ -63,6 +63,7 @@ export const ProductModal = ({
     // Modifier selections state
     const [modifierSelections, setModifierSelections] = useState({});
     const [modifierCategories, setModifierCategories] = useState([]);
+    const [modifierData, setModifierData] = useState(null); // Full API response with Square IDs
     const [modifierPrice, setModifierPrice] = useState(0);
     const [modifierValidation, setModifierValidation] = useState({ valid: true, errors: [] });
     const [hasModifiers, setHasModifiers] = useState(false);
@@ -90,6 +91,7 @@ export const ProductModal = ({
             setNearestStore(null);
             setModifierSelections({});
             setModifierCategories([]);
+            setModifierData(null);
             setModifierPrice(0);
             setModifierValidation({ valid: true, errors: [] });
             setHasModifiers(false);
@@ -245,17 +247,77 @@ export const ProductModal = ({
         try {
             setAddingToCart(true);
 
-            // Convert modifier selections to Shopify custom attributes
-            const customAttributes = modifierCategories.length > 0
-                ? selectionsToCustomAttributes(modifierCategories, modifierSelections)
-                : [];
+            // Build product info for logging (not added to cart)
+            const productInfo = {
+                sku: productSku || null,
+                shopifyProductId: product.id,
+                shopifyVariantId: variantIdToAdd,
+                productName: product.name || product.title,
+            };
 
-            console.log('🎯 Calling onAddToCart callback with:', {
+            // Build Square catalog info for logging (not added to cart)
+            let squareCatalogInfo = null;
+            if (modifierData && modifierCategories.length > 0) {
+                const modifiers = [];
+                modifierCategories.forEach((category) => {
+                    const selectedIds = modifierSelections[category.id] || [];
+                    selectedIds.forEach(modId => {
+                        const modifier = category.modifiers.find(m => m.id === modId);
+                        if (modifier) {
+                            modifiers.push({
+                                categoryId: category.id,
+                                categoryName: category.name,
+                                modifierId: modifier.id,
+                                modifierName: modifier.name,
+                                price: modifier.price || 0,
+                            });
+                        }
+                    });
+                });
+
+                squareCatalogInfo = {
+                    productId: modifierData.productId || null,
+                    variationId: modifierData.variationId || null,
+                    sku: modifierData.sku || null,
+                    modifiers: modifiers,
+                };
+            }
+
+            // Console log all the data (for webhook development)
+            console.log('🎯 Adding to cart:', {
                 productId: product.id,
                 variantId: variantIdToAdd,
                 quantity: quantity,
-                customAttributes: customAttributes
             });
+            console.log('📦 Product Info:', productInfo);
+            if (squareCatalogInfo) {
+                console.log('🔷 Square Catalog:', squareCatalogInfo);
+            }
+            console.log('🚨 CHECKPOINT A - right after Square Catalog');
+
+            // Debug: Log modifier state before building customAttributes
+            console.log('🔍 DEBUG modifierCategories:', modifierCategories);
+            console.log('🔍 DEBUG modifierSelections:', modifierSelections);
+
+            // Only pass human-readable modifier attributes to cart (no IDs)
+            let customAttributes = [];
+            try {
+                customAttributes = modifierCategories.length > 0
+                    ? modifierCategories
+                        .filter(category => (modifierSelections[category.id] || []).length > 0)
+                        .map(category => ({
+                            key: category.name,
+                            value: (modifierSelections[category.id] || [])
+                                .map(id => category.modifiers.find(m => m.id === id)?.name)
+                                .filter(Boolean)
+                                .join(', ')
+                        }))
+                    : [];
+            } catch (attrError) {
+                console.error('❌ Error building customAttributes:', attrError);
+            }
+
+            console.log('📋 Cart Attributes:', customAttributes);
 
             // Call parent's onAddToCart handler - it will handle cart, banner, and modal closing
             await onAddToCart(product.id, variantIdToAdd, quantity, customAttributes);
@@ -352,9 +414,10 @@ export const ProductModal = ({
     const productSku = selectedVariant?.sku || product.sku || product.variants?.[0]?.sku || null;
 
     // Handlers for modifier selections
-    const handleModifierSelectionsChange = (selections, categories) => {
+    const handleModifierSelectionsChange = (selections, categories, fullData) => {
         setModifierSelections(selections);
         setModifierCategories(categories);
+        setModifierData(fullData);
         setHasModifiers(categories && categories.length > 0);
     };
 

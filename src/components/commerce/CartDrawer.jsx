@@ -767,10 +767,10 @@ export function CartDrawer({
                             </Typography>
                           )}
 
-                          {/* Custom Attributes (Modifiers) */}
-                          {item.customAttributes?.length > 0 && (
+                          {/* Custom Attributes (Modifiers) - filter out internal attributes starting with _ */}
+                          {item.customAttributes?.filter(attr => !attr.key?.startsWith('_')).length > 0 && (
                             <Box sx={{ mt: 0.5 }}>
-                              {item.customAttributes.map((attr, idx) => (
+                              {item.customAttributes.filter(attr => !attr.key?.startsWith('_')).map((attr, idx) => (
                                 <Typography
                                   key={idx}
                                   variant="body2"

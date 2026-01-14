@@ -2282,7 +2282,7 @@ export default function Commerce() {
                     <Box sx={{ mb: 6 }}>
                         {/* Breadcrumb Navigation */}
                         <Container maxWidth="sm" sx={{ pt: 2, pb: 1 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                                 <Typography
                                     onClick={() => {
                                         navigate('/');
@@ -2367,6 +2367,7 @@ export default function Commerce() {
                                         products={sectionProducts}
                                         onProductClick={handleChooseProduct}
                                         showDivider={index > 0}
+                                        groupByContainer={true}
                                     />
                                 </Box>
                             );
@@ -2377,7 +2378,7 @@ export default function Commerce() {
                     <Box sx={{ mb: 6 }}>
                         {/* Breadcrumb Navigation */}
                         <Container maxWidth="sm" sx={{ pt: 2, pb: 1 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                                 <Typography
                                     onClick={() => navigate('/')}
                                     sx={{
@@ -2741,16 +2742,8 @@ export default function Commerce() {
                         variantId: null // Will be set when user selects
                     };
                 } else if (variantInfo) {
-                    // Single variant product - show full name with variant
-                    let variantDisplay = variantInfo.variantTitle;
-                    if (variantInfo.variantTitle && variantInfo.variantTitle !== 'Default') {
-                        variantDisplay = variantInfo.variantTitle
-                            .replace(/Ice Cream Cake /i, '')
-                            .replace(/ Ice Cream/i, '');
-                    }
-                    const fullName = variantInfo.variantTitle && variantInfo.variantTitle !== 'Default'
-                        ? `${variantInfo.name} - ${variantDisplay}`
-                        : variantInfo.name;
+                    // Single variant product - just use the product name (no variant suffix)
+                    const fullName = variantInfo.name;
                     
                     // Exclude original variants array from selectedProduct
                     const { variants: _allVariants, ...productWithoutVariants } = selectedProduct;

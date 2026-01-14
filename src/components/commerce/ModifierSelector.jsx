@@ -115,8 +115,8 @@ export const ModifierSelector = forwardRef(({
             errors,
         });
 
-        // Notify parent of selections
-        onSelectionsChange?.(selections, modifierData.modifierCategories);
+        // Notify parent of selections (include full modifierData for Square catalog IDs)
+        onSelectionsChange?.(selections, modifierData.modifierCategories, modifierData);
 
     }, [selections, modifierData]);
 
