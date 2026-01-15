@@ -477,38 +477,149 @@ export const ShopifyProvider = ({ children }) => {
   };
 
   /**
-   * Restore existing checkout from localStorage or create new one
+   * Restore existing cart from localStorage or create new one
    */
   const restoreOrCreateCheckout = async () => {
     try {
       const savedCheckoutId = localStorage.getItem('shopifyCheckoutId');
-      
+
       if (savedCheckoutId) {
-        // Try to restore existing checkout
+        // Try to restore existing cart using Cart API
         try {
-          const existingCheckout = await client.checkout.fetch(savedCheckoutId);
-          
-          // Check if checkout is still valid (not completed)
-          if (existingCheckout && !existingCheckout.completedAt) {
-            console.log('✅ Restored existing checkout:', savedCheckoutId);
-            setCheckout(existingCheckout);
+          console.log('🛒 Attempting to restore cart:', savedCheckoutId);
+
+          // Use Cart API to fetch cart status
+          const query = `
+            query getCart($cartId: ID!) {
+              cart(id: $cartId) {
+                id
+                checkoutUrl
+                createdAt
+                updatedAt
+                lines(first: 100) {
+                  edges {
+                    node {
+                      id
+                      quantity
+                      attributes {
+                        key
+                        value
+                      }
+                      merchandise {
+                        ... on ProductVariant {
+                          id
+                          title
+                          price {
+                            amount
+                            currencyCode
+                          }
+                          image {
+                            url
+                            altText
+                          }
+                          product {
+                            id
+                            title
+                            handle
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                cost {
+                  subtotalAmount {
+                    amount
+                    currencyCode
+                  }
+                  totalAmount {
+                    amount
+                    currencyCode
+                  }
+                }
+              }
+            }
+          `;
+
+          const response = await fetch(STOREFRONT_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Shopify-Storefront-Access-Token': STOREFRONT_ACCESS_TOKEN
+            },
+            body: JSON.stringify({ query, variables: { cartId: savedCheckoutId } })
+          });
+
+          const { data, errors } = await response.json();
+
+          if (errors || !data?.cart) {
+            console.log('⚠️ Cart not found or expired, clearing state and creating new one');
+            clearCheckoutState();
+            await createCheckout();
             return;
-          } else {
-            console.log('⚠️ Checkout was completed, creating new one');
-            localStorage.removeItem('shopifyCheckoutId');
           }
+
+          const cart = data.cart;
+
+          // Check if cart has items
+          if (!cart.lines?.edges?.length) {
+            console.log('⚠️ Cart is empty (checkout completed?), clearing state and creating new one');
+            clearCheckoutState();
+            await createCheckout();
+            return;
+          }
+
+          // Cart is valid with items - restore it
+          const restoredCheckout = {
+            id: cart.id,
+            webUrl: cart.checkoutUrl,
+            subtotalPrice: cart.cost?.subtotalAmount,
+            totalPrice: cart.cost?.totalAmount,
+            currencyCode: cart.cost?.totalAmount?.currencyCode,
+            lineItems: cart.lines.edges.map(edge => ({
+              id: edge.node.id,
+              title: edge.node.merchandise?.product?.title || edge.node.merchandise?.title,
+              quantity: edge.node.quantity,
+              customAttributes: edge.node.attributes || [],
+              variant: edge.node.merchandise ? {
+                id: edge.node.merchandise.id,
+                title: edge.node.merchandise.title,
+                price: edge.node.merchandise.price?.amount,
+                image: edge.node.merchandise.image ? {
+                  src: edge.node.merchandise.image.url,
+                  altText: edge.node.merchandise.image.altText
+                } : null,
+                product: edge.node.merchandise.product
+              } : null
+            }))
+          };
+
+          console.log('✅ Restored existing cart:', savedCheckoutId, `(${restoredCheckout.lineItems.length} items)`);
+          setCheckout(restoredCheckout);
+          return;
+
         } catch (err) {
-          console.log('⚠️ Could not restore checkout, creating new one');
-          localStorage.removeItem('shopifyCheckoutId');
+          console.log('⚠️ Could not restore cart, clearing state and creating new one:', err.message);
+          clearCheckoutState();
         }
       }
-      
+
       // Create new checkout if no valid existing one
       await createCheckout();
     } catch (err) {
       console.error('Error restoring/creating checkout:', err);
       await createCheckout(); // Fallback to creating new checkout
     }
+  };
+
+  /**
+   * Clear checkout state (called when checkout is completed or cart is invalid)
+   */
+  const clearCheckoutState = () => {
+    console.log('🧹 Clearing checkout state');
+    localStorage.removeItem('shopifyCheckoutId');
+    sessionStorage.removeItem('addedToCart');
+    setCheckout(null);
   };
 
   /**
@@ -1370,6 +1481,7 @@ export const ShopifyProvider = ({ children }) => {
     goToCheckout,
     getCartCount,
     getCartTotal,
+    clearCheckoutState,
 
     // Client (for advanced usage)
     client

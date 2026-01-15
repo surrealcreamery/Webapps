@@ -162,12 +162,7 @@ export const Section = ({
                             mb: 3
                         }}
                     >
-                        {groupedProducts.map(([containerName, groupData]) => {
-                            const { minPrice, maxPrice } = groupData;
-                            const priceRange = minPrice === maxPrice
-                                ? `$${minPrice.toFixed(2)}`
-                                : `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
-
+                        {groupedProducts.map(([containerName]) => {
                             return (
                                 <Box
                                     key={containerName}
@@ -196,14 +191,6 @@ export const Section = ({
                                         }}
                                     >
                                         {containerName}
-                                    </Typography>
-                                    <Typography
-                                        sx={{
-                                            fontSize: '1.4rem',
-                                            color: 'text.secondary'
-                                        }}
-                                    >
-                                        {priceRange}
                                     </Typography>
                                 </Box>
                             );
