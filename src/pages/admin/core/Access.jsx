@@ -18,8 +18,12 @@ import {
   Alert,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
+import { Icon } from '@iconify/react';
+
+// Iconify wrapper for consistent sizing
+const Iconify = ({ icon, width = 20, sx, ...other }) => (
+  <Box component={Icon} icon={icon} sx={{ width, height: width, flexShrink: 0, ...sx }} {...other} />
+);
 import { useNavigate } from 'react-router-dom';
 import { getAuth } from 'firebase/auth';
 import { useUsers, useCreateUser } from '@/contexts/admin/AdminDataContext';
@@ -86,7 +90,7 @@ const Access = () => {
   };
 
   return (
-    <Box sx={{ width: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: '100%' }}>
           {snackbar.message}
@@ -94,30 +98,32 @@ const Access = () => {
       </Snackbar>
       <Box
         sx={{
-          position: 'fixed',
-          top: 48,
-          left: 0,
-          right: 0,
-          zIndex: 1100,
-          bgcolor: 'white',
-          borderBottom: '1px solid #ddd',
           display: 'flex',
+          alignItems: 'center',
           gap: 2,
-          px: 2,
-          py: 1,
+          pb: 2,
+          mb: 2,
+          borderBottom: 1,
+          borderColor: 'divider',
+          flexShrink: 0,
+          bgcolor: 'background.paper',
+          mx: -3,
+          mt: -3,
+          px: 3,
+          pt: 2,
         }}
       >
         <Box onClick={handleAddOpen} sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', color: 'primary.main', '&:hover': { opacity: 0.8 } }}>
-          <AddIcon fontSize="small" />
+          <Iconify icon="solar:user-plus-bold" />
           <Typography variant="body2" sx={{ ml: 0.5 }}>Add User</Typography>
         </Box>
         <Box onClick={handleDeleteUsers} sx={{ display: 'flex', alignItems: 'center', cursor: selectedUsers.length ? 'pointer' : 'not-allowed', color: selectedUsers.length ? 'primary.main' : 'text.disabled', '&:hover': selectedUsers.length ? { opacity: 0.8 } : undefined }}>
-          <DeleteIcon fontSize="small" />
+          <Iconify icon="solar:trash-bin-trash-bold" />
           <Typography variant="body2" sx={{ ml: 0.5 }}>Delete User{selectedUsers.length > 1 ? 's' : ''}</Typography>
         </Box>
       </Box>
 
-      <Box sx={{ width: '100%', maxWidth: '600px', mx: 'auto', p: 3, pt: '60px' }}>
+      <Box sx={{ flexGrow: 1, overflow: 'auto', width: '100%', maxWidth: '600px', mx: 'auto', p: 3 }}>
         <Paper sx={{ boxShadow: 1 }}>
           {loadingUsers ? (
             <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress /></Box>

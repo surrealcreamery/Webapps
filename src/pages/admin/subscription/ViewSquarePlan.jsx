@@ -11,9 +11,7 @@ import {
 } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSquarePlans, useLocations, fetchWithToken } from '@/contexts/admin/AdminDataContext';
-
-const SELECT_SQUARE_PLAN_URL =
-  'https://hook.us2.make.com/o8i2n7jn85g9qbc9jdg1u4z9ub25ia3n';
+import { SELECT_SQUARE_PLAN_URL } from '@/constants/admin/adminConstants';
 
 export default function ViewSquarePlan() {
   const { planId, variationId } = useParams();

@@ -11,7 +11,7 @@ import {
     TableHead,
     TableRow
 } from '@mui/material';
-import { LineChart } from '@mui/x-charts';
+import { Chart, useChart } from '@/components/chart';
 import {
     getHours,
     parseISO,
@@ -24,22 +24,10 @@ import {
 } from 'date-fns';
 
 // --- HELPER FUNCTIONS ---
-
 const currencyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const formatCurrency = (value) => {
     if (value === null || value === undefined) return '—';
     return currencyFormatter.format(value);
-};
-
-const compactCurrencyFormatter = (value) => {
-    if (value === null || value === undefined) return '';
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        notation: 'compact',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 1,
-    }).format(value);
 };
 
 const safeParseJson = (data) => {
@@ -67,9 +55,7 @@ const getHourFromTimeString = (timeStr) => {
     return null;
 };
 
-
 // --- MAIN COMPONENT ---
-
 const HourlyBreakevenAnalysis = ({ report, laborDetails, ordersData }) => {
     const analysisResult = useMemo(() => {
         const missingDataMessages = [];
@@ -166,9 +152,9 @@ const HourlyBreakevenAnalysis = ({ report, laborDetails, ordersData }) => {
                         return totalCost;
                     }, 0);
 
-                const laborCost = laborCostRaw * 1.12; // Assuming 12% payroll tax/overhead
+                const laborCost = laborCostRaw * 1.12;
                 const totalHourlyCost = laborCost + hourlyOverhead;
-                const hourlyBreakevenSales = totalHourlyCost / 0.70; // Assuming 30% COGS
+                const hourlyBreakevenSales = totalHourlyCost / 0.70;
 
                 const hour = getHours(hourStart);
                 const sales = salesByHour[hour] || 0;
@@ -201,25 +187,71 @@ const HourlyBreakevenAnalysis = ({ report, laborDetails, ordersData }) => {
 
     const { data: hourlyData } = analysisResult;
 
-    const chartData = {
-        xAxis: [{ data: hourlyData.map(d => d.hour), scaleType: 'point' }],
-        series: [
-            { data: hourlyData.map(d => d.cumulativeSales), label: 'Cumulative Sales', color: '#2e7d32', curve: 'linear', showMark: false, area: true },
-            { data: hourlyData.map(d => d.cumulativeBreakevenSales), label: 'Breakeven Point', color: '#d32f2f', curve: 'linear', showMark: false },
-        ],
-        yAxisMax: Math.max(...hourlyData.map(d => d.cumulativeSales), ...hourlyData.map(d => d.cumulativeBreakevenSales)) * 1.1,
-    };
+    const series = [
+        {
+            name: 'Cumulative Sales',
+            type: 'area',
+            data: hourlyData.map(d => d.cumulativeSales),
+        },
+        {
+            name: 'Breakeven Point',
+            type: 'line',
+            data: hourlyData.map(d => d.cumulativeBreakevenSales),
+        },
+    ];
+
+    const categories = hourlyData.map(d => d.hour);
+    const yAxisMax = Math.max(...hourlyData.map(d => d.cumulativeSales), ...hourlyData.map(d => d.cumulativeBreakevenSales)) * 1.1;
+
+    const chartOptions = useChart({
+        colors: ['#2e7d32', '#d32f2f'],
+        fill: {
+            type: ['gradient', 'solid'],
+            gradient: {
+                shadeIntensity: 1,
+                opacityFrom: 0.4,
+                opacityTo: 0.1,
+                stops: [0, 100],
+            },
+        },
+        stroke: {
+            width: [2, 3],
+            curve: 'smooth',
+        },
+        xaxis: {
+            categories,
+            labels: {
+                rotate: -45,
+                style: { fontSize: '10px' },
+            },
+        },
+        yaxis: {
+            min: 0,
+            max: yAxisMax,
+            labels: {
+                formatter: (value) => formatCurrency(value),
+            },
+        },
+        tooltip: {
+            y: {
+                formatter: (value) => formatCurrency(value),
+            },
+        },
+        legend: {
+            show: true,
+            position: 'top',
+            horizontalAlign: 'center',
+        },
+    });
 
     return (
         <Box sx={{ my: 4 }}>
             <Typography variant="h6" gutterBottom>Cumulative Sales vs. Breakeven Point</Typography>
-            <LineChart
-                series={chartData.series}
-                xAxis={chartData.xAxis}
-                height={300}
-                yAxis={[{ max: chartData.yAxisMax, valueFormatter: compactCurrencyFormatter, disableAxisListener: true }]}
-                margin={{ top: 20, right: 20, bottom: 30, left: 60 }}
-                slotProps={{ legend: { direction: 'row', position: { vertical: 'top', horizontal: 'middle' }, padding: -5 } }}
+            <Chart
+                type="line"
+                series={series}
+                options={chartOptions}
+                sx={{ height: 300 }}
             />
 
             <Typography variant="h6" gutterBottom sx={{ mt: 4 }}>Hourly Breakeven Details</Typography>

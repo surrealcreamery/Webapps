@@ -18,9 +18,12 @@ import {
   DialogActions as ConfirmationDialogActions
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import FilterListIcon from '@mui/icons-material/FilterList';
-import AddIcon from '@mui/icons-material/Add';
+import { Icon } from '@iconify/react';
+
+// Iconify wrapper for consistent sizing
+const Iconify = ({ icon, width = 20, sx, ...other }) => (
+  <Box component={Icon} icon={icon} sx={{ width, height: width, flexShrink: 0, ...sx }} {...other} />
+);
 import {
   usePlans,
   useSquarePlans,
@@ -406,15 +409,29 @@ export default function Plans({ fetchedPermissions }) {
   }, [editPlan, deprecatePlanVariationMutation]);
 
   return (
-    <Box sx={{ width: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       {error && (<Snackbar open autoHideDuration={6000} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} onClose={() => setSnackbarOpen(false)}><Alert severity="error">{error.message || String(error)}</Alert></Snackbar>)}
-      <Box sx={{ position: 'fixed', top: 48, left: 0, right: 0, zIndex: 1100, bgcolor: 'white', borderBottom: '1px solid #ddd', px: 2, py: 1, display: 'flex', alignItems: 'center' }}>
+      <Box sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 2,
+        pb: 2,
+        mb: 2,
+        borderBottom: 1,
+        borderColor: 'divider',
+        flexShrink: 0,
+        bgcolor: 'background.paper',
+        mx: -3,
+        mt: -3,
+        px: 3,
+        pt: 2,
+      }}>
         <Box onClick={() => !loading && handleRefresh()} sx={{ display: 'flex', alignItems: 'center', cursor: loading ? 'default' : 'pointer', color: 'primary.main', '&:hover': { opacity: loading ? 1 : 0.8 } }}>
-          {loading ? <CircularProgress size={20} sx={{ color: 'primary.main' }}/> : <RefreshIcon fontSize="small"/>}
+          {loading ? <CircularProgress size={20} sx={{ color: 'primary.main' }}/> : <Iconify icon="solar:refresh-bold" />}
           <Typography variant="body2" sx={{ ml: 0.5 }}>Refresh</Typography>
         </Box>
-        <Box onClick={() => setFilterOpen(true)} sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', color: 'primary.main', ml: 2, '&:hover': { opacity: 0.8 } }}>
-          <FilterListIcon fontSize="small"/>
+        <Box onClick={() => setFilterOpen(true)} sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', color: 'primary.main', '&:hover': { opacity: 0.8 } }}>
+          <Iconify icon="solar:filter-bold" />
           <Typography variant="body2" sx={{ ml: 0.5 }}>Filters</Typography>
         </Box>
       </Box>
@@ -435,7 +452,7 @@ export default function Plans({ fetchedPermissions }) {
           ))}
         </Box>
       </Drawer>
-      <Box sx={{ mt: 2, px: 0, pb: 6 }}>
+      <Box sx={{ flexGrow: 1, overflow: 'auto', pb: 6 }}>
         {loading ? (<Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress/></Box>) : (
           <>
             {lastFilter==='plan' && planTypesToShow.map(type => (<PlanSection 

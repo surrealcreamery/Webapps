@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { Box, Typography, Tooltip, Divider, CircularProgress, Paper } from '@mui/material';
-import { LineChart, BarChart } from '@mui/x-charts';
+import { Box, Typography, Divider, CircularProgress, Paper } from '@mui/material';
+import { Chart, useChart } from '@/components/chart';
 import {
     format,
     parseISO,
@@ -17,7 +17,6 @@ import {
 } from 'date-fns';
 
 // --- CONSTANTS & HELPERS ---
-
 const FORECAST_CACHE_PREFIX = 'forecast_';
 
 const saveForecastToCache = (reportId, forecastData) => {
@@ -42,17 +41,6 @@ const currencyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', cu
 const formatCurrency = (value) => {
     if (value === null || value === undefined) return '—';
     return currencyFormatter.format(value);
-};
-
-const compactCurrencyFormatter = (value) => {
-    if (value === null || value === undefined) return '';
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        notation: 'compact',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 1,
-    }).format(value);
 };
 
 const safeParseJson = (data) => {
@@ -80,17 +68,15 @@ const getHourFromTimeString = (timeStr) => {
     return null;
 };
 
+const formatHourLabel = (hour) => `${hour % 12 === 0 ? 12 : hour % 12} ${hour >= 12 ? 'PM' : 'AM'}`;
 
 // --- MAIN COMPONENT ---
-
 const SalesForecastChart = ({ targetDateString, reportData, lastYearData, actualSales = null, refreshNonce, ordersData, revenueSources, isLoadingOrders }) => {
     const reportId = targetDateString;
-    const [lineTooltipData, setLineTooltipData] = useState(null);
-    const [barTooltipData, setBarTooltipData] = useState(null);
 
     const forecast = useMemo(() => {
         if (isLoadingOrders) return null;
-        
+
         const cachedForecast = getForecastFromCache(reportId);
         if (cachedForecast && refreshNonce === 0) {
             return cachedForecast;
@@ -100,7 +86,7 @@ const SalesForecastChart = ({ targetDateString, reportData, lastYearData, actual
         const historicalForwardOrdersData = ordersData?.historicalForward || [];
         const recentOrdersData = ordersData?.recent || [];
         if (!historicalOrdersData || !recentOrdersData || !revenueSources) return null;
-        
+
         const targetDate = parseISO(targetDateString);
         const today = startOfDay(new Date());
         const targetDayOfWeek = getDay(targetDate);
@@ -111,24 +97,24 @@ const SalesForecastChart = ({ targetDateString, reportData, lastYearData, actual
 
         const recentTotalSales = reportData.filter(r => !r.isSummary && isAfter(today, parseISO(r.Date)) && getDay(parseISO(r.Date)) === targetDayOfWeek).slice(0, 4).map(r => r.netSales).reverse();
         const avgRecentTotalSales = recentTotalSales.reduce((a, b) => a + b, 0) / (recentTotalSales.length || 1);
-        
+
         const historicalAnchorDate = setDay(subYears(targetDate, 1), targetDayOfWeek);
         const historicalPast4Weeks = lastYearData.filter(r => { const d = parseISO(r.Date); return getDay(d) === targetDayOfWeek && isAfter(d, subWeeks(historicalAnchorDate, 4)) && !isAfter(d, historicalAnchorDate); }).map(r => r.netSales);
         const avgHistoricalPastSales = historicalPast4Weeks.reduce((a, b) => a + b, 0) / (historicalPast4Weeks.length || 1);
-        
+
         const historicalForward4Weeks = lastYearData.filter(r => { const d = parseISO(r.Date); return getDay(d) === targetDayOfWeek && isAfter(d, historicalAnchorDate) && isAfter(addWeeks(historicalAnchorDate, 4), d); }).map(r => r.netSales);
         const avgHistoricalForwardSales = historicalForward4Weeks.reduce((a, b) => a + b, 0) / (historicalForward4Weeks.length || 1);
-        
+
         const historicalTrendFactor = avgHistoricalPastSales > 0 ? avgHistoricalForwardSales / avgHistoricalPastSales : 1;
-        
+
         const twentyEightDaysAgo = subDays(today, 28);
         const totalThisYear = reportData.filter(r => !r.isSummary && !r.isFuture && isAfter(parseISO(r.Date), twentyEightDaysAgo)).reduce((sum, r) => sum + (r.netSales || 0), 0);
         const totalLastYear = lastYearData.filter(r => { const d = parseISO(r.Date); return isAfter(d, subYears(twentyEightDaysAgo, 1)) && isAfter(subYears(today, 1), d); }).reduce((sum, r) => sum + (r.netSales || 0), 0);
         const growthFactor = totalLastYear > 0 ? totalThisYear / totalLastYear : 1;
-        
+
         const predictionFromHistory = avgHistoricalPastSales * growthFactor * historicalTrendFactor;
         const totalDailyPrediction = (avgRecentTotalSales + predictionFromHistory) / 2;
-        
+
         const recentDaysForMix = reportData.filter(r => !r.isSummary && isAfter(today, parseISO(r.Date)) && getDay(parseISO(r.Date)) === targetDayOfWeek).slice(0, 4);
         const recentSalesMix = {};
         const mixTotals = { total: 0 };
@@ -144,10 +130,10 @@ const SalesForecastChart = ({ targetDateString, reportData, lastYearData, actual
         } else {
             simpleKeys.forEach(key => { recentSalesMix[key] = 1 / simpleKeys.length; });
         }
-        
+
         const dailyPredictions = {};
         simpleKeys.forEach(key => { dailyPredictions[key] = totalDailyPrediction * recentSalesMix[key]; });
-        
+
         const allHourlySources = [...historicalOrdersData, ...historicalForwardOrdersData, ...recentOrdersData];
         const hourlyDistributions = {};
         simpleKeys.forEach(k => hourlyDistributions[k] = []);
@@ -174,7 +160,7 @@ const SalesForecastChart = ({ targetDateString, reportData, lastYearData, actual
             });
             simpleKeys.forEach(k => { if (dailyTotals[k] > 0) { hourlyDistributions[k].push(hourlyTotals[k].map(h => h / dailyTotals[k])); } });
         });
-        
+
         const hourlyPredictions = {};
         simpleKeys.forEach(key => {
             const averagedDistribution = Array(24).fill(0);
@@ -188,21 +174,15 @@ const SalesForecastChart = ({ targetDateString, reportData, lastYearData, actual
             hourlyPredictions[key] = averagedDistribution.map(p => p * (dailyPredictions[key] || 0));
         });
 
-        const axisData = Array.from({ length: 24 }, (_, i) => i);
-        const visibleTicks = [0, 3, 6, 9, 12, 15, 18, 21];
-        
         const newForecast = {
             targetDateString,
             daily: {
-                xAxis: [{ data: ['-4w', '-3w', '-2w', '-1w', 'Prediction'], scaleType: 'band', disableAxisListener: true }],
-                series: [
-                    { data: recentTotalSales, label: `Recent ${format(targetDate, 'EEEE')}s`, color: '#64b5f6' },
-                    { data: [null, null, null, null, totalDailyPrediction], label: `Prediction (${formatCurrency(totalDailyPrediction)})`, color: '#4caf50', curve: 'linear' },
-                ],
+                categories: ['-4w', '-3w', '-2w', '-1w', 'Prediction'],
+                recentSales: recentTotalSales,
+                prediction: totalDailyPrediction,
                 yAxisMax: Math.max(...recentTotalSales, totalDailyPrediction, actualSales || 0) * 1.2,
             },
             hourly: {
-                xAxis: [{ data: axisData, scaleType: 'band', tickValues: visibleTicks, valueFormatter: (hour) => `${hour % 12 === 0 ? 12 : hour % 12} ${hour >= 12 ? 'PM' : 'AM'}`, tickLabelStyle: { angle: 0, textAnchor: 'middle', fontSize: 10 }, disableAxisListener: true }],
                 series: hourlyPredictions
             },
             growthFactor,
@@ -212,58 +192,168 @@ const SalesForecastChart = ({ targetDateString, reportData, lastYearData, actual
         return newForecast;
     }, [reportId, refreshNonce, reportData, lastYearData, actualSales, targetDateString, ordersData, revenueSources, isLoadingOrders]);
 
-    const hourlyChartSeries = useMemo(() => {
-        if (!forecast || !revenueSources) return [];
-        const projectedSeries = revenueSources.filter(source => forecast.hourly.series[source.label]).map(source => ({ data: forecast.hourly.series[source.label], label: `${source.label} (Projected)`, type: 'bar', stack: 'projected', color: source.color }));
-        
-        if (!ordersData?.current) return projectedSeries;
-        
-        const apiResponse = ordersData.current;
-        const sourceMapping = { 'Retail Orders': 'Retail', 'Surreal Creamery DoorDash Orders': 'DoorDash', 'Breaking Batter DoorDash': 'DoorDash', 'Surreal Creamery Uber Eats Orders': 'UberEats', 'Breaking Batter UberEats': 'UberEats', 'Surreal Creamery GrubHub Orders': 'GrubHub' };
-        const hourlyTotals = {};
-        revenueSources.forEach(source => { hourlyTotals[source.label] = Array(24).fill(0); });
-        for (const apiKey in apiResponse) {
-            const simpleKey = sourceMapping[apiKey];
-            if (simpleKey && apiResponse[apiKey] && hourlyTotals[simpleKey]) {
-                const orders = safeParseJson(apiResponse[apiKey]);
-                (Array.isArray(orders) ? orders : Object.values(orders)).forEach(order => {
-                    if (order && order.Time && order['Net Total'] !== undefined) {
-                        const hour = getHourFromTimeString(order.Time);
-                        if (hour !== null) hourlyTotals[simpleKey][hour] += order['Net Total'] || 0;
-                    }
+    const hourlyChartData = useMemo(() => {
+        if (!forecast || !revenueSources) return { series: [], categories: [], colors: [] };
+
+        const categories = Array.from({ length: 24 }, (_, i) => formatHourLabel(i));
+        const colors = [];
+        const series = [];
+
+        // Add projected series
+        revenueSources.forEach(source => {
+            if (forecast.hourly.series[source.label]) {
+                series.push({
+                    name: `${source.label} (Projected)`,
+                    data: forecast.hourly.series[source.label],
+                    group: 'projected',
                 });
+                colors.push(source.color);
             }
+        });
+
+        // Add actual series if available
+        if (ordersData?.current) {
+            const apiResponse = ordersData.current;
+            const sourceMapping = { 'Retail Orders': 'Retail', 'Surreal Creamery DoorDash Orders': 'DoorDash', 'Breaking Batter DoorDash': 'DoorDash', 'Surreal Creamery Uber Eats Orders': 'UberEats', 'Breaking Batter UberEats': 'UberEats', 'Surreal Creamery GrubHub Orders': 'GrubHub' };
+            const hourlyTotals = {};
+            revenueSources.forEach(source => { hourlyTotals[source.label] = Array(24).fill(0); });
+
+            for (const apiKey in apiResponse) {
+                const simpleKey = sourceMapping[apiKey];
+                if (simpleKey && apiResponse[apiKey] && hourlyTotals[simpleKey]) {
+                    const orders = safeParseJson(apiResponse[apiKey]);
+                    (Array.isArray(orders) ? orders : Object.values(orders)).forEach(order => {
+                        if (order && order.Time && order['Net Total'] !== undefined) {
+                            const hour = getHourFromTimeString(order.Time);
+                            if (hour !== null) hourlyTotals[simpleKey][hour] += order['Net Total'] || 0;
+                        }
+                    });
+                }
+            }
+
+            revenueSources.forEach(source => {
+                series.unshift({
+                    name: `${source.label} (Actual)`,
+                    data: hourlyTotals[source.label] || Array(24).fill(0),
+                    group: 'actuals',
+                });
+                colors.unshift(source.color);
+            });
         }
-        const actualsSeries = revenueSources.map(source => ({ data: hourlyTotals[source.label] || Array(24).fill(0), label: `${source.label} (Actual)`, type: 'bar', stack: 'actuals', color: source.color }));
-        return [...actualsSeries, ...projectedSeries];
+
+        return { series, categories, colors };
     }, [forecast, ordersData, revenueSources]);
-
-    const handleLineTooltipEnter = (event, data) => { if (data.value !== null) { setLineTooltipData({ top: event.clientY, left: event.clientX, content: `${data.series.label}: ${formatCurrency(data.value)}` }); } };
-    const handleLineTooltipLeave = () => setLineTooltipData(null);
-
-    const handleBarTooltipEnter = (event, data) => {
-        const { dataIndex } = data;
-        const totalActualForHour = hourlyChartSeries.filter(s => s.stack === 'actuals').reduce((sum, series) => sum + (series.data[dataIndex] || 0), 0);
-        const totalProjectedForHour = hourlyChartSeries.filter(s => s.stack === 'projected').reduce((sum, series) => sum + (series.data[dataIndex] || 0), 0);
-        const content = (
-            <div>
-                <Typography variant="caption" display="block" sx={{ fontWeight: 'bold' }}>{forecast.hourly.xAxis[0].valueFormatter(dataIndex)}</Typography>
-                {totalActualForHour > 0 && (<Typography variant="caption" display="block">Actual: {formatCurrency(totalActualForHour)}</Typography>)}
-                {totalProjectedForHour > 0 && (<Typography variant="caption" display="block">Projected: {formatCurrency(totalProjectedForHour)}</Typography>)}
-            </div>
-        );
-        setBarTooltipData({ top: event.clientY, left: event.clientX, content });
-    };
-    const handleBarTooltipLeave = () => setBarTooltipData(null);
 
     const hasHourlyData = (ordersData?.historical?.length > 0 || ordersData?.recent?.length > 0 || ordersData?.historicalForward?.length > 0) && forecast?.hourly.series && Object.values(forecast.hourly.series).flat().some(d => d > 0.01);
 
+    // Daily forecast chart options
+    const dailyChartOptions = useChart({
+        colors: ['#64b5f6', '#4caf50'],
+        stroke: {
+            width: 3,
+            curve: 'smooth',
+        },
+        markers: {
+            size: 6,
+        },
+        xaxis: {
+            categories: forecast?.daily.categories || [],
+        },
+        yaxis: {
+            min: 0,
+            max: forecast?.daily.yAxisMax,
+            labels: {
+                formatter: (value) => formatCurrency(value),
+            },
+        },
+        tooltip: {
+            y: {
+                formatter: (value) => formatCurrency(value),
+            },
+        },
+        legend: {
+            show: true,
+            position: 'top',
+        },
+        annotations: actualSales !== null ? {
+            yaxis: [
+                {
+                    y: actualSales,
+                    borderColor: '#ff9800',
+                    borderWidth: 2,
+                    strokeDashArray: 5,
+                    label: {
+                        borderColor: '#ff9800',
+                        style: {
+                            color: '#fff',
+                            background: '#ff9800',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                        },
+                        text: `Actual: ${formatCurrency(actualSales)}`,
+                        position: 'right',
+                    },
+                },
+            ],
+        } : {},
+    });
+
+    // Hourly chart options
+    const hourlyChartOptions = useChart({
+        colors: hourlyChartData.colors,
+        chart: {
+            stacked: true,
+        },
+        plotOptions: {
+            bar: {
+                columnWidth: '60%',
+                borderRadius: 4,
+            },
+        },
+        xaxis: {
+            categories: hourlyChartData.categories,
+            labels: {
+                rotate: -45,
+                hideOverlappingLabels: true,
+                style: { fontSize: '10px' },
+            },
+        },
+        yaxis: {
+            min: 0,
+            labels: {
+                formatter: (value) => formatCurrency(value),
+            },
+        },
+        tooltip: {
+            y: {
+                formatter: (value) => formatCurrency(value),
+            },
+        },
+        legend: {
+            show: true,
+            position: 'bottom',
+        },
+    });
+
     if (!forecast) {
-        return (<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}><CircularProgress /><Typography sx={{ ml: 2 }}>Calculating Forecast...</Typography></Box>);
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
+                <CircularProgress />
+                <Typography sx={{ ml: 2 }}>Calculating Forecast...</Typography>
+            </Box>
+        );
     }
 
-    const positionableSales = Math.max(0, actualSales || 0);
-    const actualSalesPercentage = forecast.daily.yAxisMax > 0 ? (positionableSales / forecast.daily.yAxisMax) * 100 : 0;
+    const dailySeries = [
+        {
+            name: `Recent ${format(parseISO(targetDateString), 'EEEE')}s`,
+            data: forecast.daily.recentSales,
+        },
+        {
+            name: `Prediction (${formatCurrency(forecast.daily.prediction)})`,
+            data: [...Array(forecast.daily.recentSales.length).fill(null), forecast.daily.prediction],
+        },
+    ];
 
     return (
         <Box>
@@ -273,31 +363,32 @@ const SalesForecastChart = ({ targetDateString, reportData, lastYearData, actual
                 <Divider orientation="vertical" flexItem />
                 <Typography variant="body2" component="div">Historical Trend (±4w): <Box component="strong" sx={{ color: forecast.historicalTrendFactor >= 1 ? 'success.main' : 'error.main' }}>{((forecast.historicalTrendFactor - 1) * 100).toFixed(1)}%</Box></Typography>
             </Box>
-            <Tooltip open={!!lineTooltipData} title={lineTooltipData?.content || ''} arrow PopperProps={{ anchorEl: { getBoundingClientRect: () => ({ top: lineTooltipData?.top || 0, left: lineTooltipData?.left || 0, right: lineTooltipData?.left || 0, bottom: lineTooltipData?.top || 0, width: 0, height: 0 }), }, }}>
-                <Box sx={{ position: 'relative' }} onContextMenu={(e) => e.preventDefault()}>
-                    <LineChart series={forecast.daily.series} xAxis={forecast.daily.xAxis} height={300} yAxis={[{ max: forecast.daily.yAxisMax, valueFormatter: compactCurrencyFormatter, disableAxisListener: true }]} margin={{ top: 20, right: 20, bottom: 30, left: 60 }} tooltip={{ trigger: 'none' }} onItemEnter={handleLineTooltipEnter} onItemLeave={handleLineTooltipLeave} />
-                    {actualSales !== null && (
-                        <Box sx={{ position: 'absolute', left: `60px`, right: `20px`, bottom: `calc(30px + (250px * ${actualSalesPercentage / 100}))`, borderTop: '2px dashed #ff9800', zIndex: 5, pointerEvents: 'none', }}>
-                            <Typography variant="caption" sx={{ position: 'absolute', top: -18, right: 0, color: '#ff9800', fontWeight: 'bold' }}>Actual: {formatCurrency(actualSales)}</Typography>
-                        </Box>
-                    )}
-                </Box>
-            </Tooltip>
+
+            <Chart
+                type="line"
+                series={dailySeries}
+                options={dailyChartOptions}
+                sx={{ height: 300 }}
+            />
+
             <Typography variant="caption" color="text.secondary">Prediction blends recent performance with growth-adjusted historical data and trends.</Typography>
+
             <Divider sx={{ my: 3 }} />
-            <Tooltip open={!!barTooltipData} title={barTooltipData?.content || ''} arrow PopperProps={{ anchorEl: { getBoundingClientRect: () => ({ top: barTooltipData?.top || 0, left: barTooltipData?.left || 0, right: barTooltipData?.left || 0, bottom: barTooltipData?.top || 0, width: 0, height: 0 }), }, }}>
-                <Box onContextMenu={(e) => e.preventDefault()}>
-                    <Typography variant="h6" gutterBottom>Hourly Sales Projection vs. Actual</Typography>
-                    {hasHourlyData ? (
-                        <BarChart xAxis={forecast.hourly.xAxis} series={hourlyChartSeries} height={300} yAxis={[{ valueFormatter: compactCurrencyFormatter, disableAxisListener: true }]} margin={{ top: 30, right: 20, bottom: 70, left: 60 }} slotProps={{ legend: { direction: 'horizontal', position: { vertical: 'bottom', horizontal: 'center' }, padding: -5 } }} tooltip={{ trigger: 'none' }} onItemEnter={handleBarTooltipEnter} onItemLeave={handleBarTooltipLeave} />
-                    ) : (
-                        <Paper variant="outlined" sx={{ p: 4, my: 2, textAlign: 'center', backgroundColor: 'action.hover' }}>
-                            <Typography variant="body1" color="text.secondary">Hourly projection is not available.</Typography>
-                            <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>This requires a single location to be selected in the filter and for recent or historical hourly data to exist for this day.</Typography>
-                        </Paper>
-                    )}
-                </Box>
-            </Tooltip>
+
+            <Typography variant="h6" gutterBottom>Hourly Sales Projection vs. Actual</Typography>
+            {hasHourlyData ? (
+                <Chart
+                    type="bar"
+                    series={hourlyChartData.series}
+                    options={hourlyChartOptions}
+                    sx={{ height: 350 }}
+                />
+            ) : (
+                <Paper variant="outlined" sx={{ p: 4, my: 2, textAlign: 'center', backgroundColor: 'action.hover' }}>
+                    <Typography variant="body1" color="text.secondary">Hourly projection is not available.</Typography>
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>This requires a single location to be selected in the filter and for recent or historical hourly data to exist for this day.</Typography>
+                </Paper>
+            )}
         </Box>
     );
 };

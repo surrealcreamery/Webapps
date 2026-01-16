@@ -23,12 +23,22 @@ import {
   Alert,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import AddIcon from '@mui/icons-material/Add';
-import RefreshIcon from '@mui/icons-material/Refresh';
+import { Icon } from '@iconify/react';
+
+// Iconify wrapper for consistent sizing
+const Iconify = ({ icon, width = 20, sx, ...other }) => (
+  <Box component={Icon} icon={icon} sx={{ width, height: width, flexShrink: 0, ...sx }} {...other} />
+);
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { getAuth } from 'firebase/auth';
 import { useUserPermissions } from '@/contexts/admin/AdminDataContext';
 import { useQuery } from '@tanstack/react-query';
+import {
+  PRICING_MODELS_URL,
+  CREATE_PRICING_MODEL_URL,
+  DELETE_PRICING_MODEL_URL,
+  UPDATE_PRICING_MODEL_URL,
+} from '@/constants/admin/adminConstants';
 
 //const TYPE_ORDER = ['Renewal', 'Acquisition', 'Deprecated'];
 
@@ -163,7 +173,7 @@ export default function PricingModels() {
     queryFn: async () => {
       const token = await getAuth().currentUser.getIdToken();
       const res = await fetch(
-        'https://hook.us2.make.com/t6lj7fteskrel9x9ztcig43xxwf62xqc',
+        PRICING_MODELS_URL,
         {
           headers: {
             Authorization: `Bearer ${token}`
@@ -262,7 +272,7 @@ export default function PricingModels() {
     try {
       const token = await getAuth().currentUser.getIdToken();
       const res = await fetch(
-        'https://hook.us2.make.com/d26n74q2eg84gtvvdjyxqt1gpgr5rbxg',
+        CREATE_PRICING_MODEL_URL,
         {
           method: 'POST',
           headers: {
@@ -310,7 +320,7 @@ export default function PricingModels() {
     try {
       const token = await getAuth().currentUser.getIdToken();
       const res = await fetch(
-        'https://hook.us2.make.com/lsslqdlgdwgoja0f6g1ljonp81oulfuc',
+        DELETE_PRICING_MODEL_URL,
         {
           method: 'DELETE',
           headers: {
@@ -341,7 +351,7 @@ export default function PricingModels() {
     try {
       const token = await getAuth().currentUser.getIdToken();
       const res = await fetch(
-        'https://hook.us2.make.com/49l2u1uhlnkgre3c9bnqix43qo3jedrr',
+        UPDATE_PRICING_MODEL_URL,
         {
           method: 'PUT',
           headers: {
@@ -377,21 +387,23 @@ export default function PricingModels() {
   };
 
   return (
-    <Box sx={{ width: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       {/* Toolbar */}
       <Box
         sx={{
-          position: 'fixed',
-          top: 48,
-          left: 0,
-          right: 0,
-          zIndex: 1100,
-          bgcolor: 'white',
-          borderBottom: '1px solid #ddd',
           display: 'flex',
+          alignItems: 'center',
           gap: 2,
-          px: 2,
-          py: 1,
+          pb: 2,
+          mb: 2,
+          borderBottom: 1,
+          borderColor: 'divider',
+          flexShrink: 0,
+          bgcolor: 'background.paper',
+          mx: -3,
+          mt: -3,
+          px: 3,
+          pt: 2,
         }}
       >
         <Box
@@ -404,7 +416,7 @@ export default function PricingModels() {
             '&:hover': { opacity: 0.8 },
           }}
         >
-          {isFetching ? <CircularProgress size={20} /> : <RefreshIcon fontSize="small" />}
+          {isFetching ? <CircularProgress size={20} /> : <Iconify icon="solar:refresh-bold" />}
           <Typography variant="body2" sx={{ ml: 0.5 }}>
             Refresh
           </Typography>
@@ -419,7 +431,7 @@ export default function PricingModels() {
             '&:hover': { opacity: 0.8 },
           }}
         >
-          <AddIcon fontSize="small" />
+          <Iconify icon="solar:add-circle-bold" />
           <Typography variant="body2" sx={{ ml: 0.5 }}>
             Add Model
           </Typography>

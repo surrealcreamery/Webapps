@@ -109,11 +109,11 @@ export default function Locations({ fetchedPermissions }) {
   }
 
   return (
-    <>
+    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {hasAccess && (
         <AdminDataTable
           title="Locations"
-          data={locationsData || []} 
+          data={locationsData || []}
           columns={columns}
           searchKeys={searchKeys}
           views={views}
@@ -135,6 +135,6 @@ export default function Locations({ fetchedPermissions }) {
           )}
         />
       )}
-    </>
+    </Box>
   );
 }

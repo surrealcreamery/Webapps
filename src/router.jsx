@@ -9,7 +9,8 @@ import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import {
   Box,
   Typography,
-  CircularProgress
+  CircularProgress,
+  CssBaseline
 } from '@mui/material';
 import {
   ThemeProvider,
@@ -84,6 +85,7 @@ import Reports from '@/pages/admin/core/Reports';
 import Training from '@/pages/admin/subscription/Training';
 import Recipes from '@/pages/admin/core/Recipes';
 import DeviceManagement from '@/pages/admin/core/DeviceManagement';
+import DeliveryOrders from '@/pages/admin/core/DeliveryOrders';
 
 import ProtectedRoute from '@/components/protected-route/protected-route.jsx';
 import {
@@ -284,7 +286,7 @@ function PublicRootLayout() {
 const router = createBrowserRouter([
   {
     path: '/signin',
-    element: <ThemeProvider theme={adminTheme}><AdminSignIn/></ThemeProvider>,
+    element: <ThemeProvider theme={adminTheme}><CssBaseline /><AdminSignIn/></ThemeProvider>,
   },
   {
     element: <PublicRootLayout />,
@@ -312,7 +314,7 @@ const router = createBrowserRouter([
     element: <AuthLayout/>,
     children: [
       {
-        element: <ThemeProvider theme={adminTheme}><AdminRoutes/></ThemeProvider>,
+        element: <ThemeProvider theme={adminTheme}><CssBaseline /><AdminRoutes/></ThemeProvider>,
         children: [
           { index: true, element: <ProtectedRoute permission="Dashboard"><Admin/></ProtectedRoute> },
           { path: 'subscriptions',      element: <ProtectedRoute permission="Subscriptions"><Subscriptions/></ProtectedRoute> },
@@ -326,6 +328,7 @@ const router = createBrowserRouter([
           { path: 'select-square-plan', element: <ProtectedRoute permission="Plans"><SelectSquarePlan/></ProtectedRoute> },
           { path: 'view-square-plan/:planId/:variationId', element: <ProtectedRoute permission="Plans"><ViewSquarePlan/></ProtectedRoute> },
           { path: 'reports',            element: <ProtectedRoute permission="Reports"><Reports/></ProtectedRoute> },
+          { path: 'delivery-orders',    element: <ProtectedRoute permission="Delivery Orders"><DeliveryOrders/></ProtectedRoute> },
           { path: 'training',           element: <ProtectedRoute permission="Training"><Training/></ProtectedRoute> },
           { path: 'recipes',            element: <ProtectedRoute permission="Recipes"><Recipes/></ProtectedRoute> },
           { path: 'devices',            element: <ProtectedRoute permission="Device Management"><DeviceManagement/></ProtectedRoute> },

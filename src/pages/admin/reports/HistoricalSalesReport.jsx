@@ -21,7 +21,7 @@ import {
     Checkbox,
     ListItemText
 } from '@mui/material';
-import { BarChart, LineChart } from '@mui/x-charts';
+import { Chart, useChart } from '@/components/chart';
 import {
     format,
     parseISO,
@@ -44,17 +44,6 @@ const formatCurrency = (value) => {
     return currencyFormatter.format(value);
 };
 
-const compactCurrencyFormatter = (value) => {
-    if (value === null || value === undefined || isNaN(value)) return '';
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        notation: 'compact',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 1,
-    }).format(value);
-};
-
 // --- CONSTANTS ---
 const REVENUE_SOURCES = [
     { key: 'Retail', color: '#1976d2' },
@@ -71,6 +60,7 @@ const HistoricalSalesReport = ({ allReports, onGoBack }) => {
     const [chartType, setChartType] = useState('line');
     const [displayMode, setDisplayMode] = useState('chart');
     const [selectedSources, setSelectedSources] = useState(() => REVENUE_SOURCES.map(s => s.key));
+    const [sourcesSelectOpen, setSourcesSelectOpen] = useState(false);
 
     const processedData = useMemo(() => {
         if (!allReports || allReports.length === 0) return null;
@@ -117,7 +107,7 @@ const HistoricalSalesReport = ({ allReports, onGoBack }) => {
             }
         });
 
-        const processedReports = new Set(); 
+        const processedReports = new Set();
 
         relevantReports.forEach(report => {
             const locationId = report['Surreal Creamery Square Location ID'] || report['Square Location ID'];
@@ -139,45 +129,33 @@ const HistoricalSalesReport = ({ allReports, onGoBack }) => {
                 });
             }
         });
-        
+
         const filteredRevenueSources = REVENUE_SOURCES.filter(source => selectedSources.includes(source.key));
-
         const sortedRevenueSources = [...filteredRevenueSources].sort((a, b) => sourceTotals[b.key] - sourceTotals[a.key]);
-
         const sortedData = Array.from(aggregatedTotals.values()).sort((a, b) => a.date - b.date);
 
-        const series = sortedRevenueSources.map(source => ({
-            data: sortedData.map(d => d[source.key]),
-            label: source.key,
-            color: source.color,
-            stack: chartType === 'bar' ? 'total' : undefined,
-            curve: 'linear',
-            showMark: chartType === 'scatter',
-            area: false,
-        }));
-        
         const getXAxisFormatter = () => {
-             switch (aggregation) {
+            switch (aggregation) {
                 case 'Day':
                     return (date) => format(date, 'MMM d, yyyy');
                 case 'Week':
                     return (date) => `W${getWeek(date)} '${format(date, 'yy')}`;
                 case 'Month':
-                     return (date) => format(date, 'MMM yyyy');
+                    return (date) => format(date, 'MMM yyyy');
                 default:
                     return (date) => format(date, 'MMM d, yyyy');
             }
         };
 
         const xAxisFormatter = getXAxisFormatter();
-        const scaleType = chartType === 'bar' ? 'band' : 'time';
-        const xAxisData = sortedData.map(d => scaleType === 'band' ? xAxisFormatter(d.date) : d.date);
+        const categories = sortedData.map(d => xAxisFormatter(d.date));
 
-        const xAxis = [{
-            data: xAxisData,
-            scaleType: scaleType,
-            valueFormatter: scaleType === 'time' ? xAxisFormatter : undefined,
-        }];
+        const series = sortedRevenueSources.map(source => ({
+            name: source.key,
+            data: sortedData.map(d => d[source.key]),
+        }));
+
+        const colors = sortedRevenueSources.map(source => source.color);
 
         const tableColumns = [
             { id: 'date', label: aggregation },
@@ -197,9 +175,57 @@ const HistoricalSalesReport = ({ allReports, onGoBack }) => {
             return row;
         });
 
-        return { series, xAxis, tableColumns, tableRows };
+        return { series, categories, colors, tableColumns, tableRows };
 
-    }, [allReports, timeRange, aggregation, chartType, selectedSources]);
+    }, [allReports, timeRange, aggregation, selectedSources]);
+
+    const chartOptions = useChart({
+        colors: processedData?.colors || [],
+        chart: {
+            stacked: chartType === 'bar',
+        },
+        stroke: {
+            width: chartType === 'line' ? 3 : 0,
+            curve: 'smooth',
+        },
+        markers: {
+            size: chartType === 'scatter' ? 6 : 0,
+        },
+        plotOptions: {
+            bar: {
+                columnWidth: '60%',
+                borderRadius: 4,
+            },
+        },
+        xaxis: {
+            categories: processedData?.categories || [],
+            labels: {
+                rotate: -45,
+                rotateAlways: aggregation === 'Day',
+                hideOverlappingLabels: true,
+                style: { fontSize: '10px' },
+            },
+        },
+        yaxis: {
+            min: 0,
+            labels: {
+                formatter: (value) => formatCurrency(value),
+            },
+        },
+        tooltip: {
+            y: {
+                formatter: (value) => formatCurrency(value),
+            },
+        },
+        legend: {
+            show: true,
+            position: 'top',
+            horizontalAlign: 'center',
+        },
+        grid: {
+            show: true,
+        },
+    });
 
     if (!processedData) {
         return (
@@ -210,8 +236,8 @@ const HistoricalSalesReport = ({ allReports, onGoBack }) => {
         );
     }
 
-    const ChartComponent = chartType === 'bar' ? BarChart : LineChart;
-    const { series, xAxis, tableColumns, tableRows } = processedData;
+    const { series, tableColumns, tableRows } = processedData;
+    const apexChartType = chartType === 'scatter' ? 'line' : chartType;
 
     return (
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -239,9 +265,20 @@ const HistoricalSalesReport = ({ allReports, onGoBack }) => {
                                 }}
                                 SelectProps={{
                                     multiple: true,
+                                    open: sourcesSelectOpen,
+                                    onOpen: () => setSourcesSelectOpen(true),
+                                    onClose: () => setSourcesSelectOpen(false),
                                     renderValue: (selected) => {
                                         if (selected.length === REVENUE_SOURCES.length) return 'All Sources';
                                         return `${selected.length} Sources`;
+                                    },
+                                    MenuProps: {
+                                        disablePortal: true,
+                                        disableScrollLock: true,
+                                        PaperProps: {
+                                            style: { maxHeight: 300 },
+                                            onClick: (e) => e.stopPropagation(),
+                                        },
                                     },
                                 }}
                                 sx={{ minWidth: 140 }}
@@ -253,7 +290,7 @@ const HistoricalSalesReport = ({ allReports, onGoBack }) => {
                                     </MenuItem>
                                 ))}
                             </TextField>
-                             <ToggleButtonGroup size="small" value={displayMode} exclusive onChange={(e, val) => val && setDisplayMode(val)} >
+                            <ToggleButtonGroup size="small" value={displayMode} exclusive onChange={(e, val) => val && setDisplayMode(val)} >
                                 <ToggleButton value="chart">Chart</ToggleButton>
                                 <ToggleButton value="table">Table</ToggleButton>
                             </ToggleButtonGroup>
@@ -270,30 +307,18 @@ const HistoricalSalesReport = ({ allReports, onGoBack }) => {
                             <ToggleButtonGroup size="small" value={chartType} exclusive onChange={(e, val) => val && setChartType(val)} disabled={displayMode === 'table'}>
                                 <ToggleButton value="bar">Bar</ToggleButton>
                                 <ToggleButton value="line">Line</ToggleButton>
-                                <ToggleButton value="scatter">Scatter</ToggleButton>
                             </ToggleButtonGroup>
                         </Box>
                     </Box>
                     <Divider sx={{ my: 2 }} />
-                    
+
                     {displayMode === 'chart' && (
-                        <Box sx={{ height: 500 }}>
-                            <ChartComponent
-                                series={series}
-                                xAxis={xAxis}
-                                yAxis={[{ valueFormatter: compactCurrencyFormatter }]}
-                                margin={{ top: 40, right: 30, bottom: 40, left: 70 }}
-                                slotProps={{
-                                    legend: {
-                                        direction: 'row',
-                                        position: { vertical: 'top', horizontal: 'middle' },
-                                        padding: 0,
-                                    },
-                                }}
-                                tooltip={{ trigger: 'axis' }}
-                                grid={{ vertical: true, horizontal: true }}
-                            />
-                        </Box>
+                        <Chart
+                            type={apexChartType}
+                            series={series}
+                            options={chartOptions}
+                            sx={{ height: 500 }}
+                        />
                     )}
 
                     {displayMode === 'table' && (

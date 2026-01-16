@@ -630,11 +630,11 @@ export default function Subscriptions({ fetchedPermissions }) {
     );
   };
 
-  if (loading) { return ( <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 'calc(100vh - 54px)' }}><CircularProgress /></Box> ); }
+  if (loading) { return ( <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}><CircularProgress /></Box> ); }
   if (error) { return ( <Box sx={{ p: 4 }}><Typography color="error">Error loading data. Please try again.</Typography></Box> ); }
 
   return (
-    <Box sx={{ mt: '54px', height: 'calc(100vh - 54px)' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {hasViewAccess ? (
         <>
             <Snackbar open={snackbarOpen} autoHideDuration={3000} onClose={() => setSnackbarOpen(false)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}><Alert severity={snackbarSeverity} onClose={() => setSnackbarOpen(false)}>{snackbarMsg}</Alert></Snackbar>

@@ -70,8 +70,8 @@ export default function DailyPnLReport({
     const getRowSx = (row) => row.isSummary ? { backgroundColor: theme => theme.palette.action.hover, '& .MuiTableCell-root .MuiTypography-root': { fontWeight: 'bold' } } : (row.isFuture ? { backgroundColor: '#fafafa', color: '#bdbdbd', '& .MuiTableCell-root': { color: '#bdbdbd' } } : {});
 
     return (
-        <>
-            <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+            <Box sx={{ px: 2.5, py: 1.5, borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
                 <Breadcrumbs aria-label="breadcrumb">
                     <Link
                         underline="hover"
@@ -84,7 +84,7 @@ export default function DailyPnLReport({
                     <Typography color="text.primary">Daily Profit and Loss</Typography>
                 </Breadcrumbs>
             </Box>
-            <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
+            <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, maxWidth: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {permissions?.view ? (
                     <AdminDataTable
                         sx={{ mt: 0 }}
@@ -113,6 +113,6 @@ export default function DailyPnLReport({
                     </Box>
                 )}
             </Box>
-        </>
+        </Box>
     );
 }

@@ -123,7 +123,7 @@ export default function Subscribers({ fetchedPermissions }) {
   }
 
   return (
-    <>
+    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {hasAccess && (
         <AdminDataTable
           title="Subscribers"
@@ -211,6 +211,6 @@ export default function Subscribers({ fetchedPermissions }) {
           </Box>
         </DialogContent>
       </Dialog>
-    </>
+    </Box>
   );
 }

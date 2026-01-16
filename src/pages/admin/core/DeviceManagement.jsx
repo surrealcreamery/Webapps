@@ -133,7 +133,7 @@ const DeviceManagementPage = () => {
   }
 
   return (
-    <Box sx={{ width: '100%', p: 2 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {canView ? (
         <AdminDataTable
           title="Device Management"

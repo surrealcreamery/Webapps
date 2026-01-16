@@ -1,5 +1,41 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAuth } from 'firebase/auth';
+import {
+  USER_LIST_URL,
+  USER_PERMS_URL,
+  UPDATE_PERMS_URL,
+  CREATE_USER_URL,
+  PRICING_MODELS_URL,
+  LOCATIONS_URL,
+  SUBSCRIPTIONS_URL,
+  SUBSCRIPTIONS_DETAIL_URL,
+  CREATE_SUBSCRIPTION_URL,
+  UPDATE_SUBSCRIPTION_URL,
+  BENEFITS_URL,
+  CREATE_BENEFIT_URL,
+  UPDATE_BENEFIT_URL,
+  DELETE_BENEFIT_URL,
+  ENTITLEMENTS_URL,
+  REDEEM_ENTITLEMENT_URL,
+  PLANS_URL,
+  CREATE_PLAN_URL,
+  UPDATE_PLAN_URL,
+  DELETE_PLAN_URL,
+  SQUARE_PLANS_URL,
+  CREATE_SQUARE_PLAN_URL,
+  CREATE_SQUARE_PLAN_VARIATION_URL,
+  DEPRECATE_SQUARE_PLAN_VARIATION_URL,
+  RETRIEVE_DEPRECATED_SQUARE_PLAN_VARIATION_URL,
+  SUBSCRIBERS_URL,
+  LIST_DEVICES_URL,
+  VERIFY_UUID_URL,
+  LIST_DAILY_REVENUE_BY_CHANNEL_URL,
+  RETRIEVE_NET_SALES_URL,
+  RETRIEVE_LABOR_URL,
+  RETRIEVE_ORDERS_BY_DAY_URL,
+  RETRIEVE_TEAM_MEMBERS_URL,
+  TRIAGE_UPLOADED_CSV_URL,
+} from '@/constants/admin/adminConstants';
 
 // ——— Firebase-authenticated fetch helper —————————————————————————————
 async function authFetch(url, options = {}) {
@@ -101,66 +137,6 @@ export async function fetchWithToken(url, options = {}) {
   }
 }
 
-
-// ——— Endpoint URLs —————————————————————————————————
-// ACCESS
-const USER_LIST_URL            = 'https://hook.us2.make.com/ln9r21h0yfvuwo9verwmr6ouqkc0lbvd';
-const USER_PERMS_URL           = 'https://hook.us2.make.com/ehmthsxenbv3jds6d825bhft3kvhuxnp';
-const UPDATE_PERMS_URL         = 'https://hook.us2.make.com/dec7onj9ddctcdd9b4l1s40gi7iq8vv1';
-const CREATE_USER_URL          = 'https://hook.us2.make.com/st1wgm7wobfxwgw6cd3yzw9j193e7wcl';
-
-// PRICING MODELS
-const PRICING_MODELS_URL       = 'https://hook.us2.make.com/t6lj7fteskrel9x9ztcig43xxwf62xqc';
-
-// LOCATIONS
-const LOCATIONS_URL            = 'https://hook.us2.make.com/bulds2yd1029oxj7pmdal67xe7ajy2j7';
-
-// SUBSCRIPTIONS
-const SUBSCRIPTIONS_URL        = 'https://hook.us2.make.com/eoayonr2jp1muxw67opn9gqut42jpgpl';
-const SUBSCRIPTIONS_DETAIL_URL = 'https://hook.us2.make.com/d1s01of9wd9j8frzfg5tbl7ehutontef';
-const CREATE_SUBSCRIPTION_URL  = 'https://hook.us2.make.com/eqnqw1hfbpfun4f9fgp19j2xg6lxw7oj';
-const UPDATE_SUBSCRIPTION_URL  = 'https://hook.us2.make.com/79nuinousgc7ue51yumcksh8yvl6otba';
-const BENEFITS_URL             = 'https://hook.us2.make.com/eftwd4vli8bs8matfpk14lxdbp2e82wr';
-const CREATE_BENEFIT_URL       = 'https://hook.us2.make.com/vhqvm9pfd7mnqvm2mogwea64jfw4vh92';
-const UPDATE_BENEFIT_URL       = 'https://hook.us2.make.com/jqzj4jpq9rlhmaf5yiruy43xkub5jnul';
-const DELETE_BENEFIT_URL       = 'https://hook.us2.make.com/m331kleqzaiwyeqpkyw59s4f2ccza88y';
-const ENTITLEMENTS_URL         = 'https://hook.us2.make.com/cri381cb8ljplfbf83gdpfp62aiywose';
-const REDEEM_ENTITLEMENT_URL   = 'https://hook.us2.make.com/e23wquhkionmf64ueu0bpxqx5iqg28b8';
-
-
-
-// PLANS
-const PLANS_URL                = 'https://hook.us2.make.com/p2tenjgj1dr3a3jurzkclf1la6eifeoa';
-const CREATE_PLAN_URL          = 'https://hook.us2.make.com/tw92wjbcchbhx939ck5nhj26pfclnn59';
-const UPDATE_PLAN_URL          = 'https://hook.us2.make.com/4767mfvmpk3ro4jxqyx61cbhyzkyrnrw';
-const DELETE_PLAN_URL          = 'https://hook.us2.make.com/sx71985eybb2gvondc7rql9pocl61m7g';
-const CREATE_SQUARE_PLAN_VARIATION_URL = 'https://hook.us2.make.com/12j7p9b1x2tmzimusiccth8midtauu37';
-const CREATE_SQUARE_PLAN_URL = 'https://hook.us2.make.com/aqycnphq7bfeh278qughqhoio7qbwryx';
-const DEPRECATE_SQUARE_PLAN_VARIATION_URL = 'https://hook.us2.make.com/7te36hnc2kwjfr93ummjdsjfiakql798';
-const RETRIEVE_DEPRECATED_SQUARE_PLAN_VARIATION_URL = 'https://hook.us2.make.com/bnyimy1ayx06wzgdjokwdpj43o9vvjma';
-
-
-// SUBSCRIBERS
-const SUBSCRIBERS_URL          = 'https://hook.us2.make.com/icnv18npftxwzjjcus6oqdpuem9d9r1t';
-const SQUARE_PLANS_URL         = 'https://hook.us2.make.com/thw5ui575mn2qhpbwp88ql5433cuq4lf';
-
-
-
-// DEVICE MANAGEMENT
-const LIST_DEVICES_URL         = 'https://hook.us2.make.com/lrvml8heavqvvwvkoqho4gr3jw9n4twk';
-
-
-// REPORTS
-const LIST_DAILY_REVENUE_BY_CHANNEL_URL = 'https://hook.us2.make.com/jr3g4yxl4uyw4pbbje3k5aua47ykkr3p';
-const RETRIEVE_NET_SALES_URL   = 'https://hook.us2.make.com/q0efpsschb7tpduisor6rxsftue7pcu1';
-const RETRIEVE_LABOR_URL       = 'https://hook.us2.make.com/ajcqdsqvh92w7kg9eso4gughj24bundi';
-const RETRIEVE_ORDERS_BY_DAY_URL = 'https://hook.us2.make.com/svfyr52iragxjt6njhkg1jxl26x98wxk';
-const RETRIEVE_TEAM_MEMBERS_URL = 'https://hook.us2.make.com/asscir41bwk5pyh9dop7evgj3x7br8zt';
-const TRIAGE_UPLOADED_CSV_URL = 'https://hook.us2.make.com/tuok8d2x9cip5uupcyxwryi1unndc9ih';
-
-
-
-const VERIFY_UUID_URL          = 'https://hook.us2.make.com/lnnijsmluypvvzwj3ag60g5zi99fbx2r';
 
 // ——— Raw Fetchers for Prefetching & Mutations ————————————————————————————————
 export const fetchDailyRevenue = () =>

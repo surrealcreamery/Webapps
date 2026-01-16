@@ -354,7 +354,7 @@ export default function Reports({ fetchedPermissions }) {
     const goBack = () => setSelectedReportName(null);
 
     return (
-        <Box sx={{ height: 'calc(100vh - 54px)', display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
             {selectedReportName === 'Daily Profit and Loss' && (
                 hasAccess ? (
                     <DailyPnLReport
