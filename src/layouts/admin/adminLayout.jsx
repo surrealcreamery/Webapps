@@ -277,9 +277,11 @@ export default function AdminLayout({ children, fetchedPermissions }) {
     return authKey ? localStorage.getItem(authKey) === 'true' : false;
   });
 
-  // Wake Lock state (PWA mode only) - persisted to localStorage
+  // Wake Lock state (PWA mode only) - defaults to ON
   const [wakeLockEnabled, setWakeLockEnabled] = useState(() => {
-    return localStorage.getItem('wakeLockEnabled') === 'true';
+    const stored = localStorage.getItem('wakeLockEnabled');
+    // Default to true if not explicitly set to false
+    return stored !== 'false';
   });
   const [wakeLockActive, setWakeLockActive] = useState(false);
   const wakeLockRef = useRef(null);

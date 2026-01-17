@@ -43,6 +43,8 @@ export async function broadcastNewOrder(orderData) {
         locationName: orderData.locationName,
         status: orderData.status,
         createdAt: orderData.createdAt,
+        deliveryType: orderData.deliveryType,
+        shippingMethod: orderData.shippingMethod,
       },
       timestamp: Date.now(),
     });
