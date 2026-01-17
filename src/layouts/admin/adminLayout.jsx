@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getAuth, signOut } from 'firebase/auth';
 import {
   Box,
@@ -12,7 +12,9 @@ import {
   Avatar,
   Divider,
   Collapse,
-  useMediaQuery
+  useMediaQuery,
+  ToggleButtonGroup,
+  ToggleButton
 } from '@mui/material';
 import { useTheme, alpha } from '@mui/material/styles';
 import { Icon } from '@iconify/react';
@@ -271,6 +273,52 @@ export default function AdminLayout({ children, fetchedPermissions }) {
     return authKey ? localStorage.getItem(authKey) === 'true' : false;
   });
 
+  // Wake Lock state for In-store Orders page
+  const [wakeLockEnabled, setWakeLockEnabled] = useState(false);
+  const wakeLockRef = useRef(null);
+  const isDeliveryOrdersPage = location.pathname === '/admin/delivery-orders';
+
+  // Screen Wake Lock - keeps tablet awake
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      if (wakeLockEnabled && 'wakeLock' in navigator) {
+        try {
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+          wakeLockRef.current.addEventListener('release', () => {
+            console.log('[WakeLock] Screen wake lock released');
+          });
+        } catch (err) {
+          console.error('[WakeLock] Failed to acquire:', err);
+        }
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      }
+    };
+
+    if (wakeLockEnabled) {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    const handleVisibilityChange = () => {
+      if (wakeLockEnabled && document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      releaseWakeLock();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [wakeLockEnabled]);
+
   useEffect(() => {
     const authKey = user ? `deviceAuthenticated_${user.uid}` : null;
     if (authKey) {
@@ -492,10 +540,52 @@ export default function AdminLayout({ children, fetchedPermissions }) {
               fontWeight: 700,
               color: theme.palette.text.primary,
               fontSize: { xs: '2rem', sm: '2.4rem' },
+              flex: 1,
             }}
           >
             {getTitleFromPath()}
           </Typography>
+
+          {/* Wake Lock Toggle - only on In-store Orders page */}
+          {isDeliveryOrdersPage && (
+            <ToggleButtonGroup
+              value={wakeLockEnabled ? 'on' : 'sleep'}
+              exclusive
+              onChange={(e, val) => val && setWakeLockEnabled(val === 'on')}
+              size="small"
+            >
+              <ToggleButton
+                value="on"
+                sx={{
+                  px: 1.5,
+                  gap: 0.5,
+                  '&.Mui-selected': {
+                    bgcolor: alpha(theme.palette.primary.main, 0.08),
+                    color: theme.palette.primary.main,
+                    '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.16) }
+                  }
+                }}
+              >
+                <Iconify icon="solar:sun-bold" width={18} sx={{ color: wakeLockEnabled ? theme.palette.primary.main : 'inherit' }} />
+                Always On
+              </ToggleButton>
+              <ToggleButton
+                value="sleep"
+                sx={{
+                  px: 1.5,
+                  gap: 0.5,
+                  '&.Mui-selected': {
+                    bgcolor: alpha(theme.palette.primary.main, 0.08),
+                    color: theme.palette.primary.main,
+                    '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.16) }
+                  }
+                }}
+              >
+                <Iconify icon="solar:moon-bold" width={18} sx={{ color: !wakeLockEnabled ? theme.palette.primary.main : 'inherit' }} />
+                Sleep
+              </ToggleButton>
+            </ToggleButtonGroup>
+          )}
         </Box>
 
         {/* Page content */}
