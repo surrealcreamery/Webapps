@@ -49,7 +49,7 @@ export default function UserPermissions() {
     Subscriptions:     { view: false, edit: false, delete: false, allLocations: true, allowedLocations: [] },
     Subscribers:       { view: false, edit: false, delete: false },
     Reports:           { view: false, create: false, update: false, allLocations: true, allowedLocations: [] },
-    'Delivery Orders': { view: false },
+    'In-store Orders': { view: false },
     Locations:         { view: false, edit: false, delete: false },
     Training:          { view: false, edit: false, delete: false },
     Recipes:           { view: false, edit: false, delete: false },

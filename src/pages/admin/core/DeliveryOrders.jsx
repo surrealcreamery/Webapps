@@ -157,23 +157,58 @@ export default function DeliveryOrders() {
     staleTime: 30000,
   });
 
-  // Play notification sound
-  const playNotificationSound = useCallback(() => {
+  // Play notification sound/speech
+  const playNotificationSound = useCallback((deliveryType) => {
     try {
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
 
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
+      // "Darling hold my HAND" melody: G4 - A4 - C5 - D5 - E5 (held)
+      // Tempo: 123 BPM, eighth notes (~0.244s each)
+      const eighthNote = 60 / 123 / 2; // ~0.244s
+      const notes = [
+        { freq: 392.00, time: 0, duration: eighthNote },                    // G4 - "Dar-"
+        { freq: 440.00, time: eighthNote, duration: eighthNote },           // A4 - "-ling"
+        { freq: 523.25, time: eighthNote * 2, duration: eighthNote },       // C5 - "hold"
+        { freq: 587.33, time: eighthNote * 3, duration: eighthNote },       // D5 - "my"
+        { freq: 659.25, time: eighthNote * 4, duration: eighthNote * 4 },   // E5 - "HAND" (held)
+      ];
 
-      oscillator.frequency.value = 800;
-      oscillator.type = 'sine';
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      notes.forEach(({ freq, time, duration }) => {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
 
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.5);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.frequency.value = freq;
+        oscillator.type = 'sine';
+
+        const startTime = audioContext.currentTime + time;
+        gainNode.gain.setValueAtTime(0, startTime);
+        gainNode.gain.linearRampToValueAtTime(0.3, startTime + 0.02);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+        oscillator.start(startTime);
+        oscillator.stop(startTime + duration);
+      });
+
+      // Speak the message after the melody finishes (~1.5s)
+      setTimeout(() => {
+        let message;
+        if (deliveryType === 'pickup') {
+          message = 'New order for pickup';
+        } else if (deliveryType === 'local') {
+          message = 'New order for local delivery';
+        } else {
+          message = 'New order to be shipped';
+        }
+        const utterance = new SpeechSynthesisUtterance(message);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }, 1500);
+
     } catch (error) {
       console.log('[Notification] Sound failed:', error);
     }
@@ -182,7 +217,19 @@ export default function DeliveryOrders() {
   // Real-time order updates via WebSocket
   const handleNewOrder = useCallback((newOrder) => {
     console.log('[WebSocket] New order received:', newOrder);
-    playNotificationSound();
+    // Determine delivery type from the order data
+    let orderDeliveryType = newOrder.deliveryType;
+    if (!orderDeliveryType) {
+      const method = newOrder.shippingMethod?.toLowerCase() || '';
+      if (method.includes('pickup') || method.includes('pick up')) {
+        orderDeliveryType = 'pickup';
+      } else if (method.includes('local') || method.includes('delivery')) {
+        orderDeliveryType = 'local';
+      } else {
+        orderDeliveryType = 'shipping';
+      }
+    }
+    playNotificationSound(orderDeliveryType);
     setSnackbar({
       open: true,
       message: `New order #${newOrder.orderNumber} from ${newOrder.customerName}`,
@@ -361,10 +408,19 @@ export default function DeliveryOrders() {
     return successOrders.filter(order => {
       // Filter by delivery type - use the deliveryType field from backend
       // Fallback to detecting from shippingMethod for older orders
-      const orderDeliveryType = order.deliveryType ||
-        (order.shippingMethod?.toLowerCase().includes('local') ||
-         order.shippingMethod?.toLowerCase().includes('delivery') ? 'local' : 'shipping');
+      let orderDeliveryType = order.deliveryType;
+      if (!orderDeliveryType) {
+        const method = order.shippingMethod?.toLowerCase() || '';
+        if (method.includes('pickup') || method.includes('pick up')) {
+          orderDeliveryType = 'pickup';
+        } else if (method.includes('local') || method.includes('delivery')) {
+          orderDeliveryType = 'local';
+        } else {
+          orderDeliveryType = 'shipping';
+        }
+      }
 
+      if (deliveryType === 'pickup' && orderDeliveryType !== 'pickup') return false;
       if (deliveryType === 'local' && orderDeliveryType !== 'local') return false;
       if (deliveryType === 'shipping' && orderDeliveryType !== 'shipping') return false;
 
@@ -420,12 +476,19 @@ export default function DeliveryOrders() {
         {/* Row 1: Title and Actions */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Iconify icon="solar:delivery-bold" width={28} sx={{ color: 'primary.main' }} />
+            <Iconify icon="solar:shop-bold" width={28} sx={{ color: 'primary.main' }} />
             <Typography variant="h6" fontWeight="bold">
-              Delivery Orders
+              In-store Orders
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton
+              onClick={() => playNotificationSound('local')}
+              size="small"
+              title="Test local delivery notification"
+            >
+              <Iconify icon="solar:volume-loud-bold" />
+            </IconButton>
             <Button
               size="small"
               variant="outlined"
@@ -451,6 +514,7 @@ export default function DeliveryOrders() {
             size="small"
           >
             <ToggleButton value="all">All</ToggleButton>
+            <ToggleButton value="pickup">Pickup</ToggleButton>
             <ToggleButton value="local">Local Delivery</ToggleButton>
             <ToggleButton value="shipping">Shipping</ToggleButton>
           </ToggleButtonGroup>
@@ -509,70 +573,6 @@ export default function DeliveryOrders() {
 
       {/* Main Content */}
       <Box sx={{ flexGrow: 1, overflow: 'auto', px: 2 }}>
-
-      {/* Summary Cards - Row 1: Revenue Breakdown */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, mb: 2 }}>
-        <Card>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight="bold">{totals.count}</Typography>
-            <Typography color="text.secondary">Orders</Typography>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight="bold">{formatCurrency(totals.itemsSubtotal)}</Typography>
-            <Typography color="text.secondary">Items Subtotal</Typography>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight="bold">{formatCurrency(totals.shipping)}</Typography>
-            <Typography color="text.secondary">Shipping Charges</Typography>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight="bold">{formatCurrency(totals.gross)}</Typography>
-            <Typography color="text.secondary">Gross Revenue</Typography>
-          </CardContent>
-        </Card>
-      </Box>
-
-      {/* Summary Cards - Row 2: Fees & Net */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, mb: 3 }}>
-        <Card>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight="bold" color="error.main">
-              {formatCurrency(totals.shopifyFees)}
-            </Typography>
-            <Typography color="text.secondary">Shopify Fees</Typography>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight="bold" color="error.main">
-              {formatCurrency(totals.shipdayFees)}
-            </Typography>
-            <Typography color="text.secondary">Shipday Fees</Typography>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight="bold" color="error.main">
-              {formatCurrency(totals.shopifyFees + totals.shipdayFees)}
-            </Typography>
-            <Typography color="text.secondary">Total Fees</Typography>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" fontWeight="bold" color="success.main">
-              {formatCurrency(totals.net)}
-            </Typography>
-            <Typography color="text.secondary">Net Revenue</Typography>
-          </CardContent>
-        </Card>
-      </Box>
 
       {/* Needs Attention Section */}
       {(errorOrders.length > 0 || needsHealingOrders.length > 0) && (
@@ -707,7 +707,7 @@ export default function DeliveryOrders() {
         </Typography>
       ) : filteredOrders.length === 0 ? (
         <Typography sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
-          No {deliveryType === 'local' ? 'local delivery' : deliveryType === 'shipping' ? 'shipping' : ''} orders for {selectedDate}
+          No {deliveryType === 'pickup' ? 'pickup' : deliveryType === 'local' ? 'local delivery' : deliveryType === 'shipping' ? 'shipping' : ''} orders for {selectedDate}
           {!selectedLocations.includes('all') && ` at ${selectedLocations.join(', ')}`}
         </Typography>
       ) : (
@@ -924,11 +924,11 @@ export default function DeliveryOrders() {
                   </Typography>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Typography variant="body2">Delivery Type</Typography>
+                      <Typography variant="body2">Order Type</Typography>
                       <Chip
-                        label={selectedOrder.deliveryType === 'local' ? 'Local Delivery' : 'Shipping'}
+                        label={selectedOrder.deliveryType === 'pickup' ? 'Pickup' : selectedOrder.deliveryType === 'local' ? 'Local Delivery' : 'Shipping'}
                         size="small"
-                        color={selectedOrder.deliveryType === 'local' ? 'info' : 'default'}
+                        color={selectedOrder.deliveryType === 'pickup' ? 'success' : selectedOrder.deliveryType === 'local' ? 'info' : 'default'}
                       />
                     </Box>
                     {selectedOrder.shippingMethod && (

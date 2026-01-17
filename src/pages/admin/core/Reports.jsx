@@ -26,6 +26,7 @@ import ReportSelectionList from '@/pages/admin/reports/ReportSelectionList';
 import DailyPnLReport from '@/pages/admin/reports/DailyPnLReport';
 import ReportDetailModal from '@/pages/admin/reports/ReportDetailModal';
 import HistoricalSalesReport from '@/pages/admin/reports/HistoricalSalesReport';
+import OrdersReport from '@/pages/admin/reports/OrdersReport';
 import GoogleDriveFileListerModal from '@/pages/admin/reports/GoogleDriveFileListerModal'; // Import the new modal
 
 const DAYS_PER_PAGE = 30;
@@ -390,6 +391,9 @@ export default function Reports({ fetchedPermissions }) {
                         <Typography>You do not have permission to view any reports.</Typography>
                     </Box>
                  )
+            )}
+            {selectedReportName === 'Shopify Orders' && (
+                <OrdersReport onGoBack={goBack} />
             )}
             <Dialog open={isUpdateDialogOpen} onClose={handleCloseUpdateDialog} fullWidth maxWidth="xs">
                 <DialogTitle>Update Rows</DialogTitle>

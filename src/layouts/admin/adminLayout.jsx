@@ -28,6 +28,8 @@ const Iconify = ({ icon, width = 24, sx, ...other }) => (
   />
 );
 import UUIDEntryGate from '@/pages/admin/subscription/UUIDEntryGate';
+import surrealLogo from '@/assets/images/svg/surreal-brandmark.svg';
+import surrealWordmark from '@/assets/images/svg/surreal-wordmark.svg';
 
 // Layout constants
 const SIDEBAR_WIDTH = 280;
@@ -45,7 +47,7 @@ export const routeNames = {
   '/admin/access':               'Access',
   '/admin/access/:userId':       'User Permissions',
   '/admin/reports':              'Reports',
-  '/admin/delivery-orders':      'Delivery Orders',
+  '/admin/delivery-orders':      'In-store Orders',
   '/admin/training':             'Training',
   '/admin/recipes':              'Recipes',
   '/admin/select-square-plan':   'Select a Square Plan',
@@ -74,24 +76,25 @@ function SidebarContent({ user, navLinks, fetchedPermissions, location, onSignOu
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <Box
+            component="img"
+            src={surrealLogo}
+            alt="Surreal"
             sx={{
               width: 40,
               height: 40,
-              borderRadius: 1.5,
-              bgcolor: theme.palette.primary.main,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              objectFit: 'contain',
             }}
-          >
-            <Typography variant="h6" sx={{ color: 'white', fontWeight: 700 }}>
-              S
-            </Typography>
-          </Box>
+          />
           {!isCollapsed && (
-            <Typography variant="h6" sx={{ ml: 1.5, fontWeight: 700, color: theme.palette.text.primary }}>
-              Surreal
-            </Typography>
+            <Box
+              component="img"
+              src={surrealWordmark}
+              alt="Surreal"
+              sx={{
+                height: 36,
+                objectFit: 'contain',
+              }}
+            />
           )}
         </Box>
         {/* Close button for mobile */}
@@ -126,7 +129,8 @@ function SidebarContent({ user, navLinks, fetchedPermissions, location, onSignOu
             sx={{
               width: 40,
               height: 40,
-              bgcolor: theme.palette.primary.main,
+              bgcolor: 'black',
+              color: 'white',
               fontSize: '1.6rem',
               fontWeight: 600,
             }}
@@ -293,7 +297,7 @@ export default function AdminLayout({ children, fetchedPermissions }) {
     { text: 'Subscribers', icon: 'solar:users-group-rounded-bold-duotone', path: '/admin/subscribers', permission: 'Subscribers' },
     { text: 'Device Management', icon: 'solar:devices-bold-duotone', path: '/admin/devices', permission: 'Device Management' },
     { text: 'Reports', icon: 'solar:chart-bold-duotone', path: '/admin/reports', permission: 'Reports' },
-    { text: 'Delivery Orders', icon: 'solar:delivery-bold-duotone', path: '/admin/delivery-orders', permission: 'Delivery Orders' },
+    { text: 'In-store Orders', icon: 'solar:shop-bold-duotone', path: '/admin/delivery-orders', permission: 'In-store Orders' },
     { text: 'Locations', icon: 'solar:map-point-bold-duotone', path: '/admin/locations', permission: 'Locations' },
     { text: 'Theme Editor', icon: 'solar:pallete-2-bold-duotone', path: '/admin/theme-editor', permission: 'Theme Editor' },
     { text: 'Access', icon: 'solar:lock-keyhole-bold-duotone', path: '/admin/access', permission: 'Access' },

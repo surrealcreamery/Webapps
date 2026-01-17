@@ -20,6 +20,13 @@ export default function ReportSelectionList({ onSelectReport }) {
                             secondary="Analyze 1-year and 3-year sales trends by revenue source."
                         />
                     </ListItemButton>
+                    <Divider />
+                    <ListItemButton onClick={() => onSelectReport('Shopify Orders')}>
+                        <ListItemText
+                            primary="Shopify Orders"
+                            secondary="View all Shopify orders including pickup, local delivery, and shipping."
+                        />
+                    </ListItemButton>
                 </List>
             </Paper>
         </Box>
