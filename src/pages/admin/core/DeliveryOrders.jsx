@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Box,
   CircularProgress,
@@ -150,6 +150,52 @@ export default function DeliveryOrders() {
   const [dispatchOrder, setDispatchOrder] = useState(null);
   const [estimates, setEstimates] = useState([]);
   const [estimatesLoading, setEstimatesLoading] = useState(false);
+  const [wakeLockEnabled, setWakeLockEnabled] = useState(false);
+  const wakeLockRef = useRef(null);
+
+  // Screen Wake Lock - keeps tablet awake
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      if (wakeLockEnabled && 'wakeLock' in navigator) {
+        try {
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+          console.log('[WakeLock] Screen wake lock acquired');
+
+          wakeLockRef.current.addEventListener('release', () => {
+            console.log('[WakeLock] Screen wake lock released');
+          });
+        } catch (err) {
+          console.error('[WakeLock] Failed to acquire:', err);
+        }
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      }
+    };
+
+    if (wakeLockEnabled) {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    // Re-acquire wake lock when page becomes visible again
+    const handleVisibilityChange = () => {
+      if (wakeLockEnabled && document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      releaseWakeLock();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [wakeLockEnabled]);
 
   const { data: orders = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'delivery-orders', selectedDate],
@@ -482,6 +528,14 @@ export default function DeliveryOrders() {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton
+              onClick={() => setWakeLockEnabled(!wakeLockEnabled)}
+              size="small"
+              title={wakeLockEnabled ? 'Screen will stay on' : 'Keep screen on'}
+              sx={{ color: wakeLockEnabled ? 'success.main' : 'text.secondary' }}
+            >
+              <Iconify icon={wakeLockEnabled ? 'solar:sun-bold' : 'solar:moon-bold'} />
+            </IconButton>
             <IconButton
               onClick={() => playNotificationSound('local')}
               size="small"

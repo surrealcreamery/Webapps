@@ -1,0 +1,25 @@
+{
+  "name": "Surreal Creamery Admin",
+  "short_name": "SC Admin",
+  "description": "Surreal Creamery In-Store Orders Management",
+  "start_url": "/admin/delivery-orders",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#000000",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/src/assets/images/svg/surreal-brandmark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/src/assets/images/sc_favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false
+}
