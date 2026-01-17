@@ -228,6 +228,92 @@ async function healOrders(orderIds) {
 }
 
 /**
+ * Fix dates on all orders - convert from UTC to Eastern Time
+ */
+async function fixOrderDates() {
+  console.log('Starting date fix for all orders...');
+
+  // Scan all records
+  const scanResult = await docClient.send(new ScanCommand({
+    TableName: TABLE_NAME,
+  }));
+
+  const items = scanResult.Items || [];
+  console.log(`Found ${items.length} total records`);
+
+  let fixedCount = 0;
+  let skippedCount = 0;
+  const fixedOrders = [];
+
+  for (const item of items) {
+    // Only process SHOPIFY# records (success orders)
+    if (!item.sk?.startsWith('SHOPIFY#')) {
+      skippedCount++;
+      continue;
+    }
+
+    // Need createdAt to calculate correct date
+    if (!item.createdAt) {
+      console.log(`Skipping ${item.pk} - no createdAt`);
+      skippedCount++;
+      continue;
+    }
+
+    try {
+      // Parse the createdAt timestamp and get Eastern Time date
+      const createdDate = new Date(item.createdAt);
+      const easternDate = createdDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // YYYY-MM-DD
+
+      // Check if date needs fixing
+      if (item.date === easternDate) {
+        console.log(`Skipping ${item.pk} - date already correct (${easternDate})`);
+        skippedCount++;
+        continue;
+      }
+
+      const oldDate = item.date;
+
+      // Build new location-date if we have squareLocationId
+      const locationDate = item.squareLocationId ? `${item.squareLocationId}#${easternDate}` : null;
+
+      // Update the record
+      const updateParams = {
+        TableName: TABLE_NAME,
+        Key: {
+          pk: item.pk,
+          sk: item.sk,
+        },
+        UpdateExpression: locationDate
+          ? 'SET #date = :date, #locationDate = :locationDate, #updatedAt = :updatedAt'
+          : 'SET #date = :date, #updatedAt = :updatedAt',
+        ExpressionAttributeNames: locationDate
+          ? { '#date': 'date', '#locationDate': 'location-date', '#updatedAt': 'updatedAt' }
+          : { '#date': 'date', '#updatedAt': 'updatedAt' },
+        ExpressionAttributeValues: locationDate
+          ? { ':date': easternDate, ':locationDate': locationDate, ':updatedAt': new Date().toISOString() }
+          : { ':date': easternDate, ':updatedAt': new Date().toISOString() },
+      };
+
+      await docClient.send(new UpdateCommand(updateParams));
+
+      fixedCount++;
+      fixedOrders.push({
+        orderId: item.pk.replace('ORDER#', ''),
+        orderNumber: item.orderNumber,
+        oldDate,
+        newDate: easternDate,
+      });
+      console.log(`Fixed ${item.pk}: ${oldDate} -> ${easternDate}`);
+    } catch (error) {
+      console.error(`Failed to fix ${item.pk}:`, error);
+    }
+  }
+
+  console.log(`Date fix complete. Fixed: ${fixedCount}, Skipped: ${skippedCount}`);
+  return { fixedCount, skippedCount, fixedOrders };
+}
+
+/**
  * Cleanup ERROR# records for orders that have successful SHOPIFY# records
  */
 async function cleanupErrorRecords() {
@@ -344,10 +430,24 @@ export const handler = async (event) => {
         };
       }
 
+      if (action === 'fixDates') {
+        const fixResults = await fixOrderDates();
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            fixed: fixResults.fixedCount,
+            skipped: fixResults.skippedCount,
+            orders: fixResults.fixedOrders,
+          }),
+        };
+      }
+
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Invalid action. Valid actions: heal, cleanupErrors' }),
+        body: JSON.stringify({ error: 'Invalid action. Valid actions: heal, cleanupErrors, fixDates' }),
       };
     }
 

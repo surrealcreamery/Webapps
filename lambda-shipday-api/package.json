@@ -1,0 +1,6 @@
+{
+  "name": "lambda-shipday-api",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Shipday API Lambda for delivery estimates and dispatch"
+}

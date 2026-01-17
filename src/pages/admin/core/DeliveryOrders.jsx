@@ -35,7 +35,8 @@ const Iconify = ({ icon, width = 20, sx, ...other }) => (
   <Box component={Icon} icon={icon} sx={{ width, height: width, flexShrink: 0, ...sx }} {...other} />
 );
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { ORDERS_API_URL } from '@/constants/admin/adminConstants';
+import { ORDERS_API_URL, SHIPDAY_API_URL } from '@/constants/admin/adminConstants';
+import { useOrdersWebSocket } from '@/hooks/useOrdersWebSocket';
 
 // Heal orders API call
 const healOrdersApi = async (orderIds) => {
@@ -54,6 +55,44 @@ const healOrdersApi = async (orderIds) => {
 
   if (!response.ok) {
     throw new Error(data.error || 'Failed to heal orders');
+  }
+  return data;
+};
+
+// Get delivery estimates from Shipday
+const getEstimatesApi = async (shipdayOrderId) => {
+  console.log('[Estimate] Fetching estimates for:', shipdayOrderId);
+
+  const response = await fetch(SHIPDAY_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'estimate', shipdayOrderId }),
+  });
+
+  const data = await response.json();
+  console.log('[Estimate] Response:', data);
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to get estimates');
+  }
+  return data;
+};
+
+// Dispatch order via Shipday
+const dispatchOrderApi = async (shipdayOrderId, carrierId) => {
+  console.log('[Dispatch] Assigning carrier:', carrierId, 'to order:', shipdayOrderId);
+
+  const response = await fetch(SHIPDAY_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'dispatch', shipdayOrderId, carrierId }),
+  });
+
+  const data = await response.json();
+  console.log('[Dispatch] Response:', data);
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to dispatch order');
   }
   return data;
 };
@@ -96,7 +135,10 @@ export default function DeliveryOrders() {
   const queryClient = useQueryClient();
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
-    return today.toISOString().split('T')[0];
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   });
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -104,12 +146,53 @@ export default function DeliveryOrders() {
   const [selectedLocations, setSelectedLocations] = useState(['all']);
   const [locationSelectOpen, setLocationSelectOpen] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [dispatchDialogOpen, setDispatchDialogOpen] = useState(false);
+  const [dispatchOrder, setDispatchOrder] = useState(null);
+  const [estimates, setEstimates] = useState([]);
+  const [estimatesLoading, setEstimatesLoading] = useState(false);
 
   const { data: orders = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'delivery-orders', selectedDate],
     queryFn: () => fetchOrders(selectedDate),
     staleTime: 30000,
   });
+
+  // Play notification sound
+  const playNotificationSound = useCallback(() => {
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+    } catch (error) {
+      console.log('[Notification] Sound failed:', error);
+    }
+  }, []);
+
+  // Real-time order updates via WebSocket
+  const handleNewOrder = useCallback((newOrder) => {
+    console.log('[WebSocket] New order received:', newOrder);
+    playNotificationSound();
+    setSnackbar({
+      open: true,
+      message: `New order #${newOrder.orderNumber} from ${newOrder.customerName}`,
+      severity: 'info',
+    });
+    // Refetch orders to include the new one
+    refetch();
+  }, [refetch, playNotificationSound]);
+
+  useOrdersWebSocket(handleNewOrder);
 
   // Heal orders mutation
   const healMutation = useMutation({
@@ -143,6 +226,67 @@ export default function DeliveryOrders() {
   const handleHealOrder = useCallback((orderId) => {
     healMutation.mutate([orderId]);
   }, [healMutation]);
+
+  // Dispatch mutation
+  const dispatchMutation = useMutation({
+    mutationFn: ({ shipdayOrderId, carrierId }) => dispatchOrderApi(shipdayOrderId, carrierId),
+    onSuccess: (data) => {
+      setSnackbar({
+        open: true,
+        message: 'Order dispatched successfully!',
+        severity: 'success',
+      });
+      setDispatchDialogOpen(false);
+      setDispatchOrder(null);
+      setEstimates([]);
+      refetch();
+    },
+    onError: (error) => {
+      setSnackbar({
+        open: true,
+        message: `Failed to dispatch: ${error.message}`,
+        severity: 'error',
+      });
+    },
+  });
+
+  const handleDispatchClick = useCallback(async (order) => {
+    if (!order.shipdayOrderId) {
+      setSnackbar({
+        open: true,
+        message: 'No Shipday order ID - order may not have been sent to Shipday',
+        severity: 'warning',
+      });
+      return;
+    }
+
+    setDispatchOrder(order);
+    setDispatchDialogOpen(true);
+    setEstimatesLoading(true);
+    setEstimates([]);
+
+    try {
+      const result = await getEstimatesApi(order.shipdayOrderId);
+      setEstimates(result.estimates || []);
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: `Failed to get estimates: ${error.message}`,
+        severity: 'error',
+      });
+    } finally {
+      setEstimatesLoading(false);
+    }
+  }, []);
+
+  const handleSelectCarrier = useCallback((carrierId) => {
+    if (dispatchOrder?.shipdayOrderId && carrierId) {
+      dispatchMutation.mutate({
+        shipdayOrderId: dispatchOrder.shipdayOrderId,
+        carrierId,
+      });
+    }
+  }, [dispatchOrder, dispatchMutation]);
 
   // Helper to get location from order - tries multiple field names
   const getOrderLocation = useCallback((order) => {
@@ -609,8 +753,7 @@ export default function DeliveryOrders() {
                       size="small"
                       onClick={(e) => {
                         e.stopPropagation();
-                        // TODO: Dispatch action
-                        console.log('Dispatch order:', order.orderId);
+                        handleDispatchClick(order);
                       }}
                       sx={{ minWidth: 80 }}
                     >
@@ -830,6 +973,113 @@ export default function DeliveryOrders() {
                 </CardContent>
               </Card>
             </Box>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dispatch Dialog */}
+      <Dialog
+        open={dispatchDialogOpen}
+        onClose={() => {
+          setDispatchDialogOpen(false);
+          setDispatchOrder(null);
+          setEstimates([]);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <AppBar position="sticky" sx={{ bgcolor: 'success.main' }} elevation={0}>
+          <Toolbar sx={{ minHeight: 48 }}>
+            <Iconify icon="solar:delivery-bold" width={24} sx={{ mr: 2 }} />
+            <Typography variant="h6" sx={{ flexGrow: 1 }}>
+              Dispatch Order #{dispatchOrder?.orderNumber}
+            </Typography>
+            <IconButton
+              edge="end"
+              color="inherit"
+              onClick={() => {
+                setDispatchDialogOpen(false);
+                setDispatchOrder(null);
+                setEstimates([]);
+              }}
+            >
+              <Iconify icon="solar:close-circle-bold" />
+            </IconButton>
+          </Toolbar>
+        </AppBar>
+        <DialogContent sx={{ p: 3 }}>
+          {estimatesLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+              <Typography sx={{ ml: 2 }}>Getting delivery quotes...</Typography>
+            </Box>
+          ) : estimates.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Iconify icon="solar:sad-circle-bold" width={48} sx={{ color: 'text.secondary', mb: 2 }} />
+              <Typography color="text.secondary">
+                No delivery providers available for this order.
+              </Typography>
+            </Box>
+          ) : (
+            <Stack spacing={2}>
+              <Typography variant="subtitle2" color="text.secondary">
+                Select a delivery provider:
+              </Typography>
+              {estimates.map((estimate) => (
+                <Card
+                  key={estimate.id}
+                  sx={{
+                    cursor: estimate.error ? 'not-allowed' : 'pointer',
+                    opacity: estimate.error ? 0.5 : 1,
+                    '&:hover': estimate.error ? {} : { bgcolor: 'success.lighter', borderColor: 'success.main' },
+                    border: '1px solid',
+                    borderColor: 'divider',
+                  }}
+                  onClick={() => !estimate.error && handleSelectCarrier(estimate.id)}
+                >
+                  <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box>
+                      <Typography variant="h6" fontWeight="bold">
+                        {estimate.name}
+                      </Typography>
+                      {estimate.error ? (
+                        <Typography variant="body2" color="error.main">
+                          {estimate.errorMessage || 'Not available'}
+                        </Typography>
+                      ) : (
+                        <>
+                          <Typography variant="body2" color="text.secondary">
+                            Pickup: {estimate.pickupDuration ? `${estimate.pickupDuration} min` : 'ASAP'}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Delivery: {estimate.deliveryDuration ? `${estimate.deliveryDuration} min` : 'Est. time TBD'}
+                          </Typography>
+                        </>
+                      )}
+                    </Box>
+                    {!estimate.error && (
+                      <Box sx={{ textAlign: 'right' }}>
+                        <Typography variant="h5" fontWeight="bold" color="success.main">
+                          {formatCurrency(estimate.fee)}
+                        </Typography>
+                        <Button
+                          variant="contained"
+                          color="success"
+                          size="small"
+                          disabled={dispatchMutation.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectCarrier(estimate.id);
+                          }}
+                        >
+                          {dispatchMutation.isPending ? <CircularProgress size={16} /> : 'Select'}
+                        </Button>
+                      </Box>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
           )}
         </DialogContent>
       </Dialog>

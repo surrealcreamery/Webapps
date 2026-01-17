@@ -64,3 +64,9 @@ export const TRIAGE_UPLOADED_CSV_URL                    = 'https://hook.us2.make
 
 // DELIVERY ORDERS (Lambda)
 export const ORDERS_API_URL                             = 'https://mzw3vjolvubtul3v7a7lshmukm0pixww.lambda-url.us-east-1.on.aws';
+
+// SHIPDAY API (Lambda)
+export const SHIPDAY_API_URL                            = 'https://YOUR_SHIPDAY_LAMBDA_URL.lambda-url.us-east-1.on.aws';
+
+// WEBSOCKET (Real-time orders)
+export const WEBSOCKET_URL                              = 'wss://gx86vaqflf.execute-api.us-east-1.amazonaws.com/production';

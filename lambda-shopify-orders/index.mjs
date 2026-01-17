@@ -6,6 +6,7 @@
 import { Client, Environment } from 'square';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { broadcastNewOrder } from './broadcast.mjs';
 
 // Initialize Square client
 const squareClient = new Client({
@@ -489,8 +490,10 @@ async function createShipdayOrder(shopifyOrder, locationConfig, squareOrderId) {
  * Log order to DynamoDB
  */
 async function logOrderToDynamoDB(shopifyOrder, locationConfig, feeData, squareResult, shipdayResult, status) {
-  const now = new Date().toISOString();
-  const dateStr = now.split('T')[0];
+  const now = new Date();
+  const nowIso = now.toISOString();
+  // Use Eastern Time for date grouping (handles EST/EDT automatically)
+  const dateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // YYYY-MM-DD format
 
   // Determine delivery type from shipping lines
   const shippingLine = shopifyOrder.shipping_lines?.[0];
@@ -539,8 +542,8 @@ async function logOrderToDynamoDB(shopifyOrder, locationConfig, feeData, squareR
       properties: item.properties?.filter(p => !p.name.startsWith('_')) || [],
     })),
     status,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: nowIso,
+    updatedAt: nowIso,
     date: dateStr,
     'location-date': `${locationConfig.squareLocationId}#${dateStr}`,
   };
@@ -610,7 +613,7 @@ export const handler = async (event) => {
     }
 
     // Log to DynamoDB
-    await logOrderToDynamoDB(
+    const orderRecord = await logOrderToDynamoDB(
       shopifyOrder,
       locationConfig,
       feeData,
@@ -618,6 +621,9 @@ export const handler = async (event) => {
       shipdayResult,
       shipdayResult ? 'DISPATCHED' : 'SQUARE_ONLY'
     );
+
+    // Broadcast new order to connected WebSocket clients
+    await broadcastNewOrder(orderRecord);
 
     return {
       statusCode: 200,
