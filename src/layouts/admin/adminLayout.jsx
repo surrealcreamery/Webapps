@@ -273,30 +273,68 @@ export default function AdminLayout({ children, fetchedPermissions }) {
     return authKey ? localStorage.getItem(authKey) === 'true' : false;
   });
 
-  // Wake Lock state for In-store Orders page
+  // Wake Lock state for In-store Orders page (PWA mode only)
   const [wakeLockEnabled, setWakeLockEnabled] = useState(false);
+  const [wakeLockActive, setWakeLockActive] = useState(false);
   const wakeLockRef = useRef(null);
   const isDeliveryOrdersPage = location.pathname === '/admin/delivery-orders';
 
+  // Detect if running as installed PWA
+  const [isPWA, setIsPWA] = useState(false);
+  useEffect(() => {
+    const checkPWA = () => {
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true  // iOS Safari
+        || document.referrer.includes('android-app://');
+      setIsPWA(isStandalone);
+    };
+    checkPWA();
+
+    // Listen for display mode changes
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    mediaQuery.addEventListener('change', checkPWA);
+    return () => mediaQuery.removeEventListener('change', checkPWA);
+  }, []);
+
   // Screen Wake Lock - keeps tablet awake
   useEffect(() => {
+    let isMounted = true;
+
     const requestWakeLock = async () => {
-      if (wakeLockEnabled && 'wakeLock' in navigator) {
-        try {
-          wakeLockRef.current = await navigator.wakeLock.request('screen');
-          wakeLockRef.current.addEventListener('release', () => {
-            console.log('[WakeLock] Screen wake lock released');
-          });
-        } catch (err) {
-          console.error('[WakeLock] Failed to acquire:', err);
+      if (!('wakeLock' in navigator)) {
+        console.warn('[WakeLock] Wake Lock API not supported');
+        return;
+      }
+
+      try {
+        // Release existing lock first
+        if (wakeLockRef.current) {
+          await wakeLockRef.current.release();
         }
+
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+        if (isMounted) setWakeLockActive(true);
+        console.log('[WakeLock] Screen wake lock acquired');
+
+        wakeLockRef.current.addEventListener('release', () => {
+          console.log('[WakeLock] Screen wake lock was released');
+          if (isMounted) setWakeLockActive(false);
+        });
+      } catch (err) {
+        console.error('[WakeLock] Failed to acquire:', err.name, err.message);
+        if (isMounted) setWakeLockActive(false);
       }
     };
 
     const releaseWakeLock = async () => {
       if (wakeLockRef.current) {
-        await wakeLockRef.current.release();
+        try {
+          await wakeLockRef.current.release();
+        } catch (err) {
+          console.log('[WakeLock] Release error (may already be released):', err);
+        }
         wakeLockRef.current = null;
+        if (isMounted) setWakeLockActive(false);
       }
     };
 
@@ -306,16 +344,28 @@ export default function AdminLayout({ children, fetchedPermissions }) {
       releaseWakeLock();
     }
 
+    // Re-acquire wake lock when page becomes visible (after screen unlock, tab switch, etc.)
     const handleVisibilityChange = () => {
       if (wakeLockEnabled && document.visibilityState === 'visible') {
+        console.log('[WakeLock] Page visible, re-acquiring wake lock...');
         requestWakeLock();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    // Also try to re-acquire periodically as a fallback (every 30 seconds)
+    const intervalId = wakeLockEnabled ? setInterval(() => {
+      if (wakeLockEnabled && !wakeLockRef.current?.released === false) {
+        console.log('[WakeLock] Periodic check - ensuring wake lock is active');
+        requestWakeLock();
+      }
+    }, 30000) : null;
+
     return () => {
+      isMounted = false;
       releaseWakeLock();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (intervalId) clearInterval(intervalId);
     };
   }, [wakeLockEnabled]);
 
@@ -546,29 +596,47 @@ export default function AdminLayout({ children, fetchedPermissions }) {
             {getTitleFromPath()}
           </Typography>
 
-          {/* Wake Lock Toggle - only on In-store Orders page */}
-          {isDeliveryOrdersPage && (
-            <ToggleButtonGroup
-              value={wakeLockEnabled ? 'on' : 'sleep'}
-              exclusive
-              onChange={(e, val) => val && setWakeLockEnabled(val === 'on')}
-              size="small"
-            >
-              <ToggleButton
-                value="on"
-                sx={{
-                  px: 1.5,
-                  gap: 0.5,
-                  '&.Mui-selected': {
-                    bgcolor: alpha(theme.palette.primary.main, 0.08),
-                    color: theme.palette.primary.main,
-                    '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.16) }
-                  }
-                }}
+          {/* Wake Lock Toggle - only on In-store Orders page in PWA mode */}
+          {isDeliveryOrdersPage && isPWA && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <ToggleButtonGroup
+                value={wakeLockEnabled ? 'on' : 'sleep'}
+                exclusive
+                onChange={(e, val) => val && setWakeLockEnabled(val === 'on')}
+                size="small"
               >
-                <Iconify icon="solar:sun-bold" width={18} sx={{ color: wakeLockEnabled ? theme.palette.primary.main : 'inherit' }} />
-                Always On
-              </ToggleButton>
+                <ToggleButton
+                  value="on"
+                  sx={{
+                    px: 1.5,
+                    gap: 0.5,
+                    '&.Mui-selected': {
+                      bgcolor: alpha(theme.palette.primary.main, 0.08),
+                      color: theme.palette.primary.main,
+                      '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.16) }
+                    }
+                  }}
+                >
+                  <Iconify icon="solar:sun-bold" width={18} sx={{ color: wakeLockEnabled ? theme.palette.primary.main : 'inherit' }} />
+                  Always On
+                  {/* Green dot when wake lock is actually active */}
+                  {wakeLockEnabled && (
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        bgcolor: wakeLockActive ? 'success.main' : 'warning.main',
+                        ml: 0.5,
+                        animation: wakeLockActive ? 'none' : 'pulse 1.5s infinite',
+                        '@keyframes pulse': {
+                          '0%, 100%': { opacity: 1 },
+                          '50%': { opacity: 0.4 },
+                        },
+                      }}
+                    />
+                  )}
+                </ToggleButton>
               <ToggleButton
                 value="sleep"
                 sx={{
@@ -585,6 +653,7 @@ export default function AdminLayout({ children, fetchedPermissions }) {
                 Sleep
               </ToggleButton>
             </ToggleButtonGroup>
+            </Box>
           )}
         </Box>
 
