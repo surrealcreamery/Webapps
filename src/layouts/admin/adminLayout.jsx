@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getAuth, signOut } from 'firebase/auth';
 import {
   Box,
@@ -14,11 +14,15 @@ import {
   Collapse,
   useMediaQuery,
   ToggleButtonGroup,
-  ToggleButton
+  ToggleButton,
+  Snackbar,
+  Alert
 } from '@mui/material';
 import { useTheme, alpha } from '@mui/material/styles';
 import { Icon } from '@iconify/react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { useOrdersWebSocket } from '@/hooks/useOrdersWebSocket';
 
 // Iconify icon wrapper for consistent sizing
 const Iconify = ({ icon, width = 24, sx, ...other }) => (
@@ -273,11 +277,17 @@ export default function AdminLayout({ children, fetchedPermissions }) {
     return authKey ? localStorage.getItem(authKey) === 'true' : false;
   });
 
-  // Wake Lock state for In-store Orders page (PWA mode only)
-  const [wakeLockEnabled, setWakeLockEnabled] = useState(false);
+  // Wake Lock state (PWA mode only) - persisted to localStorage
+  const [wakeLockEnabled, setWakeLockEnabled] = useState(() => {
+    return localStorage.getItem('wakeLockEnabled') === 'true';
+  });
   const [wakeLockActive, setWakeLockActive] = useState(false);
   const wakeLockRef = useRef(null);
-  const isDeliveryOrdersPage = location.pathname === '/admin/delivery-orders';
+
+  // Persist wake lock preference
+  useEffect(() => {
+    localStorage.setItem('wakeLockEnabled', wakeLockEnabled.toString());
+  }, [wakeLockEnabled]);
 
   // Detect if running as installed PWA
   const [isPWA, setIsPWA] = useState(false);
@@ -368,6 +378,113 @@ export default function AdminLayout({ children, fetchedPermissions }) {
       if (intervalId) clearInterval(intervalId);
     };
   }, [wakeLockEnabled]);
+
+  // Snackbar state for notifications
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const queryClient = useQueryClient();
+
+  // Play notification sound/speech
+  const playNotificationSound = useCallback((deliveryType) => {
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+      // "Darling hold my HAND" melody: G4 - A4 - C5 - D5 - E5 (held)
+      // Tempo: 123 BPM, eighth notes (~0.244s each)
+      const eighthNote = 60 / 123 / 2;
+      const notes = [
+        { freq: 392.00, time: 0, duration: eighthNote },
+        { freq: 440.00, time: eighthNote, duration: eighthNote },
+        { freq: 523.25, time: eighthNote * 2, duration: eighthNote },
+        { freq: 587.33, time: eighthNote * 3, duration: eighthNote },
+        { freq: 659.25, time: eighthNote * 4, duration: eighthNote * 4 },
+      ];
+
+      notes.forEach(({ freq, time, duration }) => {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.frequency.value = freq;
+        oscillator.type = 'sine';
+        const startTime = audioContext.currentTime + time;
+        gainNode.gain.setValueAtTime(0, startTime);
+        gainNode.gain.linearRampToValueAtTime(0.3, startTime + 0.02);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+        oscillator.start(startTime);
+        oscillator.stop(startTime + duration);
+      });
+
+      // Speak the message after the melody
+      setTimeout(() => {
+        let message;
+        if (deliveryType === 'pickup') {
+          message = 'New order for pickup';
+        } else if (deliveryType === 'local') {
+          message = 'New order for local delivery';
+        } else {
+          message = 'New order to be shipped';
+        }
+        const utterance = new SpeechSynthesisUtterance(message);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }, 1500);
+    } catch (error) {
+      console.log('[Notification] Sound failed:', error);
+    }
+  }, []);
+
+  // Handle new order from WebSocket
+  const handleNewOrder = useCallback((newOrder) => {
+    console.log('[WebSocket] New order received:', newOrder);
+    console.log('[WebSocket] Order deliveryType:', newOrder.deliveryType);
+    console.log('[WebSocket] Order shippingMethod:', newOrder.shippingMethod);
+    console.log('[WebSocket] Order shipping_lines:', newOrder.shipping_lines);
+
+    // Determine delivery type
+    let orderDeliveryType = newOrder.deliveryType;
+    if (!orderDeliveryType) {
+      // Check shippingMethod field
+      const method = (newOrder.shippingMethod || '').toLowerCase();
+      // Also check shipping_lines from Shopify (raw data)
+      const shippingLineTitle = (newOrder.shipping_lines?.[0]?.title || '').toLowerCase();
+      const combinedMethod = `${method} ${shippingLineTitle}`;
+
+      console.log('[WebSocket] Combined shipping method for detection:', combinedMethod);
+
+      if (combinedMethod.includes('pickup') || combinedMethod.includes('pick up') || combinedMethod.includes('pick-up')) {
+        orderDeliveryType = 'pickup';
+      } else if (combinedMethod.includes('local') || combinedMethod.includes('same day') || combinedMethod.includes('courier')) {
+        orderDeliveryType = 'local';
+      } else {
+        orderDeliveryType = 'shipping';
+      }
+
+      console.log('[WebSocket] Detected delivery type:', orderDeliveryType);
+    }
+
+    // Play notification sound
+    playNotificationSound(orderDeliveryType);
+
+    // Show snackbar
+    setSnackbar({
+      open: true,
+      message: `New order #${newOrder.orderNumber} from ${newOrder.customerName}`,
+      severity: 'info',
+    });
+
+    // Invalidate orders query so it refetches when we navigate
+    queryClient.invalidateQueries({ queryKey: ['admin', 'delivery-orders'] });
+
+    // Navigate to In-store Orders page
+    if (location.pathname !== '/admin/delivery-orders') {
+      navigate('/admin/delivery-orders');
+    }
+  }, [playNotificationSound, queryClient, navigate, location.pathname]);
+
+  // WebSocket connection for real-time orders (active on all admin pages)
+  useOrdersWebSocket(handleNewOrder);
 
   useEffect(() => {
     const authKey = user ? `deviceAuthenticated_${user.uid}` : null;
@@ -596,8 +713,8 @@ export default function AdminLayout({ children, fetchedPermissions }) {
             {getTitleFromPath()}
           </Typography>
 
-          {/* Wake Lock Toggle - only on In-store Orders page in PWA mode */}
-          {isDeliveryOrdersPage && isPWA && (
+          {/* Wake Lock Toggle - visible on all admin pages in PWA mode */}
+          {isPWA && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <ToggleButtonGroup
                 value={wakeLockEnabled ? 'on' : 'sleep'}
@@ -672,6 +789,22 @@ export default function AdminLayout({ children, fetchedPermissions }) {
           {children}
         </Box>
       </Box>
+
+      {/* Snackbar for order notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

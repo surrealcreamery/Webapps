@@ -36,7 +36,6 @@ const Iconify = ({ icon, width = 20, sx, ...other }) => (
 );
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { ORDERS_API_URL, SHIPDAY_API_URL } from '@/constants/admin/adminConstants';
-import { useOrdersWebSocket } from '@/hooks/useOrdersWebSocket';
 
 // Heal orders API call
 const healOrdersApi = async (orderIds) => {
@@ -213,33 +212,6 @@ export default function DeliveryOrders() {
       console.log('[Notification] Sound failed:', error);
     }
   }, []);
-
-  // Real-time order updates via WebSocket
-  const handleNewOrder = useCallback((newOrder) => {
-    console.log('[WebSocket] New order received:', newOrder);
-    // Determine delivery type from the order data
-    let orderDeliveryType = newOrder.deliveryType;
-    if (!orderDeliveryType) {
-      const method = newOrder.shippingMethod?.toLowerCase() || '';
-      if (method.includes('pickup') || method.includes('pick up')) {
-        orderDeliveryType = 'pickup';
-      } else if (method.includes('local') || method.includes('delivery')) {
-        orderDeliveryType = 'local';
-      } else {
-        orderDeliveryType = 'shipping';
-      }
-    }
-    playNotificationSound(orderDeliveryType);
-    setSnackbar({
-      open: true,
-      message: `New order #${newOrder.orderNumber} from ${newOrder.customerName}`,
-      severity: 'info',
-    });
-    // Refetch orders to include the new one
-    refetch();
-  }, [refetch, playNotificationSound]);
-
-  useOrdersWebSocket(handleNewOrder);
 
   // Heal orders mutation
   const healMutation = useMutation({
