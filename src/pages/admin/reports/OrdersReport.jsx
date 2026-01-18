@@ -23,7 +23,7 @@ import {
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { Icon } from '@iconify/react';
-import { ORDERS_API_URL } from '@/constants/admin/adminConstants';
+import { ORDERS_API_URL, authFetch } from '@/constants/admin/adminConstants';
 
 // Iconify wrapper for consistent sizing
 const Iconify = ({ icon, width = 20, sx, ...other }) => (
@@ -74,7 +74,7 @@ export default function OrdersReport({ onGoBack }) {
     for (const date of dates) {
       try {
         const url = `${ORDERS_API_URL}?date=${date}`;
-        const response = await fetch(url);
+        const response = await authFetch(url);
         if (response.ok) {
           const data = await response.json();
           if (data.orders) {

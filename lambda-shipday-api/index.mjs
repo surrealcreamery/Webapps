@@ -1,32 +1,109 @@
 /**
  * Shipday API Lambda
  * Handles delivery estimates and dispatch via Shipday
+ * Fetches API keys from DynamoDB config
  */
 
-const SHIPDAY_API_KEY = process.env.SHIPDAY_API_KEY;
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { verifyAuth, unauthorizedResponse } from './auth.mjs';
 
-// CORS headers
+const ddbClient = new DynamoDBClient({});
+const docClient = DynamoDBDocumentClient.from(ddbClient);
+const CONFIG_TABLE = process.env.CONFIG_TABLE || 'surreal-admin-config';
+
+// Response headers with CORS
 const headers = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
+
+/**
+ * Get Shipday API key from DynamoDB
+ * @param {string} locationSk - The location SK (e.g., "SHIPDAY#abc123")
+ */
+async function getShipdayApiKey(locationSk) {
+  if (!locationSk) {
+    throw new Error('locationSk is required to get Shipday API key');
+  }
+
+  const result = await docClient.send(new GetCommand({
+    TableName: CONFIG_TABLE,
+    Key: { pk: 'LOCATION', sk: locationSk },
+  }));
+
+  if (result.Item && result.Item.secrets?.apiKey) {
+    return result.Item.secrets.apiKey;
+  }
+  throw new Error(`Shipday location not found or missing API key: ${locationSk}`);
+}
+
+/**
+ * Find Shipday API key for a given location name by looking up linked locations
+ */
+async function getShipdayApiKeyForLocation(locationName) {
+  const { ScanCommand } = await import('@aws-sdk/lib-dynamodb');
+
+  console.log('Looking for Shipday API key for location:', locationName);
+
+  // First, get all locations
+  const result = await docClient.send(new ScanCommand({
+    TableName: CONFIG_TABLE,
+    FilterExpression: 'pk = :pk',
+    ExpressionAttributeValues: {
+      ':pk': 'LOCATION',
+    },
+  }));
+
+  if (!result.Items || result.Items.length === 0) {
+    throw new Error('No locations configured');
+  }
+
+  console.log('Found locations:', result.Items.length);
+
+  // Find Square/Shopify location matching the locationName
+  const matchingLocation = result.Items.find(item =>
+    (item.platform === 'square' || item.platform === 'shopify') &&
+    item.name && item.name.toLowerCase().includes(locationName.toLowerCase())
+  );
+
+  if (!matchingLocation) {
+    throw new Error(`Location "${locationName}" not found in DynamoDB. Please configure it in Settings.`);
+  }
+
+  if (!matchingLocation.links || Object.keys(matchingLocation.links).length === 0) {
+    throw new Error(`Location "${matchingLocation.name}" has no linked locations. Please link it to Shipday in Settings.`);
+  }
+
+  console.log('Found matching location:', matchingLocation.name, 'with links:', Object.keys(matchingLocation.links));
+
+  // Find linked Shipday location
+  for (const linkedSk of Object.keys(matchingLocation.links)) {
+    if (linkedSk.startsWith('SHIPDAY#')) {
+      const shipdayLocation = result.Items.find(item => item.sk === linkedSk);
+      if (shipdayLocation) {
+        const apiKey = shipdayLocation.secrets?.apiKey || linkedSk.replace('SHIPDAY#', '');
+        console.log('Found linked Shipday location:', shipdayLocation.name, 'with API key');
+        return apiKey;
+      }
+    }
+  }
+
+  throw new Error(`Location "${matchingLocation.name}" has no linked Shipday location. Please link it in Settings.`);
+}
 
 /**
  * Get delivery estimates from Shipday (DoorDash, Uber Direct, etc.)
  */
-async function getDeliveryEstimates(shipdayOrderId) {
-  if (!SHIPDAY_API_KEY) {
-    throw new Error('SHIPDAY_API_KEY environment variable is not set');
-  }
-
+async function getDeliveryEstimates(shipdayOrderId, apiKey) {
   console.log(`Fetching delivery estimates for Shipday order: ${shipdayOrderId}`);
 
   const response = await fetch(`https://api.shipday.com/on-demand/estimate/${shipdayOrderId}`, {
     method: 'GET',
     headers: {
-      'Authorization': `Basic ${SHIPDAY_API_KEY}`,
+      'Authorization': `Basic ${apiKey}`,
       'Content-Type': 'application/json',
     },
   });
@@ -46,17 +123,13 @@ async function getDeliveryEstimates(shipdayOrderId) {
 /**
  * Assign a delivery provider via Shipday
  */
-async function assignDeliveryProvider(shipdayOrderId, carrierId) {
-  if (!SHIPDAY_API_KEY) {
-    throw new Error('SHIPDAY_API_KEY environment variable is not set');
-  }
-
+async function assignDeliveryProvider(shipdayOrderId, carrierId, apiKey) {
   console.log(`Assigning carrier ${carrierId} to Shipday order: ${shipdayOrderId}`);
 
   const response = await fetch(`https://api.shipday.com/on-demand/assign/${shipdayOrderId}`, {
     method: 'POST',
     headers: {
-      'Authorization': `Basic ${SHIPDAY_API_KEY}`,
+      'Authorization': `Basic ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ carrierId }),
@@ -77,17 +150,13 @@ async function assignDeliveryProvider(shipdayOrderId, carrierId) {
 /**
  * Get order details from Shipday
  */
-async function getOrderDetails(shipdayOrderId) {
-  if (!SHIPDAY_API_KEY) {
-    throw new Error('SHIPDAY_API_KEY environment variable is not set');
-  }
-
+async function getOrderDetails(shipdayOrderId, apiKey) {
   console.log(`Fetching order details for Shipday order: ${shipdayOrderId}`);
 
   const response = await fetch(`https://api.shipday.com/orders/${shipdayOrderId}`, {
     method: 'GET',
     headers: {
-      'Authorization': `Basic ${SHIPDAY_API_KEY}`,
+      'Authorization': `Basic ${apiKey}`,
       'Content-Type': 'application/json',
     },
   });
@@ -115,11 +184,40 @@ export const handler = async (event) => {
     return { statusCode: 200, headers, body: '' };
   }
 
+  // Verify Firebase authentication
+  const auth = await verifyAuth(event);
+  if (!auth.valid) {
+    console.log('Auth failed:', auth.error);
+    return unauthorizedResponse(auth.error);
+  }
+  console.log('Authenticated user:', auth.email);
+
   try {
     // POST - Actions
     if (method === 'POST') {
       const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-      const { action, shipdayOrderId, carrierId } = body || {};
+      const { action, shipdayOrderId, carrierId, locationSk, locationName, apiKey: providedApiKey } = body || {};
+
+      // Get API key - either provided directly, from locationSk, from locationName lookup, or first available
+      let apiKey;
+      try {
+        if (providedApiKey) {
+          apiKey = providedApiKey;
+        } else if (locationSk) {
+          apiKey = await getShipdayApiKey(locationSk);
+        } else if (locationName) {
+          // Look up Shipday API key based on linked locations
+          apiKey = await getShipdayApiKeyForLocation(locationName);
+        } else {
+          throw new Error('Either locationSk, locationName, or apiKey must be provided');
+        }
+      } catch (keyError) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: keyError.message }),
+        };
+      }
 
       if (action === 'estimate') {
         if (!shipdayOrderId) {
@@ -130,7 +228,7 @@ export const handler = async (event) => {
           };
         }
 
-        const estimates = await getDeliveryEstimates(shipdayOrderId);
+        const estimates = await getDeliveryEstimates(shipdayOrderId, apiKey);
         return {
           statusCode: 200,
           headers,
@@ -151,7 +249,7 @@ export const handler = async (event) => {
           };
         }
 
-        const result = await assignDeliveryProvider(shipdayOrderId, carrierId);
+        const result = await assignDeliveryProvider(shipdayOrderId, carrierId, apiKey);
         return {
           statusCode: 200,
           headers,
@@ -173,7 +271,7 @@ export const handler = async (event) => {
           };
         }
 
-        const details = await getOrderDetails(shipdayOrderId);
+        const details = await getOrderDetails(shipdayOrderId, apiKey);
         return {
           statusCode: 200,
           headers,

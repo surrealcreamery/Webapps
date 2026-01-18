@@ -1,0 +1,9 @@
+{
+  "name": "orders-api",
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.705.0",
+    "@aws-sdk/lib-dynamodb": "^3.705.0",
+    "firebase-admin": "^13.6.0"
+  }
+}

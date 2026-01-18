@@ -21,8 +21,9 @@ import {
 import { useTheme, alpha } from '@mui/material/styles';
 import { Icon } from '@iconify/react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useOrdersWebSocket } from '@/hooks/useOrdersWebSocket';
+import { fetchDevice } from '@/contexts/admin/AdminDataContext';
 
 // Iconify icon wrapper for consistent sizing
 const Iconify = ({ icon, width = 24, sx, ...other }) => (
@@ -53,9 +54,10 @@ export const routeNames = {
   '/admin/access':               'Access',
   '/admin/access/:userId':       'User Permissions',
   '/admin/reports':              'Reports',
-  '/admin/delivery-orders':      'In-store Orders',
+  '/admin/in-store-orders':      'In-store Orders',
   '/admin/training':             'Training',
   '/admin/recipes':              'Recipes',
+  '/admin/settings':             'Settings',
   '/admin/select-square-plan':   'Select a Square Plan',
   '/admin/view-square-plan/:planId/:variationId':  'View Plan',
   '/admin/devices':              'Device Management',
@@ -273,8 +275,19 @@ export default function AdminLayout({ children, fetchedPermissions }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    const authKey = user ? `deviceAuthenticated_${user.uid}` : null;
-    return authKey ? localStorage.getItem(authKey) === 'true' : false;
+    // Check if device is registered using the new device registration system
+    return !!localStorage.getItem('surreal_device_id');
+  });
+
+  // Get the stored device ID for fetching device info
+  const storedDeviceId = localStorage.getItem('surreal_device_id');
+
+  // Fetch device info to show device name in header
+  const { data: deviceInfo } = useQuery({
+    queryKey: ['admin', 'currentDevice', storedDeviceId],
+    queryFn: () => fetchDevice(storedDeviceId),
+    enabled: !!storedDeviceId && storedDeviceId !== 'MASTER_BYPASS',
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
 
   // Wake Lock state (PWA mode only) - defaults to ON
@@ -477,23 +490,19 @@ export default function AdminLayout({ children, fetchedPermissions }) {
     });
 
     // Invalidate orders query so it refetches when we navigate
-    queryClient.invalidateQueries({ queryKey: ['admin', 'delivery-orders'] });
+    queryClient.invalidateQueries({ queryKey: ['admin', 'in-store-orders'] });
 
     // Navigate to In-store Orders page
-    if (location.pathname !== '/admin/delivery-orders') {
-      navigate('/admin/delivery-orders');
+    if (location.pathname !== '/admin/in-store-orders') {
+      navigate('/admin/in-store-orders');
     }
   }, [playNotificationSound, queryClient, navigate, location.pathname]);
 
   // WebSocket connection for real-time orders (active on all admin pages)
   useOrdersWebSocket(handleNewOrder);
 
-  useEffect(() => {
-    const authKey = user ? `deviceAuthenticated_${user.uid}` : null;
-    if (authKey) {
-      localStorage.setItem(authKey, isAuthenticated);
-    }
-  }, [isAuthenticated, user]);
+  // Device registration is now handled by the UUIDEntryGate component
+  // which stores 'surreal_device_id' in localStorage
 
   const handleMobileDrawerToggle = () => setMobileOpen(prev => !prev);
   const handleCollapse = () => setIsCollapsed(prev => !prev);
@@ -514,12 +523,13 @@ export default function AdminLayout({ children, fetchedPermissions }) {
     { text: 'Subscribers', icon: 'solar:users-group-rounded-bold-duotone', path: '/admin/subscribers', permission: 'Subscribers' },
     { text: 'Device Management', icon: 'solar:devices-bold-duotone', path: '/admin/devices', permission: 'Device Management' },
     { text: 'Reports', icon: 'solar:chart-bold-duotone', path: '/admin/reports', permission: 'Reports' },
-    { text: 'In-store Orders', icon: 'solar:shop-bold-duotone', path: '/admin/delivery-orders', permission: 'In-store Orders' },
+    { text: 'In-store Orders', icon: 'solar:shop-bold-duotone', path: '/admin/in-store-orders', permission: 'In-store Orders' },
     { text: 'Locations', icon: 'solar:map-point-bold-duotone', path: '/admin/locations', permission: 'Locations' },
     { text: 'Theme Editor', icon: 'solar:pallete-2-bold-duotone', path: '/admin/theme-editor', permission: 'Theme Editor' },
     { text: 'Access', icon: 'solar:lock-keyhole-bold-duotone', path: '/admin/access', permission: 'Access' },
     { text: 'Training', icon: 'solar:square-academic-cap-2-bold-duotone', path: '/admin/training', permission: 'Training' },
-    { text: 'Recipes', icon: 'solar:book-2-bold-duotone', path: '/admin/recipes', permission: 'Recipes' }
+    { text: 'Recipes', icon: 'solar:book-2-bold-duotone', path: '/admin/recipes', permission: 'Recipes' },
+    { text: 'Settings', icon: 'solar:settings-bold-duotone', path: '/admin/settings', permission: 'Settings' }
   ];
 
   const isModalRoute = location.pathname === '/admin/select-square-plan' || location.pathname.startsWith('/admin/view-square-plan/');
@@ -785,7 +795,7 @@ export default function AdminLayout({ children, fetchedPermissions }) {
             p: { xs: 2, sm: 2.5, md: 3 },
             display: 'flex',
             flexDirection: 'column',
-            overflow: 'hidden',
+            overflow: 'auto',
           }}
         >
           {children}

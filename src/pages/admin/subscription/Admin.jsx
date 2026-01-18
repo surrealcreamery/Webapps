@@ -12,7 +12,8 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { getAuth } from 'firebase/auth';
-import { useUserPermissions } from '@/contexts/admin/AdminDataContext';
+import { useQuery } from '@tanstack/react-query';
+import { useUserPermissions, fetchDevice } from '@/contexts/admin/AdminDataContext';
 import SubscriptionsIcon from '@mui/icons-material/Subscriptions';
 import GroupIcon from '@mui/icons-material/Group';
 import RoomIcon from '@mui/icons-material/Room';
@@ -86,6 +87,25 @@ const Admin = () => {
   const email = getAuth().currentUser?.email || '';
   const { data: fetchedPermissions = {}, isLoading } = useUserPermissions(email);
 
+  // Get stored device ID for displaying device name
+  const storedDeviceId = localStorage.getItem('surreal_device_id');
+  const isMasterBypass = storedDeviceId === 'MASTER_BYPASS';
+
+  // Fetch device info to get the device name
+  const { data: deviceInfo } = useQuery({
+    queryKey: ['admin', 'currentDevice', storedDeviceId],
+    queryFn: () => fetchDevice(storedDeviceId),
+    enabled: !!storedDeviceId && !isMasterBypass,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Determine what to display as the title
+  const getDisplayTitle = () => {
+    if (isMasterBypass) return 'Master Bypass';
+    if (deviceInfo?.name) return deviceInfo.name;
+    return 'Admin Dashboard';
+  };
+
   // Filter the navigation links based on the user's permissions
   const accessiblePages = allNavLinks.filter(link => {
     const sectionPermissions = fetchedPermissions[link.permission] || {};
@@ -103,7 +123,7 @@ const Admin = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>
-        Admin Dashboard
+        {getDisplayTitle()}
       </Typography>
 
       <Grid container spacing={3}>

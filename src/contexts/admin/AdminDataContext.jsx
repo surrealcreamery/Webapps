@@ -29,6 +29,7 @@ import {
   SUBSCRIBERS_URL,
   LIST_DEVICES_URL,
   VERIFY_UUID_URL,
+  ADMIN_API_URL,
   LIST_DAILY_REVENUE_BY_CHANNEL_URL,
   RETRIEVE_NET_SALES_URL,
   RETRIEVE_LABOR_URL,
@@ -175,10 +176,96 @@ export const fetchEntitlements = () =>
 export const fetchSubscribers = () =>
   authFetch(SUBSCRIBERS_URL).then(data => Array.isArray(data) ? data : []);
   
-export const fetchDevices = () => {
+// ===== DEVICE MANAGEMENT (DynamoDB-based) =====
+export const fetchDevices = async () => {
   console.log('[AdminDataContext] fetchDevices executing...');
-  return authFetch(LIST_DEVICES_URL).then(data => Array.isArray(data) ? data : []);
-}
+  const response = await authFetch(ADMIN_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'getDevices' }),
+  });
+  return response?.devices || [];
+};
+
+export const fetchDevice = async (sk) => {
+  console.log('[AdminDataContext] fetchDevice:', sk);
+  const response = await authFetch(ADMIN_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'getDevice', sk }),
+  });
+  return response?.device || null;
+};
+
+export const createDevice = async (name) => {
+  console.log('[AdminDataContext] createDevice:', name);
+  const response = await authFetch(ADMIN_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'createDevice', name }),
+  });
+  return response;
+};
+
+export const createDeviceFromConnection = async (name, clientUUID, userAgent, connectionId) => {
+  console.log('[AdminDataContext] createDeviceFromConnection:', name, clientUUID, connectionId);
+  const response = await authFetch(ADMIN_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'createDeviceFromConnection', name, clientUUID, userAgent, connectionId }),
+  });
+  return response;
+};
+
+export const updateDevice = async (sk, updates) => {
+  console.log('[AdminDataContext] updateDevice:', sk, updates);
+  const response = await authFetch(ADMIN_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'updateDevice', sk, updates }),
+  });
+  return response;
+};
+
+export const deleteDevice = async (sk) => {
+  console.log('[AdminDataContext] deleteDevice:', sk);
+  const response = await authFetch(ADMIN_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'deleteDevice', sk }),
+  });
+  return response;
+};
+
+export const regenerateRegistrationCode = async (sk) => {
+  console.log('[AdminDataContext] regenerateRegistrationCode:', sk);
+  const response = await authFetch(ADMIN_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'regenerateRegistrationCode', sk }),
+  });
+  return response;
+};
+
+export const getActiveConnections = async () => {
+  console.log('[AdminDataContext] getActiveConnections');
+  const response = await authFetch(ADMIN_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'getActiveConnections' }),
+  });
+  return response?.connections || [];
+};
+
+export const sendDeviceCommand = async (command, deviceIds = null) => {
+  console.log('[AdminDataContext] sendDeviceCommand:', command, deviceIds);
+  const response = await authFetch(ADMIN_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'sendDeviceCommand', command, deviceIds }),
+  });
+  return response;
+};
 
 export const fetchTeamMembers = () =>
   authFetch(RETRIEVE_TEAM_MEMBERS_URL).then(data => Array.isArray(data) ? data : []);

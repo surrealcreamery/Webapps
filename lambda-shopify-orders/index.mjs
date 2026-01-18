@@ -1,39 +1,202 @@
 /**
  * Shopify to Square/Shipday Lambda
  * Multi-location delivery dispatch with DynamoDB audit logging
+ * Config loaded from DynamoDB with environment variable fallback
  */
 
 import { Client, Environment } from 'square';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { broadcastNewOrder } from './broadcast.mjs';
-
-// Initialize Square client
-const squareClient = new Client({
-  accessToken: process.env.SQUARE_ACCESS_TOKEN,
-  environment: Environment.Production,
-});
+import { getConfig, getConfigValue } from './config.mjs';
+import crypto from 'crypto';
 
 // Initialize DynamoDB client
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 const TABLE_NAME = 'surreal-orders';
 
-// Default location config (fallback)
-const DEFAULT_LOCATION = {
-  squareLocationId: process.env.SQUARE_LOCATION_ID,
-  shipdayApiKey: process.env.SHIPDAY_API_KEY,
-  name: 'Default',
-};
+/**
+ * Verify Shopify webhook HMAC signature
+ * @param {string} body - Raw request body
+ * @param {string} hmacHeader - X-Shopify-Hmac-Sha256 header value
+ * @returns {Promise<boolean>} Whether the signature is valid
+ */
+async function verifyShopifyWebhook(body, hmacHeader) {
+  if (!hmacHeader) {
+    console.log('No HMAC header provided');
+    return false;
+  }
 
-// Shopify API config
-const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
-const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+  const webhookSecret = await getConfigValue('SHOPIFY_WEBHOOK_SECRET');
+  if (!webhookSecret) {
+    console.warn('SHOPIFY_WEBHOOK_SECRET not configured - skipping HMAC verification');
+    return true; // Allow if not configured (for backwards compatibility during setup)
+  }
+
+  const calculatedHmac = crypto
+    .createHmac('sha256', webhookSecret)
+    .update(body, 'utf8')
+    .digest('base64');
+
+  const isValid = crypto.timingSafeEqual(
+    Buffer.from(calculatedHmac),
+    Buffer.from(hmacHeader)
+  );
+
+  if (!isValid) {
+    console.log('HMAC verification failed');
+    console.log('Expected:', calculatedHmac);
+    console.log('Received:', hmacHeader);
+  }
+
+  return isValid;
+}
+
+// Square client cache - keyed by access token to support per-location credentials
+const squareClientCache = new Map();
+
+/**
+ * Get or initialize Square client with config from DynamoDB or per-location credentials
+ * @param {string} locationAccessToken - Optional access token from linked location
+ */
+async function getSquareClient(locationAccessToken = null) {
+  let accessToken = locationAccessToken;
+
+  // Fall back to global config if no location-specific token
+  if (!accessToken) {
+    accessToken = await getConfigValue('SQUARE_ACCESS_TOKEN');
+  }
+
+  if (!accessToken) {
+    throw new Error('SQUARE_ACCESS_TOKEN not configured in DynamoDB or location secrets');
+  }
+
+  // Check cache for existing client with this token
+  if (!squareClientCache.has(accessToken)) {
+    squareClientCache.set(accessToken, new Client({
+      accessToken,
+      environment: Environment.Production,
+    }));
+  }
+
+  return squareClientCache.get(accessToken);
+}
+
+/**
+ * Get Shopify credentials from location secrets or fall back to DynamoDB/environment
+ * @param {Object} locationCredentials - Optional credentials from linked location
+ */
+async function getShopifyCredentials(locationCredentials = null) {
+  // Prefer location-specific credentials if provided
+  if (locationCredentials?.shopifyAccessToken && locationCredentials?.shopifyStoreDomain) {
+    return {
+      SHOPIFY_ACCESS_TOKEN: locationCredentials.shopifyAccessToken,
+      SHOPIFY_STORE_DOMAIN: locationCredentials.shopifyStoreDomain,
+    };
+  }
+  // Fall back to global config
+  return await getConfig(['SHOPIFY_STORE_DOMAIN', 'SHOPIFY_ACCESS_TOKEN']);
+}
+
+/**
+ * Look up linked Square and Shipday locations from DynamoDB
+ * @param {string} shopifyLocationId - The Shopify location ID
+ * @param {string} locationName - The location name (for matching)
+ * @returns {Object} { squareLocationId, shipdayApiKey, name } or throws error
+ */
+async function getLinkedLocationConfig(shopifyLocationId, locationName) {
+  const { ScanCommand } = await import('@aws-sdk/lib-dynamodb');
+  const CONFIG_TABLE = 'surreal-admin-config';
+
+  console.log(`Looking up linked locations for Shopify location: ${shopifyLocationId} (${locationName})`);
+
+  // Get all locations from DynamoDB
+  const result = await docClient.send(new ScanCommand({
+    TableName: CONFIG_TABLE,
+    FilterExpression: 'pk = :pk',
+    ExpressionAttributeValues: { ':pk': 'LOCATION' },
+  }));
+
+  const locations = result.Items || [];
+  console.log(`Found ${locations.length} locations in DynamoDB`);
+
+  // Find the Shopify location by ID or name
+  const shopifyLocation = locations.find(loc =>
+    loc.platform === 'shopify' &&
+    (loc.platformId === String(shopifyLocationId) ||
+     loc.sk === `SHOPIFY#${shopifyLocationId}` ||
+     (locationName && loc.name?.toLowerCase() === locationName.toLowerCase()))
+  );
+
+  if (!shopifyLocation) {
+    console.error(`Shopify location not found in DynamoDB: ${shopifyLocationId} (${locationName})`);
+    throw new Error(`Shopify location "${locationName || shopifyLocationId}" not configured. Please set up location linking in Settings.`);
+  }
+
+  console.log(`Found Shopify location: ${shopifyLocation.name} with links:`, Object.keys(shopifyLocation.links || {}));
+
+  if (!shopifyLocation.links || Object.keys(shopifyLocation.links).length === 0) {
+    throw new Error(`Shopify location "${shopifyLocation.name}" has no linked locations. Please link it to Square and Shipday in Settings.`);
+  }
+
+  // Get Shopify credentials from location secrets
+  const shopifyAccessToken = shopifyLocation.secrets?.accessToken;
+  const shopifyStoreDomain = shopifyLocation.secrets?.storeDomain;
+
+  if (!shopifyAccessToken || !shopifyStoreDomain) {
+    console.warn(`Shopify location "${shopifyLocation.name}" missing credentials in secrets, will fall back to config`);
+  }
+
+  // Find linked Square and Shipday locations
+  let squareLocationId = null;
+  let squareAccessToken = null;
+  let shipdayApiKey = null;
+
+  for (const linkedSk of Object.keys(shopifyLocation.links)) {
+    const linkedLoc = locations.find(loc => loc.sk === linkedSk);
+    if (!linkedLoc) continue;
+
+    if (linkedLoc.platform === 'square' && linkedLoc.platformId) {
+      squareLocationId = linkedLoc.platformId;
+      squareAccessToken = linkedLoc.secrets?.accessToken;
+      console.log(`Found linked Square location: ${linkedLoc.name} (${squareLocationId})`);
+    }
+
+    if (linkedLoc.platform === 'shipday') {
+      shipdayApiKey = linkedLoc.secrets?.apiKey || linkedLoc.platformId;
+      console.log(`Found linked Shipday location: ${linkedLoc.name}`);
+    }
+  }
+
+  if (!squareLocationId) {
+    throw new Error(`Shopify location "${shopifyLocation.name}" has no linked Square location. Please link it in Settings.`);
+  }
+
+  if (!shipdayApiKey) {
+    throw new Error(`Shopify location "${shopifyLocation.name}" has no linked Shipday location. Please link it in Settings.`);
+  }
+
+  return {
+    shopifyLocationId,
+    squareLocationId,
+    shipdayApiKey,
+    name: shopifyLocation.name,
+    // Credentials from location secrets
+    shopifyAccessToken,
+    shopifyStoreDomain,
+    squareAccessToken,
+  };
+}
 
 /**
  * Fetch exact transaction fees from Shopify GraphQL API
+ * @param {string} orderId - Shopify order ID
+ * @param {Object} locationCredentials - Optional credentials from linked location
  */
-async function fetchShopifyTransactionFees(orderId) {
+async function fetchShopifyTransactionFees(orderId, locationCredentials = null) {
+  const { SHOPIFY_STORE_DOMAIN, SHOPIFY_ACCESS_TOKEN } = await getShopifyCredentials(locationCredentials);
+
   const shopifyGid = `gid://shopify/Order/${orderId}`;
 
   const query = `{
@@ -118,134 +281,47 @@ async function fetchShopifyTransactionFees(orderId) {
 }
 
 /**
- * Fetch location metafields from Shopify
- */
-async function fetchLocationConfig(locationId) {
-  console.log(`fetchLocationConfig called with locationId: ${locationId}`);
-
-  if (!locationId || !SHOPIFY_STORE_DOMAIN || !SHOPIFY_ACCESS_TOKEN) {
-    console.log('Missing location ID or Shopify credentials, using default location');
-    return DEFAULT_LOCATION;
-  }
-
-  try {
-    // Fetch location details to get the actual name
-    const locationUrl = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/locations/${locationId}.json`;
-    console.log(`Fetching location details from: ${locationUrl}`);
-
-    const locationResponse = await fetch(locationUrl, {
-      headers: {
-        'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-      },
-    });
-
-    let locationName = `Location ${locationId}`;
-    if (locationResponse.ok) {
-      const locationData = await locationResponse.json();
-      locationName = locationData.location?.name || locationName;
-      console.log(`Found location name: ${locationName}`);
-    }
-
-    // Fetch metafields for Square and Shipday config
-    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/locations/${locationId}/metafields.json`;
-    console.log(`Fetching location metafields from: ${url}`);
-
-    const response = await fetch(url, {
-      headers: {
-        'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-      },
-    });
-
-    console.log(`Location metafields response status: ${response.status}`);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Failed to fetch location metafields: ${response.status} - ${errorText}`);
-      return DEFAULT_LOCATION;
-    }
-
-    const data = await response.json();
-    console.log('Location metafields response:', JSON.stringify(data, null, 2));
-
-    const metafields = data.metafields || [];
-
-    const squareLocationId = metafields.find(m => m.key === 'square_location_id')?.value;
-    const shipdayApiKey = metafields.find(m => m.key === 'shipday_api_key')?.value;
-
-    console.log(`Found metafields - square_location_id: ${squareLocationId}, shipday_api_key: ${shipdayApiKey ? '[SET]' : '[NOT SET]'}`);
-
-    if (!squareLocationId || !shipdayApiKey) {
-      console.log(`Location ${locationId} missing metafields, using default`);
-      return { ...DEFAULT_LOCATION, name: locationName };
-    }
-
-    return {
-      shopifyLocationId: locationId,
-      squareLocationId,
-      shipdayApiKey,
-      name: locationName,
-    };
-  } catch (error) {
-    console.error('Error fetching location config:', error);
-    return DEFAULT_LOCATION;
-  }
-}
-
-/**
  * Determine fulfillment location from Shopify order
- * Uses fulfillment_orders API which returns assigned_location with name directly
+ * Gets location from fulfillment_orders API, then looks up linked Square/Shipday from DynamoDB
  */
 async function determineFulfillmentLocation(shopifyOrder) {
-  if (SHOPIFY_STORE_DOMAIN && SHOPIFY_ACCESS_TOKEN) {
-    try {
-      const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${shopifyOrder.id}/fulfillment_orders.json`;
-      console.log(`Fetching fulfillment orders from: ${url}`);
+  const { SHOPIFY_STORE_DOMAIN, SHOPIFY_ACCESS_TOKEN } = await getShopifyCredentials();
 
-      const response = await fetch(url, {
-        headers: {
-          'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-        },
-      });
-
-      console.log(`Fulfillment orders response status: ${response.status}`);
-
-      if (response.ok) {
-        const data = await response.json();
-        const fulfillmentOrders = data.fulfillment_orders || [];
-
-        if (fulfillmentOrders.length > 0) {
-          const fulfillmentOrder = fulfillmentOrders[0];
-          const assignedLocation = fulfillmentOrder.assigned_location;
-          const locationId = fulfillmentOrder.assigned_location_id;
-
-          console.log(`Found fulfillment location: ${locationId} - ${assignedLocation?.name}`);
-
-          // Get Square/Shipday config from metafields, but use the name from assigned_location
-          const config = await fetchLocationConfig(locationId);
-
-          // Override the name with the one from fulfillment_orders (more reliable)
-          if (assignedLocation?.name) {
-            config.name = assignedLocation.name;
-          }
-
-          return config;
-        } else {
-          console.log('No fulfillment orders found - check read_merchant_managed_fulfillment_orders scope');
-        }
-      } else {
-        const errorText = await response.text();
-        console.error(`Fulfillment orders API error: ${response.status} - ${errorText}`);
-      }
-    } catch (error) {
-      console.error('Error fetching fulfillment orders:', error);
-    }
-  } else {
-    console.log('Missing SHOPIFY_STORE_DOMAIN or SHOPIFY_ACCESS_TOKEN');
+  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ACCESS_TOKEN) {
+    throw new Error('Shopify credentials not configured in DynamoDB');
   }
 
-  // Fallback: use default location
-  console.log('Using default location as fallback');
-  return DEFAULT_LOCATION;
+  // Get the fulfillment location from Shopify
+  const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders/${shopifyOrder.id}/fulfillment_orders.json`;
+  console.log(`Fetching fulfillment orders from: ${url}`);
+
+  const response = await fetch(url, {
+    headers: {
+      'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to get fulfillment orders: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  const fulfillmentOrders = data.fulfillment_orders || [];
+
+  if (fulfillmentOrders.length === 0) {
+    throw new Error('No fulfillment orders found for this order. Check Shopify app permissions.');
+  }
+
+  const fulfillmentOrder = fulfillmentOrders[0];
+  const assignedLocation = fulfillmentOrder.assigned_location;
+  const locationId = fulfillmentOrder.assigned_location_id;
+  const locationName = assignedLocation?.name;
+
+  console.log(`Found fulfillment location: ${locationId} - ${locationName}`);
+
+  // Look up linked Square and Shipday locations from DynamoDB
+  return await getLinkedLocationConfig(locationId, locationName);
 }
 
 /**
@@ -350,7 +426,9 @@ async function createSquareOrder(shopifyOrder, locationConfig, feeData) {
     typeof value === 'bigint' ? Number(value) : value
   ));
 
-  const result = await squareClient.ordersApi.createOrder(orderRequest);
+  // Use location-specific credentials if available
+  const client = await getSquareClient(locationConfig.squareAccessToken);
+  const result = await client.ordersApi.createOrder(orderRequest);
   console.log('Square order created:', result.result.order.id);
 
   // Update fulfillment to RESERVED to show on KDS
@@ -368,7 +446,7 @@ async function createSquareOrder(shopifyOrder, locationConfig, feeData) {
     idempotencyKey: `update-${shopifyOrder.id}`,
   };
 
-  const updateResult = await squareClient.ordersApi.updateOrder(
+  const updateResult = await client.ordersApi.updateOrder(
     result.result.order.id,
     updateRequest
   );
@@ -407,7 +485,7 @@ async function createSquareOrder(shopifyOrder, locationConfig, feeData) {
     typeof value === 'bigint' ? Number(value) : value
   ));
 
-  const paymentResult = await squareClient.paymentsApi.createPayment(paymentRequest);
+  const paymentResult = await client.paymentsApi.createPayment(paymentRequest);
   console.log('Square payment created:', paymentResult.result.payment.id);
 
   return {
@@ -564,6 +642,20 @@ export const handler = async (event) => {
   console.log('Received event:', JSON.stringify(event));
 
   try {
+    // Verify Shopify webhook signature
+    const hmacHeader = event.headers?.['x-shopify-hmac-sha256'] || event.headers?.['X-Shopify-Hmac-Sha256'];
+    const rawBody = typeof event.body === 'string' ? event.body : JSON.stringify(event.body);
+
+    const isValidWebhook = await verifyShopifyWebhook(rawBody, hmacHeader);
+    if (!isValidWebhook) {
+      console.log('Webhook verification failed - rejecting request');
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ error: 'Invalid webhook signature' }),
+      };
+    }
+    console.log('Webhook signature verified');
+
     // Parse Shopify webhook payload
     const shopifyOrder = typeof event.body === 'string' ? JSON.parse(event.body) : event.body || event;
 
@@ -580,15 +672,15 @@ export const handler = async (event) => {
     const locationConfig = await determineFulfillmentLocation(shopifyOrder);
     console.log('Using location config:', locationConfig);
 
-    // Validate required config
+    // Validate required config (should already be validated by getLinkedLocationConfig)
     if (!locationConfig.squareLocationId) {
-      throw new Error('SQUARE_LOCATION_ID environment variable is not set. Add it to your Lambda configuration.');
+      throw new Error('Square location not configured. Please set up location linking in Settings.');
     }
 
-    // Fetch exact transaction fees from Shopify
+    // Fetch exact transaction fees from Shopify (using location-specific credentials)
     let feeData;
     try {
-      feeData = await fetchShopifyTransactionFees(shopifyOrder.id);
+      feeData = await fetchShopifyTransactionFees(shopifyOrder.id, locationConfig);
       console.log('Transaction fees:', feeData);
     } catch (feeError) {
       console.error('Failed to fetch fees, using order total:', feeError);
@@ -619,7 +711,7 @@ export const handler = async (event) => {
       feeData,
       squareResult,
       shipdayResult,
-      shipdayResult ? 'DISPATCHED' : 'SQUARE_ONLY'
+      shipdayResult ? 'NEW' : 'SQUARE_ONLY'
     );
 
     // Broadcast new order to connected WebSocket clients

@@ -1,6 +1,22 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { WEBSOCKET_URL } from '@/constants/admin/adminConstants';
 
+// Get or create a stable client UUID for this browser
+function getOrCreateClientUUID() {
+  const STORAGE_KEY = 'surreal_client_uuid';
+  let uuid = localStorage.getItem(STORAGE_KEY);
+  if (!uuid) {
+    uuid = crypto.randomUUID();
+    localStorage.setItem(STORAGE_KEY, uuid);
+  }
+  return uuid;
+}
+
+// Get stored device ID if registered
+function getStoredDeviceId() {
+  return localStorage.getItem('surreal_device_id');
+}
+
 /**
  * Hook for real-time order updates via WebSocket
  * @param {Function} onNewOrder - Callback when a new order arrives
@@ -30,6 +46,18 @@ export function useOrdersWebSocket(onNewOrder, enabled = true) {
       wsRef.current.onopen = () => {
         console.log('[WebSocket] Connected');
         reconnectAttempts.current = 0;
+
+        // Send identification message with clientUUID and deviceId
+        const clientUUID = getOrCreateClientUUID();
+        const deviceId = getStoredDeviceId();
+        const identifyMessage = {
+          action: 'identify',
+          clientUUID,
+          deviceId,
+          userAgent: navigator.userAgent,
+        };
+        console.log('[WebSocket] Sending identify:', identifyMessage);
+        wsRef.current.send(JSON.stringify(identifyMessage));
       };
 
       wsRef.current.onmessage = (event) => {

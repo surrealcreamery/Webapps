@@ -85,7 +85,8 @@ import Reports from '@/pages/admin/core/Reports';
 import Training from '@/pages/admin/subscription/Training';
 import Recipes from '@/pages/admin/core/Recipes';
 import DeviceManagement from '@/pages/admin/core/DeviceManagement';
-import DeliveryOrders from '@/pages/admin/core/DeliveryOrders';
+import InStoreOrders from '@/pages/admin/core/InStoreOrders';
+import Settings from '@/pages/admin/core/Settings';
 
 import ProtectedRoute from '@/components/protected-route/protected-route.jsx';
 import {
@@ -328,10 +329,11 @@ const router = createBrowserRouter([
           { path: 'select-square-plan', element: <ProtectedRoute permission="Plans"><SelectSquarePlan/></ProtectedRoute> },
           { path: 'view-square-plan/:planId/:variationId', element: <ProtectedRoute permission="Plans"><ViewSquarePlan/></ProtectedRoute> },
           { path: 'reports',            element: <ProtectedRoute permission="Reports"><Reports/></ProtectedRoute> },
-          { path: 'delivery-orders',    element: <ProtectedRoute permission="In-store Orders"><DeliveryOrders/></ProtectedRoute> },
+          { path: 'in-store-orders',    element: <ProtectedRoute permission="In-store Orders"><InStoreOrders/></ProtectedRoute> },
           { path: 'training',           element: <ProtectedRoute permission="Training"><Training/></ProtectedRoute> },
           { path: 'recipes',            element: <ProtectedRoute permission="Recipes"><Recipes/></ProtectedRoute> },
           { path: 'devices',            element: <ProtectedRoute permission="Device Management"><DeviceManagement/></ProtectedRoute> },
+          { path: 'settings',           element: <ProtectedRoute permission="Settings"><Settings/></ProtectedRoute> },
         ]
       }
     ]

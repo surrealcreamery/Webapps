@@ -2,5 +2,10 @@
   "name": "lambda-shipday-api",
   "version": "1.0.0",
   "type": "module",
-  "description": "Shipday API Lambda for delivery estimates and dispatch"
+  "description": "Shipday API Lambda for delivery estimates and dispatch",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.705.0",
+    "@aws-sdk/lib-dynamodb": "^3.705.0",
+    "firebase-admin": "^13.6.0"
+  }
 }

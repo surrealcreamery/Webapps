@@ -1,3 +1,5 @@
+import { getAuth } from 'firebase/auth';
+
 // ==========================================
 // ADMIN API ENDPOINTS
 // ==========================================
@@ -65,8 +67,59 @@ export const TRIAGE_UPLOADED_CSV_URL                    = 'https://hook.us2.make
 // DELIVERY ORDERS (Lambda)
 export const ORDERS_API_URL                             = 'https://mzw3vjolvubtul3v7a7lshmukm0pixww.lambda-url.us-east-1.on.aws';
 
+// ADMIN API (Lambda) - Config management
+export const ADMIN_API_URL                              = 'https://temmg2a7tdh2clwru4ocyljvue0yawke.lambda-url.us-east-1.on.aws';
+
 // SHIPDAY API (Lambda)
-export const SHIPDAY_API_URL                            = 'https://YOUR_SHIPDAY_LAMBDA_URL.lambda-url.us-east-1.on.aws';
+export const SHIPDAY_API_URL                            = 'https://qdvt7sgexybayemxu3whtnvzsi0gnpxk.lambda-url.us-east-1.on.aws';
 
 // WEBSOCKET (Real-time orders)
 export const WEBSOCKET_URL                              = 'wss://gx86vaqflf.execute-api.us-east-1.amazonaws.com/production';
+
+// ==========================================
+// AUTHENTICATED FETCH HELPER
+// ==========================================
+
+/**
+ * Make an authenticated fetch request to Lambda APIs
+ * Automatically adds Firebase ID token to Authorization header
+ * @param {string} url - The URL to fetch
+ * @param {Object} options - Fetch options (method, body, etc.)
+ * @returns {Promise<Response>} The fetch response
+ */
+export async function authFetch(url, options = {}) {
+  const auth = getAuth();
+  const user = auth.currentUser;
+
+  console.log('[authFetch] Current user:', user?.email || 'null');
+
+  if (!user) {
+    console.error('[authFetch] No user - not authenticated');
+    throw new Error('Not authenticated');
+  }
+
+  // Get Firebase ID token
+  const token = await user.getIdToken();
+  console.log('[authFetch] Got token, length:', token?.length, 'prefix:', token?.substring(0, 20) + '...');
+
+  // Merge headers with Authorization
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+    'Authorization': `Bearer ${token}`,
+  };
+
+  console.log('[authFetch] Making request to:', url);
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  console.log('[authFetch] Response status:', response.status);
+  if (!response.ok) {
+    const errorText = await response.clone().text();
+    console.error('[authFetch] Error response:', errorText);
+  }
+
+  return response;
+}

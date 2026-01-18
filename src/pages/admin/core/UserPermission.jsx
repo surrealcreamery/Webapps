@@ -60,7 +60,8 @@ export default function UserPermissions() {
     'Pricing Models':  { access: false },
     Access:            { access: false },
     'User Permissions':{ access: false },
-    Plans:             { access: false }
+    Plans:             { access: false },
+    Settings:          { access: false }
   };
   const sectionKeys = Object.keys(presetPermissions);
 

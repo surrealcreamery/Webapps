@@ -4,7 +4,7 @@
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, DeleteCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 
 const ddbClient = new DynamoDBClient({});
@@ -21,7 +21,11 @@ async function handleConnect(connectionId) {
     TableName: CONNECTIONS_TABLE,
     Item: {
       connectionId,
+      clientUUID: null, // Will be set when client identifies
+      deviceId: null, // Will be set when device registers
+      userAgent: null,
       connectedAt: new Date().toISOString(),
+      lastPing: new Date().toISOString(),
     },
   }));
 
@@ -90,14 +94,78 @@ async function handleMessage(connectionId, body, endpoint) {
   console.log('Message from', connectionId, ':', body);
 
   const message = JSON.parse(body || '{}');
+  const apiClient = new ApiGatewayManagementApiClient({ endpoint });
 
-  // Handle different message types
+  // Handle client identification (sends clientUUID and userAgent)
+  if (message.action === 'identify') {
+    const { clientUUID, userAgent, deviceId } = message;
+    console.log('Client identify:', connectionId, '->', clientUUID, deviceId);
+
+    // Update connection with client info
+    await docClient.send(new UpdateCommand({
+      TableName: CONNECTIONS_TABLE,
+      Key: { connectionId },
+      UpdateExpression: 'SET clientUUID = :clientUUID, userAgent = :userAgent, deviceId = :deviceId, lastPing = :lastPing',
+      ExpressionAttributeValues: {
+        ':clientUUID': clientUUID || null,
+        ':userAgent': userAgent || null,
+        ':deviceId': deviceId || null,
+        ':lastPing': new Date().toISOString(),
+      },
+    }));
+
+    // Send confirmation back to client
+    await apiClient.send(new PostToConnectionCommand({
+      ConnectionId: connectionId,
+      Data: JSON.stringify({ type: 'identified', clientUUID, deviceId, timestamp: Date.now() }),
+    }));
+
+    return { statusCode: 200, body: 'Identified' };
+  }
+
+  // Handle device registration (legacy - now use identify)
+  if (message.action === 'register') {
+    const { deviceId } = message;
+    console.log('Device registration:', connectionId, '->', deviceId);
+
+    if (deviceId) {
+      // Update connection with deviceId
+      await docClient.send(new UpdateCommand({
+        TableName: CONNECTIONS_TABLE,
+        Key: { connectionId },
+        UpdateExpression: 'SET deviceId = :deviceId, lastPing = :lastPing',
+        ExpressionAttributeValues: {
+          ':deviceId': deviceId,
+          ':lastPing': new Date().toISOString(),
+        },
+      }));
+
+      // Send confirmation back to client
+      await apiClient.send(new PostToConnectionCommand({
+        ConnectionId: connectionId,
+        Data: JSON.stringify({ type: 'registered', deviceId, timestamp: Date.now() }),
+      }));
+    }
+    return { statusCode: 200, body: 'Registered' };
+  }
+
+  // Handle ping (keep-alive)
   if (message.action === 'ping') {
-    const apiClient = new ApiGatewayManagementApiClient({ endpoint });
+    // Update lastPing timestamp
+    await docClient.send(new UpdateCommand({
+      TableName: CONNECTIONS_TABLE,
+      Key: { connectionId },
+      UpdateExpression: 'SET lastPing = :lastPing',
+      ExpressionAttributeValues: {
+        ':lastPing': new Date().toISOString(),
+      },
+    }));
+
     await apiClient.send(new PostToConnectionCommand({
       ConnectionId: connectionId,
       Data: JSON.stringify({ type: 'pong', timestamp: Date.now() }),
     }));
+    return { statusCode: 200, body: 'Pong' };
   }
 
   return { statusCode: 200, body: 'Message received' };

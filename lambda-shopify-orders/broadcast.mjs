@@ -1,20 +1,23 @@
 /**
  * Broadcast helper for sending real-time updates via WebSocket
+ * Config loaded from DynamoDB with environment variable fallback
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
+import { getConfigValue } from './config.mjs';
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE || 'surreal-websocket-connections';
-const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT; // e.g., 'https://abc123.execute-api.us-east-1.amazonaws.com/production'
 
 /**
  * Broadcast a new order to all connected WebSocket clients
  */
 export async function broadcastNewOrder(orderData) {
+  const WEBSOCKET_ENDPOINT = await getConfigValue('WEBSOCKET_ENDPOINT');
+
   if (!WEBSOCKET_ENDPOINT) {
     console.log('WEBSOCKET_ENDPOINT not configured, skipping broadcast');
     return;
