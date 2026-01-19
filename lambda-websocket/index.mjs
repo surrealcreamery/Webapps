@@ -12,9 +12,57 @@ const docClient = DynamoDBDocumentClient.from(ddbClient);
 const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE || 'surreal-websocket-connections';
 
 /**
+ * Broadcast connection changes only to clients subscribed to 'connections' topic
+ */
+async function broadcastConnectionsUpdated(endpoint, excludeConnectionId = null) {
+  const apiClient = new ApiGatewayManagementApiClient({ endpoint });
+
+  // Get only connections subscribed to 'connections' topic
+  const result = await docClient.send(new ScanCommand({
+    TableName: CONNECTIONS_TABLE,
+    FilterExpression: 'contains(subscriptions, :topic)',
+    ExpressionAttributeValues: {
+      ':topic': 'connections',
+    },
+  }));
+
+  const connections = result.Items || [];
+  if (connections.length === 0) {
+    console.log('No clients subscribed to connections updates');
+    return;
+  }
+
+  console.log(`Broadcasting connections_updated to ${connections.length} subscribed clients`);
+  const message = JSON.stringify({ type: 'connections_updated', timestamp: Date.now() });
+
+  // Send only to subscribed connections
+  const sendPromises = connections
+    .filter(({ connectionId }) => connectionId !== excludeConnectionId)
+    .map(async ({ connectionId }) => {
+      try {
+        await apiClient.send(new PostToConnectionCommand({
+          ConnectionId: connectionId,
+          Data: message,
+        }));
+      } catch (error) {
+        if (error.statusCode === 410) {
+          // Connection is stale, remove it
+          console.log('Removing stale connection:', connectionId);
+          await docClient.send(new DeleteCommand({
+            TableName: CONNECTIONS_TABLE,
+            Key: { connectionId },
+          }));
+        }
+      }
+    });
+
+  await Promise.all(sendPromises);
+}
+
+/**
  * Handle new WebSocket connection
  */
-async function handleConnect(connectionId) {
+async function handleConnect(connectionId, endpoint) {
   console.log('New connection:', connectionId);
 
   await docClient.send(new PutCommand({
@@ -29,19 +77,25 @@ async function handleConnect(connectionId) {
     },
   }));
 
+  // Notify other clients about the new connection
+  await broadcastConnectionsUpdated(endpoint, connectionId);
+
   return { statusCode: 200, body: 'Connected' };
 }
 
 /**
  * Handle WebSocket disconnection
  */
-async function handleDisconnect(connectionId) {
+async function handleDisconnect(connectionId, endpoint) {
   console.log('Disconnection:', connectionId);
 
   await docClient.send(new DeleteCommand({
     TableName: CONNECTIONS_TABLE,
     Key: { connectionId },
   }));
+
+  // Notify other clients about the disconnection
+  await broadcastConnectionsUpdated(endpoint);
 
   return { statusCode: 200, body: 'Disconnected' };
 }
@@ -96,20 +150,47 @@ async function handleMessage(connectionId, body, endpoint) {
   const message = JSON.parse(body || '{}');
   const apiClient = new ApiGatewayManagementApiClient({ endpoint });
 
-  // Handle client identification (sends clientUUID and userAgent)
+  // Handle client identification (sends clientUUID, userAgent, and Firebase user info)
   if (message.action === 'identify') {
-    const { clientUUID, userAgent, deviceId } = message;
-    console.log('Client identify:', connectionId, '->', clientUUID, deviceId);
+    const { clientUUID, userAgent, deviceId, userEmail, userName } = message;
+    console.log('Client identify:', connectionId, '->', clientUUID, deviceId, userEmail);
 
-    // Update connection with client info
+    // Clean up stale connections with the same clientUUID
+    if (clientUUID) {
+      try {
+        const existingConnections = await docClient.send(new ScanCommand({
+          TableName: CONNECTIONS_TABLE,
+          FilterExpression: 'clientUUID = :clientUUID AND connectionId <> :currentId',
+          ExpressionAttributeValues: {
+            ':clientUUID': clientUUID,
+            ':currentId': connectionId,
+          },
+        }));
+
+        // Delete old connections for this clientUUID
+        for (const oldConn of (existingConnections.Items || [])) {
+          console.log('Removing stale connection for clientUUID:', oldConn.connectionId);
+          await docClient.send(new DeleteCommand({
+            TableName: CONNECTIONS_TABLE,
+            Key: { connectionId: oldConn.connectionId },
+          }));
+        }
+      } catch (err) {
+        console.log('Error cleaning up old connections:', err.message);
+      }
+    }
+
+    // Update connection with client info (including Firebase user if logged in)
     await docClient.send(new UpdateCommand({
       TableName: CONNECTIONS_TABLE,
       Key: { connectionId },
-      UpdateExpression: 'SET clientUUID = :clientUUID, userAgent = :userAgent, deviceId = :deviceId, lastPing = :lastPing',
+      UpdateExpression: 'SET clientUUID = :clientUUID, userAgent = :userAgent, deviceId = :deviceId, userEmail = :userEmail, userName = :userName, lastPing = :lastPing',
       ExpressionAttributeValues: {
         ':clientUUID': clientUUID || null,
         ':userAgent': userAgent || null,
         ':deviceId': deviceId || null,
+        ':userEmail': userEmail || null,
+        ':userName': userName || null,
         ':lastPing': new Date().toISOString(),
       },
     }));
@@ -119,6 +200,9 @@ async function handleMessage(connectionId, body, endpoint) {
       ConnectionId: connectionId,
       Data: JSON.stringify({ type: 'identified', clientUUID, deviceId, timestamp: Date.now() }),
     }));
+
+    // Notify all clients about the updated connection info
+    await broadcastConnectionsUpdated(endpoint);
 
     return { statusCode: 200, body: 'Identified' };
   }
@@ -147,6 +231,52 @@ async function handleMessage(connectionId, body, endpoint) {
       }));
     }
     return { statusCode: 200, body: 'Registered' };
+  }
+
+  // Handle subscribe (client wants to receive updates for a topic)
+  if (message.action === 'subscribe') {
+    const { topic } = message;
+    console.log('Subscribe:', connectionId, '->', topic);
+
+    if (topic) {
+      await docClient.send(new UpdateCommand({
+        TableName: CONNECTIONS_TABLE,
+        Key: { connectionId },
+        UpdateExpression: 'ADD subscriptions :topic',
+        ExpressionAttributeValues: {
+          ':topic': new Set([topic]),
+        },
+      }));
+
+      await apiClient.send(new PostToConnectionCommand({
+        ConnectionId: connectionId,
+        Data: JSON.stringify({ type: 'subscribed', topic, timestamp: Date.now() }),
+      }));
+    }
+    return { statusCode: 200, body: 'Subscribed' };
+  }
+
+  // Handle unsubscribe (client no longer wants updates for a topic)
+  if (message.action === 'unsubscribe') {
+    const { topic } = message;
+    console.log('Unsubscribe:', connectionId, '->', topic);
+
+    if (topic) {
+      await docClient.send(new UpdateCommand({
+        TableName: CONNECTIONS_TABLE,
+        Key: { connectionId },
+        UpdateExpression: 'DELETE subscriptions :topic',
+        ExpressionAttributeValues: {
+          ':topic': new Set([topic]),
+        },
+      }));
+
+      await apiClient.send(new PostToConnectionCommand({
+        ConnectionId: connectionId,
+        Data: JSON.stringify({ type: 'unsubscribed', topic, timestamp: Date.now() }),
+      }));
+    }
+    return { statusCode: 200, body: 'Unsubscribed' };
   }
 
   // Handle ping (keep-alive)
@@ -186,10 +316,10 @@ export const handler = async (event) => {
   try {
     switch (routeKey) {
       case '$connect':
-        return await handleConnect(connectionId);
+        return await handleConnect(connectionId, endpoint);
 
       case '$disconnect':
-        return await handleDisconnect(connectionId);
+        return await handleDisconnect(connectionId, endpoint);
 
       case '$default':
         return await handleMessage(connectionId, event.body, endpoint);

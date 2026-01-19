@@ -446,11 +446,8 @@ async function getDevice(sk) {
  */
 async function getDeviceByCode(code) {
   const devices = await getAllDevices();
-  return devices.find(d =>
-    d.platformData?.registrationCode === code &&
-    d.platformData?.codeExpiresAt &&
-    new Date(d.platformData.codeExpiresAt) > new Date()
-  ) || null;
+  // Registration codes are permanent - no expiration check
+  return devices.find(d => d.platformData?.registrationCode === code) || null;
 }
 
 /**
@@ -467,7 +464,6 @@ async function getDeviceByClientUUID(clientUUID) {
 async function createDevice(name, createdBy) {
   const sk = generateDeviceId();
   const registrationCode = generateRegistrationCode();
-  const codeExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
 
   const device = {
     pk: 'DEVICE',
@@ -475,8 +471,7 @@ async function createDevice(name, createdBy) {
     name,
     status: 'pending', // pending until registered
     platformData: {
-      registrationCode,
-      codeExpiresAt,
+      registrationCode, // Permanent code - can be reused to re-link device
       clientUUID: null,
       deviceType: null,
       userAgent: null,
@@ -534,16 +529,14 @@ async function regenerateRegistrationCode(sk, updatedBy) {
   }
 
   const registrationCode = generateRegistrationCode();
-  const codeExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
   const updated = {
     ...existing,
     status: 'pending',
     platformData: {
       ...existing.platformData,
-      registrationCode,
-      codeExpiresAt,
-      clientUUID: null, // Clear old client UUID
+      registrationCode, // Permanent code - no expiration
+      clientUUID: null, // Clear old client UUID so new tablet can link
     },
     updatedAt: new Date().toISOString(),
     updatedBy,
@@ -554,7 +547,7 @@ async function regenerateRegistrationCode(sk, updatedBy) {
     Item: updated,
   }));
 
-  return { sk, registrationCode, codeExpiresAt };
+  return { sk, registrationCode };
 }
 
 /**
@@ -578,8 +571,7 @@ async function registerDevice(code, clientUUID, userAgent) {
     status: 'active',
     platformData: {
       ...device.platformData,
-      registrationCode: null, // Clear code after use
-      codeExpiresAt: null,
+      // Keep registrationCode - it can be reused to re-link if tablet is reset
       clientUUID,
       userAgent,
       registeredAt: new Date().toISOString(),
@@ -643,6 +635,7 @@ async function getActiveConnections() {
       deviceId: device?.sk || conn.deviceId || null,
       deviceName: device?.name || null,
       deviceStatus: device?.status || 'unregistered',
+      registrationCode: device?.platformData?.registrationCode || null,
       connectedAt: conn.connectedAt,
       lastPing: conn.lastPing,
     };
@@ -683,6 +676,7 @@ async function createDeviceFromConnection(name, clientUUID, userAgent, connectio
   }
 
   const sk = generateDeviceId();
+  const registrationCode = generateRegistrationCode(); // Generate code for future re-linking
 
   const device = {
     pk: 'DEVICE',
@@ -690,8 +684,7 @@ async function createDeviceFromConnection(name, clientUUID, userAgent, connectio
     name,
     status: 'active', // Immediately active since we're linking to a live connection
     platformData: {
-      registrationCode: null,
-      codeExpiresAt: null,
+      registrationCode, // Permanent code - can be used to re-link if tablet is reset
       clientUUID: finalClientUUID,
       userAgent,
       registeredAt: new Date().toISOString(),
@@ -733,10 +726,15 @@ async function sendDeviceCommand(command, deviceIds = null) {
   }));
   const connections = connectionsResult.Items || [];
 
-  // Filter by deviceIds if specified
+  // Filter by deviceIds or connectionIds if specified
   let targetConnections = connections;
   if (deviceIds && deviceIds.length > 0) {
-    targetConnections = connections.filter(c => deviceIds.includes(c.deviceId));
+    // deviceIds can be actual deviceIds, connectionIds, or clientUUIDs
+    targetConnections = connections.filter(c =>
+      deviceIds.includes(c.deviceId) ||
+      deviceIds.includes(c.connectionId) ||
+      deviceIds.includes(c.clientUUID)
+    );
   }
 
   const message = JSON.stringify({

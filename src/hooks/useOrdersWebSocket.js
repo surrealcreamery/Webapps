@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { getAuth } from 'firebase/auth';
 import { WEBSOCKET_URL } from '@/constants/admin/adminConstants';
 
 // Get or create a stable client UUID for this browser
@@ -17,16 +18,42 @@ function getStoredDeviceId() {
   return localStorage.getItem('surreal_device_id');
 }
 
+// Check if page was remotely refreshed (and clear the flag)
+export function checkRemoteRefresh() {
+  const wasRefreshed = sessionStorage.getItem('surreal_remote_refresh') === 'true';
+  if (wasRefreshed) {
+    sessionStorage.removeItem('surreal_remote_refresh');
+  }
+  return wasRefreshed;
+}
+
 /**
  * Hook for real-time order updates via WebSocket
  * @param {Function} onNewOrder - Callback when a new order arrives
- * @param {boolean} enabled - Whether to connect
+ * @param {Object} options - Additional options
+ * @param {boolean} options.enabled - Whether to connect (default: true)
+ * @param {Function} options.onConnectionsUpdated - Callback when connections change
  */
-export function useOrdersWebSocket(onNewOrder, enabled = true) {
+export function useOrdersWebSocket(onNewOrder, options = {}) {
+  const { enabled = true, onConnectionsUpdated } = typeof options === 'boolean'
+    ? { enabled: options }
+    : options;
+
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const pingIntervalRef = useRef(null);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
+
+  // Use refs for callbacks to avoid reconnecting when they change
+  const onNewOrderRef = useRef(onNewOrder);
+  const onConnectionsUpdatedRef = useRef(onConnectionsUpdated);
+  useEffect(() => {
+    onNewOrderRef.current = onNewOrder;
+  }, [onNewOrder]);
+  useEffect(() => {
+    onConnectionsUpdatedRef.current = onConnectionsUpdated;
+  }, [onConnectionsUpdated]);
 
   const connect = useCallback(() => {
     if (!enabled || !WEBSOCKET_URL || WEBSOCKET_URL.includes('YOUR_WEBSOCKET')) {
@@ -35,6 +62,12 @@ export function useOrdersWebSocket(onNewOrder, enabled = true) {
     }
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    // Also check if we're already connecting
+    if (wsRef.current?.readyState === WebSocket.CONNECTING) {
+      console.log('[WebSocket] Already connecting, skipping...');
       return;
     }
 
@@ -47,26 +80,62 @@ export function useOrdersWebSocket(onNewOrder, enabled = true) {
         console.log('[WebSocket] Connected');
         reconnectAttempts.current = 0;
 
-        // Send identification message with clientUUID and deviceId
+        // Send identification message with clientUUID, deviceId, and Firebase user info
         const clientUUID = getOrCreateClientUUID();
         const deviceId = getStoredDeviceId();
+        const auth = getAuth();
+        const user = auth.currentUser;
         const identifyMessage = {
           action: 'identify',
           clientUUID,
           deviceId,
           userAgent: navigator.userAgent,
+          // Include Firebase user info if logged in
+          userEmail: user?.email || null,
+          userName: user?.displayName || null,
         };
         console.log('[WebSocket] Sending identify:', identifyMessage);
         wsRef.current.send(JSON.stringify(identifyMessage));
+
+        // Start ping interval to keep connection alive (AWS API Gateway has 10-min idle timeout)
+        // Ping every 5 minutes
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+        }
+        pingIntervalRef.current = setInterval(() => {
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            console.log('[WebSocket] Sending ping...');
+            wsRef.current.send(JSON.stringify({ action: 'ping' }));
+          }
+        }, 5 * 60 * 1000); // 5 minutes
       };
 
       wsRef.current.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('[WebSocket] Message received:', data);
+          // Don't log pong messages to reduce noise
+          if (data.type !== 'pong') {
+            console.log('[WebSocket] Message received:', data);
+          }
 
-          if (data.type === 'new_order' && onNewOrder) {
-            onNewOrder(data.order);
+          if (data.type === 'new_order' && onNewOrderRef.current) {
+            onNewOrderRef.current(data.order);
+          }
+
+          // Handle connections updated (device connected/disconnected/identified)
+          if (data.type === 'connections_updated' && onConnectionsUpdatedRef.current) {
+            onConnectionsUpdatedRef.current();
+          }
+
+          // Handle remote commands
+          if (data.type === 'command') {
+            console.log('[WebSocket] Command received:', data.command);
+            if (data.command === 'refresh') {
+              console.log('[WebSocket] Refreshing page...');
+              // Set flag so we can show a message after reload
+              sessionStorage.setItem('surreal_remote_refresh', 'true');
+              window.location.reload();
+            }
           }
         } catch (error) {
           console.error('[WebSocket] Failed to parse message:', error);
@@ -75,6 +144,12 @@ export function useOrdersWebSocket(onNewOrder, enabled = true) {
 
       wsRef.current.onclose = (event) => {
         console.log('[WebSocket] Disconnected:', event.code, event.reason);
+
+        // Clear ping interval
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
 
         // Attempt to reconnect with exponential backoff
         if (enabled && reconnectAttempts.current < maxReconnectAttempts) {
@@ -93,11 +168,16 @@ export function useOrdersWebSocket(onNewOrder, enabled = true) {
     } catch (error) {
       console.error('[WebSocket] Failed to create connection:', error);
     }
-  }, [enabled, onNewOrder]);
+  }, [enabled]); // Only depend on enabled, not onNewOrder
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
     }
     if (wsRef.current) {
       wsRef.current.close();
@@ -113,9 +193,27 @@ export function useOrdersWebSocket(onNewOrder, enabled = true) {
     };
   }, [connect, disconnect]);
 
+  // Subscribe to a topic (e.g., 'connections' for device management updates)
+  const subscribe = useCallback((topic) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('[WebSocket] Subscribing to:', topic);
+      wsRef.current.send(JSON.stringify({ action: 'subscribe', topic }));
+    }
+  }, []);
+
+  // Unsubscribe from a topic
+  const unsubscribe = useCallback((topic) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('[WebSocket] Unsubscribing from:', topic);
+      wsRef.current.send(JSON.stringify({ action: 'unsubscribe', topic }));
+    }
+  }, []);
+
   return {
     isConnected: wsRef.current?.readyState === WebSocket.OPEN,
     reconnect: connect,
     disconnect,
+    subscribe,
+    unsubscribe,
   };
 }

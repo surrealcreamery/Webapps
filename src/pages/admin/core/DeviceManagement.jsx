@@ -15,6 +15,8 @@ import {
   Tooltip,
   Alert,
   Snackbar,
+  ToggleButtonGroup,
+  ToggleButton,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -29,6 +31,8 @@ import {
   getActiveConnections,
   sendDeviceCommand,
   createDeviceFromConnection,
+  regenerateRegistrationCode,
+  fetchDevices,
 } from '@/contexts/admin/AdminDataContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAuth } from 'firebase/auth';
@@ -232,11 +236,21 @@ const DeviceManagementPage = () => {
   const isMasterBypass = storedDeviceId === 'MASTER_BYPASS';
 
   // Fetch active connections (which now includes device info)
-  const { data: connections, isLoading, isError } = useQuery({
+  // No polling needed - updates are pushed via WebSocket
+  const { data: connections, isLoading: connectionsLoading, isError: connectionsError } = useQuery({
     queryKey: ['admin', 'activeConnections'],
     queryFn: getActiveConnections,
-    refetchInterval: 10000, // Refresh every 10 seconds
   });
+
+  // Fetch all registered devices
+  // No polling needed - updates are pushed via WebSocket
+  const { data: registeredDevices, isLoading: devicesLoading } = useQuery({
+    queryKey: ['admin', 'devices'],
+    queryFn: fetchDevices,
+  });
+
+  const isLoading = connectionsLoading || devicesLoading;
+  const isError = connectionsError;
 
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [isRegisterDialogOpen, setIsRegisterDialogOpen] = useState(false);
@@ -245,6 +259,7 @@ const DeviceManagementPage = () => {
   const [newDevice, setNewDevice] = useState(null);
   const [deleteDevice_, setDeleteDevice] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [viewFilter, setViewFilter] = useState('connected'); // 'connected', 'registered'
 
   // Create new device mutation (generates registration code)
   const createMutation = useMutation({
@@ -305,6 +320,18 @@ const DeviceManagementPage = () => {
     },
   });
 
+  // Regenerate registration code mutation
+  const regenerateCodeMutation = useMutation({
+    mutationFn: (deviceId) => regenerateRegistrationCode(deviceId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'activeConnections'] });
+      setSnackbar({ open: true, message: `Code generated: ${data.registrationCode}`, severity: 'success' });
+    },
+    onError: (error) => {
+      setSnackbar({ open: true, message: error.message || 'Failed to generate code', severity: 'error' });
+    },
+  });
+
   // Parse user agent to get device type
   const getDeviceType = (userAgent) => {
     if (!userAgent) return 'Unknown';
@@ -318,17 +345,6 @@ const DeviceManagementPage = () => {
     if (userAgent.includes('Macintosh')) return 'Mac';
     return 'Browser';
   };
-
-  // Debug logging
-  React.useEffect(() => {
-    console.log('[DeviceManagement] Current clientUUID from localStorage:', currentClientUUID);
-    console.log('[DeviceManagement] Connections from API:', connections);
-    if (connections) {
-      connections.forEach(c => {
-        console.log('[DeviceManagement] Connection clientUUID:', c.clientUUID, 'matches:', c.clientUUID === currentClientUUID);
-      });
-    }
-  }, [connections, currentClientUUID]);
 
   // Group connections by clientUUID to deduplicate
   const groupedByClientUUID = React.useMemo(() => {
@@ -379,53 +395,53 @@ const DeviceManagementPage = () => {
     {
       key: 'deviceName',
       label: 'Device Name',
-      width: 200,
+      width: 300,
       sortable: true,
       render: (row) => {
         const displayName = getDeviceDisplayName(row);
         const isCurrentDevice = row.clientUUID && row.clientUUID === currentClientUUID;
+        const isConnected = row.isConnected || row.deviceStatus === 'active' || row.deviceStatus === 'unregistered';
+        const isUnregistered = row.deviceStatus === 'unregistered';
 
         return (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="body2">
-              {displayName || <em style={{ color: '#999' }}>Unregistered</em>}
-            </Typography>
+            <WifiIcon color={isConnected ? 'success' : 'disabled'} fontSize="small" />
+            <Box>
+              <Typography variant="body2">
+                {displayName || <em style={{ color: '#999' }}>Unregistered</em>}
+              </Typography>
+              {/* Show logged-in user email for unregistered devices */}
+              {isUnregistered && row.userEmail && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  Signed in: {row.userEmail}
+                </Typography>
+              )}
+            </Box>
             {isCurrentDevice && (
-              <Chip size="small" label="You" color="primary" sx={{ height: 20, fontSize: '0.7rem' }} />
+              <Chip size="small" label="You" color="primary" sx={{ fontSize: '1.2rem' }} />
             )}
           </Box>
         );
       },
     },
     {
-      key: 'isConnected',
-      label: 'Connected',
-      width: 100,
-      sortable: true,
-      render: (row) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <WifiIcon color={row.isConnected ? 'success' : 'disabled'} fontSize="small" />
-          <Typography variant="body2" color={row.isConnected ? 'success.main' : 'text.disabled'}>
-            {row.isConnected ? 'Yes' : 'No'}
-          </Typography>
-          {row.connectionCount > 1 && (
-            <Chip size="small" label={`×${row.connectionCount}`} sx={{ ml: 0.5, height: 20 }} />
-          )}
-        </Box>
-      ),
-    },
-    {
       key: 'deviceStatus',
       label: 'Status',
       width: 120,
       sortable: true,
-      render: (row) => (
-        <Chip
-          size="small"
-          label={row.deviceStatus}
-          color={row.deviceStatus === 'active' ? 'success' : row.deviceStatus === 'unregistered' ? 'warning' : 'default'}
-        />
-      ),
+      render: (row) => {
+        const statusLabel = row.deviceStatus === 'inactive' ? 'offline' : row.deviceStatus;
+        const statusColor = row.deviceStatus === 'active' ? 'success' :
+                           row.deviceStatus === 'unregistered' ? 'warning' : 'default';
+        return (
+          <Chip
+            size="small"
+            label={statusLabel}
+            color={statusColor}
+            sx={{ fontSize: '1.2rem' }}
+          />
+        );
+      },
     },
     {
       key: 'deviceType',
@@ -436,6 +452,29 @@ const DeviceManagementPage = () => {
           {getDeviceType(row.userAgent)}
         </Typography>
       ),
+    },
+    {
+      key: 'registrationCode',
+      label: 'Registration Code',
+      width: 130,
+      render: (row) => {
+        if (!row.registrationCode) {
+          return <Typography variant="body2" color="text.secondary">—</Typography>;
+        }
+        return (
+          <Tooltip title="Click to copy">
+            <Chip
+              size="small"
+              label={row.registrationCode}
+              onClick={() => {
+                navigator.clipboard.writeText(row.registrationCode);
+                setSnackbar({ open: true, message: 'Code copied!', severity: 'success' });
+              }}
+              sx={{ fontFamily: 'monospace', cursor: 'pointer', fontSize: '1.2rem' }}
+            />
+          </Tooltip>
+        );
+      },
     },
     {
       key: 'clientUUID',
@@ -460,40 +499,84 @@ const DeviceManagementPage = () => {
     {
       key: 'actions',
       label: 'Actions',
-      width: 150,
-      render: (row) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          {row.deviceStatus === 'unregistered' ? (
-            <Button
-              size="small"
-              variant="contained"
-              onClick={() => {
-                setSelectedConnection(row);
-                setIsRegisterDialogOpen(true);
-              }}
-              disabled={!canEdit}
-            >
-              Register
-            </Button>
-          ) : (
-            <Tooltip title="Delete Device">
-              <IconButton
-                size="small"
-                color="error"
-                onClick={() => setDeleteDevice(row)}
-                disabled={!canEdit}
-              >
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
-      ),
+      width: 250,
+      render: (row) => {
+        const isConnected = row.isConnected || row.deviceStatus === 'active' || row.deviceStatus === 'unregistered';
+        const targetId = row.clientUUID || row.connectionId;
+
+        return (
+          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+            {row.deviceStatus === 'unregistered' ? (
+              <>
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => {
+                    setSelectedConnection(row);
+                    setIsRegisterDialogOpen(true);
+                  }}
+                  disabled={!canEdit}
+                >
+                  Register
+                </Button>
+                {isConnected && targetId && (
+                  <Tooltip title="Refresh Device">
+                    <IconButton
+                      size="medium"
+                      sx={{ color: 'grey.500' }}
+                      onClick={() => sendCommandMutation.mutate({ command: 'refresh', deviceIds: [targetId] })}
+                      disabled={!canEdit || sendCommandMutation.isPending}
+                    >
+                      <RefreshIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </>
+            ) : (
+              <>
+                {isConnected && targetId && (
+                  <Tooltip title="Refresh Device">
+                    <IconButton
+                      size="medium"
+                      sx={{ color: 'grey.500' }}
+                      onClick={() => sendCommandMutation.mutate({ command: 'refresh', deviceIds: [targetId] })}
+                      disabled={!canEdit || sendCommandMutation.isPending}
+                    >
+                      <RefreshIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                {!row.registrationCode && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => regenerateCodeMutation.mutate(row.deviceId)}
+                    disabled={!canEdit || regenerateCodeMutation.isPending}
+                  >
+                    Generate Code
+                  </Button>
+                )}
+                <Tooltip title="Delete Device">
+                  <IconButton
+                    size="medium"
+                    sx={{ color: 'grey.500' }}
+                    onClick={() => setDeleteDevice(row)}
+                    disabled={!canEdit}
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
+          </Box>
+        );
+      },
     },
   ];
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['admin', 'activeConnections'] });
+    queryClient.invalidateQueries({ queryKey: ['admin', 'devices'] });
   };
 
   const handleRefreshAllDevices = () => {
@@ -516,21 +599,73 @@ const DeviceManagementPage = () => {
     );
   }
 
-  const registeredCount = groupedByClientUUID.filter(c => c.deviceStatus === 'active').length;
-  const unregisteredCount = groupedByClientUUID.filter(c => c.deviceStatus === 'unregistered').length;
   const totalConnections = (connections || []).length;
+  const connectedRegisteredCount = groupedByClientUUID.filter(c => c.deviceStatus === 'active').length;
+  const connectedUnregisteredCount = groupedByClientUUID.filter(c => c.deviceStatus === 'unregistered').length;
+  const totalRegisteredDevices = (registeredDevices || []).length;
+
+  // Build connected clientUUIDs set for quick lookup
+  const connectedClientUUIDs = new Set(
+    (connections || []).filter(c => c.clientUUID).map(c => c.clientUUID)
+  );
+
+  // Build registered devices view with connection status
+  const registeredDevicesWithStatus = React.useMemo(() => {
+    if (!registeredDevices) return [];
+
+    return registeredDevices.map(device => {
+      const isConnected = device.platformData?.clientUUID &&
+                          connectedClientUUIDs.has(device.platformData.clientUUID);
+      return {
+        ...device,
+        deviceId: device.sk,
+        deviceName: device.name,
+        deviceStatus: isConnected ? 'active' : 'inactive',
+        isConnected,
+        registrationCode: device.platformData?.registrationCode || null,
+        clientUUID: device.platformData?.clientUUID || null,
+        userAgent: device.platformData?.userAgent || null,
+        lastPing: device.platformData?.lastSeenAt || device.updatedAt,
+      };
+    }).sort((a, b) => {
+      // Sort: disconnected first, then alphabetically by name
+      if (a.isConnected !== b.isConnected) {
+        return a.isConnected ? 1 : -1; // Disconnected first
+      }
+      return (a.deviceName || '').localeCompare(b.deviceName || '');
+    });
+  }, [registeredDevices, connectedClientUUIDs]);
+
+  // Filter data based on viewFilter
+  const getFilteredData = () => {
+    if (viewFilter === 'registered') {
+      return registeredDevicesWithStatus;
+    }
+    return groupedByClientUUID; // 'connected' view
+  };
+
+  const filteredData = getFilteredData();
+  const tableTitle = viewFilter === 'registered' ? 'Registered Devices' : 'Connected Devices';
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {canView ? (
         <>
-          {/* Quick Actions Bar */}
-          <Paper sx={{ p: 2, mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary">
-                {groupedByClientUUID.length} unique device(s) ({totalConnections} connection{totalConnections !== 1 ? 's' : ''}) — {registeredCount} registered, {unregisteredCount} unregistered
-              </Typography>
-            </Box>
+          {/* Filter Toggle & Actions Bar */}
+          <Paper sx={{ p: 2, mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+            <ToggleButtonGroup
+              value={viewFilter}
+              exclusive
+              onChange={(e, newValue) => newValue && setViewFilter(newValue)}
+              size="small"
+            >
+              <ToggleButton value="connected">
+                Connected ({totalConnections})
+              </ToggleButton>
+              <ToggleButton value="registered">
+                Registered ({totalRegisteredDevices})
+              </ToggleButton>
+            </ToggleButtonGroup>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
                 variant="outlined"
@@ -544,10 +679,10 @@ const DeviceManagementPage = () => {
           </Paper>
 
           <AdminDataTable
-            title="Connected Devices"
-            data={groupedByClientUUID}
+            title={tableTitle}
+            data={filteredData}
             columns={columns}
-            defaultView={['deviceName', 'isConnected', 'deviceStatus', 'deviceType', 'clientUUID', 'lastPing', 'actions']}
+            defaultView={['deviceName', 'deviceStatus', 'registrationCode', 'deviceType', 'lastPing', 'actions']}
             searchKeys={['deviceName', 'deviceStatus', 'clientUUID']}
             onRefresh={handleRefresh}
             onAddClick={canEdit ? () => setIsAddDialogOpen(true) : undefined}

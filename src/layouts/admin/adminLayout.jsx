@@ -22,7 +22,7 @@ import { useTheme, alpha } from '@mui/material/styles';
 import { Icon } from '@iconify/react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { useOrdersWebSocket } from '@/hooks/useOrdersWebSocket';
+import { useOrdersWebSocket, checkRemoteRefresh } from '@/hooks/useOrdersWebSocket';
 import { fetchDevice } from '@/contexts/admin/AdminDataContext';
 
 // Iconify icon wrapper for consistent sizing
@@ -498,8 +498,34 @@ export default function AdminLayout({ children, fetchedPermissions }) {
     }
   }, [playNotificationSound, queryClient, navigate, location.pathname]);
 
+  // Handle connections updated from WebSocket (device connected/disconnected)
+  const handleConnectionsUpdated = useCallback(() => {
+    console.log('[WebSocket] Connections updated, invalidating queries...');
+    queryClient.invalidateQueries({ queryKey: ['admin', 'activeConnections'] });
+    queryClient.invalidateQueries({ queryKey: ['admin', 'devices'] });
+  }, [queryClient]);
+
   // WebSocket connection for real-time orders (active on all admin pages)
-  useOrdersWebSocket(handleNewOrder);
+  const { subscribe, unsubscribe } = useOrdersWebSocket(handleNewOrder, { onConnectionsUpdated: handleConnectionsUpdated });
+
+  // Subscribe to 'connections' topic only when on Device Management page
+  useEffect(() => {
+    if (location.pathname === '/admin/devices') {
+      subscribe('connections');
+      return () => unsubscribe('connections');
+    }
+  }, [location.pathname, subscribe, unsubscribe]);
+
+  // Check if page was remotely refreshed and show notification
+  useEffect(() => {
+    if (checkRemoteRefresh()) {
+      setSnackbar({
+        open: true,
+        message: 'Device refreshed remotely',
+        severity: 'info',
+      });
+    }
+  }, []);
 
   // Device registration is now handled by the UUIDEntryGate component
   // which stores 'surreal_device_id' in localStorage
@@ -508,6 +534,11 @@ export default function AdminLayout({ children, fetchedPermissions }) {
   const handleCollapse = () => setIsCollapsed(prev => !prev);
 
   const handleSignOut = async () => {
+    // Clear master bypass on logout so user must re-enter code
+    const storedDeviceId = localStorage.getItem('surreal_device_id');
+    if (storedDeviceId === 'MASTER_BYPASS') {
+      localStorage.removeItem('surreal_device_id');
+    }
     await signOut(auth);
     navigate('/signin');
   };
