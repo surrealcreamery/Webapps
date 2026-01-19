@@ -297,6 +297,7 @@ const DeviceManagementPage = () => {
     mutationFn: deleteDevice,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'activeConnections'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'devices'] });
       setDeleteDevice(null);
       setSnackbar({ open: true, message: 'Device deleted', severity: 'success' });
     },
@@ -430,9 +431,11 @@ const DeviceManagementPage = () => {
       width: 120,
       sortable: true,
       render: (row) => {
-        const statusLabel = row.deviceStatus === 'inactive' ? 'offline' : row.deviceStatus;
+        const statusLabel = row.deviceStatus === 'inactive' ? 'offline' :
+                           row.deviceStatus === 'pending' ? 'pending' : row.deviceStatus;
         const statusColor = row.deviceStatus === 'active' ? 'success' :
-                           row.deviceStatus === 'unregistered' ? 'warning' : 'default';
+                           row.deviceStatus === 'unregistered' ? 'warning' :
+                           row.deviceStatus === 'pending' ? 'info' : 'default';
         return (
           <Chip
             size="small"
@@ -503,10 +506,23 @@ const DeviceManagementPage = () => {
       render: (row) => {
         const isConnected = row.isConnected || row.deviceStatus === 'active' || row.deviceStatus === 'unregistered';
         const targetId = row.clientUUID || row.connectionId;
+        const isPending = row.deviceStatus === 'pending';
 
         return (
           <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-            {row.deviceStatus === 'unregistered' ? (
+            {isPending ? (
+              // Pending devices - just show delete
+              <Tooltip title="Delete Pending Device">
+                <IconButton
+                  size="medium"
+                  sx={{ color: 'grey.500' }}
+                  onClick={() => setDeleteDevice(row)}
+                  disabled={!canEdit}
+                >
+                  <DeleteIcon />
+                </IconButton>
+              </Tooltip>
+            ) : row.deviceStatus === 'unregistered' ? (
               <>
                 <Button
                   size="small"
@@ -602,7 +618,10 @@ const DeviceManagementPage = () => {
   const totalConnections = (connections || []).length;
   const connectedRegisteredCount = groupedByClientUUID.filter(c => c.deviceStatus === 'active').length;
   const connectedUnregisteredCount = groupedByClientUUID.filter(c => c.deviceStatus === 'unregistered').length;
-  const totalRegisteredDevices = (registeredDevices || []).length;
+  // Only count devices that have actually been claimed (have a clientUUID)
+  const totalRegisteredDevices = (registeredDevices || []).filter(d => d.platformData?.clientUUID).length;
+  // Count unclaimed devices (have registration code but no clientUUID)
+  const totalPendingDevices = (registeredDevices || []).filter(d => !d.platformData?.clientUUID).length;
 
   // Build connected clientUUIDs set for quick lookup
   const connectedClientUUIDs = new Set(
@@ -610,42 +629,71 @@ const DeviceManagementPage = () => {
   );
 
   // Build registered devices view with connection status
+  // Only show devices that have actually been claimed (have a clientUUID)
   const registeredDevicesWithStatus = React.useMemo(() => {
     if (!registeredDevices) return [];
 
-    return registeredDevices.map(device => {
-      const isConnected = device.platformData?.clientUUID &&
-                          connectedClientUUIDs.has(device.platformData.clientUUID);
-      return {
+    return registeredDevices
+      .filter(device => device.platformData?.clientUUID) // Only devices that have been claimed
+      .map(device => {
+        const isConnected = connectedClientUUIDs.has(device.platformData.clientUUID);
+        return {
+          ...device,
+          deviceId: device.sk,
+          deviceName: device.name,
+          deviceStatus: isConnected ? 'active' : 'inactive',
+          isConnected,
+          registrationCode: device.platformData?.registrationCode || null,
+          clientUUID: device.platformData?.clientUUID || null,
+          userAgent: device.platformData?.userAgent || null,
+          lastPing: device.platformData?.lastSeenAt || device.updatedAt,
+        };
+      }).sort((a, b) => {
+        // Sort: disconnected first, then alphabetically by name
+        if (a.isConnected !== b.isConnected) {
+          return a.isConnected ? 1 : -1; // Disconnected first
+        }
+        return (a.deviceName || '').localeCompare(b.deviceName || '');
+      });
+  }, [registeredDevices, connectedClientUUIDs]);
+
+  // Build pending devices list (created but not yet claimed)
+  const pendingDevices = React.useMemo(() => {
+    if (!registeredDevices) return [];
+
+    return registeredDevices
+      .filter(device => !device.platformData?.clientUUID) // Only unclaimed devices
+      .map(device => ({
         ...device,
         deviceId: device.sk,
         deviceName: device.name,
-        deviceStatus: isConnected ? 'active' : 'inactive',
-        isConnected,
+        deviceStatus: 'pending',
+        isConnected: false,
         registrationCode: device.platformData?.registrationCode || null,
-        clientUUID: device.platformData?.clientUUID || null,
-        userAgent: device.platformData?.userAgent || null,
-        lastPing: device.platformData?.lastSeenAt || device.updatedAt,
-      };
-    }).sort((a, b) => {
-      // Sort: disconnected first, then alphabetically by name
-      if (a.isConnected !== b.isConnected) {
-        return a.isConnected ? 1 : -1; // Disconnected first
-      }
-      return (a.deviceName || '').localeCompare(b.deviceName || '');
-    });
-  }, [registeredDevices, connectedClientUUIDs]);
+        clientUUID: null,
+        userAgent: null,
+        lastPing: device.createdAt || device.updatedAt,
+      }))
+      .sort((a, b) => (a.deviceName || '').localeCompare(b.deviceName || ''));
+  }, [registeredDevices]);
 
   // Filter data based on viewFilter
   const getFilteredData = () => {
     if (viewFilter === 'registered') {
       return registeredDevicesWithStatus;
     }
+    if (viewFilter === 'pending') {
+      return pendingDevices;
+    }
     return groupedByClientUUID; // 'connected' view
   };
 
   const filteredData = getFilteredData();
-  const tableTitle = viewFilter === 'registered' ? 'Registered Devices' : 'Connected Devices';
+  const tableTitle = viewFilter === 'registered'
+    ? 'Registered Devices'
+    : viewFilter === 'pending'
+      ? 'Pending Devices'
+      : 'Connected Devices';
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -664,6 +712,9 @@ const DeviceManagementPage = () => {
               </ToggleButton>
               <ToggleButton value="registered">
                 Registered ({totalRegisteredDevices})
+              </ToggleButton>
+              <ToggleButton value="pending">
+                Pending ({totalPendingDevices})
               </ToggleButton>
             </ToggleButtonGroup>
             <Box sx={{ display: 'flex', gap: 1 }}>

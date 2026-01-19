@@ -45,6 +45,9 @@ export function useOrdersWebSocket(onNewOrder, options = {}) {
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
 
+  // Track active subscriptions so we can re-subscribe on reconnect
+  const activeSubscriptionsRef = useRef(new Set());
+
   // Use refs for callbacks to avoid reconnecting when they change
   const onNewOrderRef = useRef(onNewOrder);
   const onConnectionsUpdatedRef = useRef(onConnectionsUpdated);
@@ -54,6 +57,16 @@ export function useOrdersWebSocket(onNewOrder, options = {}) {
   useEffect(() => {
     onConnectionsUpdatedRef.current = onConnectionsUpdated;
   }, [onConnectionsUpdated]);
+
+  // Helper to send all active subscriptions
+  const sendActiveSubscriptions = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      activeSubscriptionsRef.current.forEach(topic => {
+        console.log('[WebSocket] Sending subscription for:', topic);
+        wsRef.current.send(JSON.stringify({ action: 'subscribe', topic }));
+      });
+    }
+  }, []);
 
   const connect = useCallback(() => {
     if (!enabled || !WEBSOCKET_URL || WEBSOCKET_URL.includes('YOUR_WEBSOCKET')) {
@@ -96,6 +109,9 @@ export function useOrdersWebSocket(onNewOrder, options = {}) {
         };
         console.log('[WebSocket] Sending identify:', identifyMessage);
         wsRef.current.send(JSON.stringify(identifyMessage));
+
+        // Re-send any active subscriptions after connecting/reconnecting
+        sendActiveSubscriptions();
 
         // Start ping interval to keep connection alive (AWS API Gateway has 10-min idle timeout)
         // Ping every 5 minutes
@@ -168,7 +184,7 @@ export function useOrdersWebSocket(onNewOrder, options = {}) {
     } catch (error) {
       console.error('[WebSocket] Failed to create connection:', error);
     }
-  }, [enabled]); // Only depend on enabled, not onNewOrder
+  }, [enabled, sendActiveSubscriptions]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -195,14 +211,24 @@ export function useOrdersWebSocket(onNewOrder, options = {}) {
 
   // Subscribe to a topic (e.g., 'connections' for device management updates)
   const subscribe = useCallback((topic) => {
+    // Add to active subscriptions set
+    activeSubscriptionsRef.current.add(topic);
+
+    // Send immediately if connected
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       console.log('[WebSocket] Subscribing to:', topic);
       wsRef.current.send(JSON.stringify({ action: 'subscribe', topic }));
+    } else {
+      console.log('[WebSocket] Queued subscription for:', topic, '(will send when connected)');
     }
   }, []);
 
   // Unsubscribe from a topic
   const unsubscribe = useCallback((topic) => {
+    // Remove from active subscriptions set
+    activeSubscriptionsRef.current.delete(topic);
+
+    // Send immediately if connected
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       console.log('[WebSocket] Unsubscribing from:', topic);
       wsRef.current.send(JSON.stringify({ action: 'unsubscribe', topic }));
