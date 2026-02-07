@@ -221,6 +221,7 @@ const Header = () => {
                 className="header"
                 role="banner"
                 aria-label="Site header"
+                style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, pointerEvents: 'none' }}
             >
                 {/* Navigation Bar */}
                 <Box
@@ -233,6 +234,7 @@ const Header = () => {
                         marginLeft: 'calc(-50vw + 50%)',
                         py: 1,
                         px: 2,
+                        pointerEvents: 'auto',
                     }}
                 >
                     <Box
@@ -281,10 +283,10 @@ const Header = () => {
                     </Box>
                 </Box>
 
-                <div className="shell">
+                <div className="shell" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.7) 50%, rgba(255,255,255,0) 100%)' }}>
                     <div style={{ maxWidth: '600px', margin: '0 auto' }}>
                         {/* 3-column CSS Grid layout */}
-                        <div className="header__inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
+                        <div className="header__inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', pointerEvents: 'auto' }}>
 
                             {/* Left column - Menu button for Shop pages */}
                             <div style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -405,7 +407,8 @@ const Header = () => {
                                     mb: 0,
                                     display: 'flex',
                                     justifyContent: 'center',
-                                    cursor: 'pointer'
+                                    cursor: 'pointer',
+                                    pointerEvents: 'auto',
                                 }}
                                 onClick={handleLocationClick}
                             >

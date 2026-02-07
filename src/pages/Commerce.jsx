@@ -20,12 +20,332 @@ import { CartDrawer } from '@/components/commerce/CartDrawer';
 import { useDiscounts } from '@/components/commerce/useDiscounts';
 import { BlindBoxProgressIndicator } from '@/components/commerce/BlindBoxProgressIndicator';
 import { DiscountZonePlaceholder } from '@/components/commerce/DiscountZonePlaceholder';
+import { fetchPublishedCatalog, sortProductsByOrder } from '@/services/catalogService';
 
 // Placeholder image for variants without images
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=No+Image';
 
 // Module-level variable to persist scroll position across navigations
 let pendingScrollRestore = null;
+
+// Swiper Component - receives currentSlide from parent
+const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedProducts = {}, onSelectProduct, selectedContainerSize = {} }) => {
+    const setCurrentSlide = onSlideChange;
+    const isScrollingRef = useRef(false);
+    const touchStartRef = useRef(null);
+    const touchEndRef = useRef(null);
+
+    const maxSlide = slides.length - 1;
+
+    const prefersReducedMotion = typeof window !== 'undefined'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const goToSlide = (index) => {
+        const newSlide = Math.max(0, Math.min(index, maxSlide));
+        setCurrentSlide(newSlide);
+    };
+
+    const handleWheel = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isScrollingRef.current) return;
+
+        if (e.deltaY > 20) {
+            isScrollingRef.current = true;
+            setCurrentSlide(prev => Math.min(prev + 1, maxSlide));
+            setTimeout(() => { isScrollingRef.current = false; }, 600);
+        } else if (e.deltaY < -20) {
+            isScrollingRef.current = true;
+            setCurrentSlide(prev => Math.max(prev - 1, 0));
+            setTimeout(() => { isScrollingRef.current = false; }, 600);
+        }
+    };
+
+    const handleTouchStart = (e) => {
+        touchEndRef.current = null;
+        touchStartRef.current = e.targetTouches[0].clientY;
+    };
+
+    const handleTouchMove = (e) => {
+        touchEndRef.current = e.targetTouches[0].clientY;
+    };
+
+    const handleTouchEnd = () => {
+        if (!touchStartRef.current || !touchEndRef.current) return;
+        const distance = touchStartRef.current - touchEndRef.current;
+        if (distance > 50) {
+            setCurrentSlide(prev => Math.min(prev + 1, maxSlide));
+        } else if (distance < -50) {
+            setCurrentSlide(prev => Math.max(prev - 1, 0));
+        }
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            setCurrentSlide(prev => Math.min(prev + 1, maxSlide));
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            setCurrentSlide(prev => Math.max(prev - 1, 0));
+        }
+    };
+
+    if (slides.length === 0) return null;
+
+    return (
+        <Box
+            role="region"
+            aria-roledescription="carousel"
+            aria-label="Category slides"
+            tabIndex={0}
+            onKeyDown={handleKeyDown}
+            sx={{
+                display: { xs: 'block', md: 'none' },
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: '100dvh',
+                width: '100vw',
+                overflow: 'hidden',
+                zIndex: 5,
+                '&:focus': { outline: '3px solid #005fcc', outlineOffset: '-3px' },
+            }}
+        >
+            {/* Slides container */}
+            <Box
+                onWheel={handleWheel}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: `${slides.length * 100}dvh`,
+                    transform: `translateY(-${currentSlide * 100}dvh)`,
+                    transition: prefersReducedMotion ? 'none' : 'transform 0.4s ease-out',
+                    touchAction: 'none',
+                }}
+            >
+                {slides.map((slide, index) => {
+                    // Get selected container size for this slide (default to first one)
+                    const containerSizeIndex = selectedContainerSize[slide.id] ?? 0;
+                    const selectedContainer = slide.containers?.[containerSizeIndex];
+
+                    // Filter products by selected container size
+                    const filteredProducts = selectedContainer
+                        ? slide.products?.filter(product =>
+                            product.variants?.some(v =>
+                                v.container === selectedContainer.container?.id &&
+                                v.size === selectedContainer.size?.id
+                            )
+                        ) || []
+                        : slide.products || [];
+
+                    // Get selected product index for this slide (default to 0)
+                    const selectedIndex = selectedProducts[slide.id] ?? 0;
+                    const selectedProduct = filteredProducts[selectedIndex];
+                    const backgroundImage = selectedProduct?.image || selectedProduct?.variants?.[0]?.image?.url;
+
+                    return (
+                    <Box
+                        key={slide.id}
+                        role="tabpanel"
+                        aria-label={`${slide.title}, ${index + 1} of ${slides.length}`}
+                        sx={{
+                            height: '100dvh',
+                            width: '100%',
+                            flexShrink: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            position: 'relative',
+                            backgroundColor: '#f5f5f5',
+                            pt: '180px', // Space for fixed header (nav bar + logo + location)
+                        }}
+                    >
+                        {/* Background image from selected product */}
+                        {backgroundImage && (
+                            <Box
+                                sx={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    backgroundImage: `url(${backgroundImage})`,
+                                    backgroundSize: 'cover',
+                                    backgroundPosition: 'center',
+                                    opacity: 1,
+                                    transition: 'background-image 0.4s ease-out',
+                                }}
+                            />
+                        )}
+                        {/* Spacer to push content down */}
+                        <Box sx={{ flex: 1 }} />
+
+                        {/* Subcategory title above products */}
+                        <Typography
+                            variant="h4"
+                            sx={{
+                                color: 'black',
+                                fontWeight: 700,
+                                textAlign: 'left',
+                                px: 2,
+                                marginBottom: '16px !important',
+                            }}
+                        >
+                            {slide.title}
+                        </Typography>
+
+                        {/* Product thumbnails - horizontal scroll */}
+                        <Box
+                            sx={{
+                                px: 2,
+                                pb: 14, // Space for navigation controls
+                            }}
+                        >
+                            <Box
+                                sx={{
+                                    display: 'flex',
+                                    flexDirection: 'row',
+                                    gap: 2,
+                                    overflowX: 'auto',
+                                    pb: 1,
+                                    '&::-webkit-scrollbar': { display: 'none' },
+                                    scrollbarWidth: 'none',
+                                    pointerEvents: 'auto',
+                                    touchAction: 'pan-x',
+                                }}
+                            >
+                                {/* Products filtered by container size */}
+                                {filteredProducts.slice(0, 10).map((product, productIndex) => {
+                                    const isSelected = productIndex === selectedIndex;
+                                    return (
+                                    <Box
+                                        key={product.id}
+                                        onClick={() => onSelectProduct?.(slide.id, productIndex)}
+                                        sx={{
+                                            flexShrink: 0,
+                                            width: 100,
+                                            textAlign: 'center',
+                                            cursor: 'pointer',
+                                            opacity: isSelected ? 1 : 0.6,
+                                            transform: isSelected ? 'scale(1.05)' : 'scale(1)',
+                                            transition: 'all 0.2s ease-out',
+                                        }}
+                                    >
+                                        <Box
+                                            sx={{
+                                                width: 100,
+                                                height: 100,
+                                                borderRadius: 2,
+                                                overflow: 'hidden',
+                                                backgroundColor: '#f0f0f0',
+                                                mb: 1,
+                                                border: isSelected ? '3px solid black' : '3px solid transparent',
+                                                boxSizing: 'border-box',
+                                            }}
+                                        >
+                                            <img
+                                                src={product.image || product.variants?.[0]?.image?.url || 'https://placehold.co/100x100/e0e0e0/666?text=...'}
+                                                alt={product.name}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover',
+                                                }}
+                                            />
+                                        </Box>
+                                        <Typography
+                                            sx={{
+                                                fontSize: '1.6rem',
+                                                fontWeight: isSelected ? 700 : 500,
+                                                color: 'black',
+                                                lineHeight: 1.3,
+                                                wordWrap: 'break-word',
+                                            }}
+                                        >
+                                            {product.name}
+                                        </Typography>
+                                    </Box>
+                                    );
+                                })}
+                                {filteredProducts.length === 0 && (
+                                    <Typography sx={{ color: '#888', py: 2 }}>
+                                        No products available
+                                    </Typography>
+                                )}
+                            </Box>
+                        </Box>
+                    </Box>
+                    );
+                })}
+            </Box>
+
+            {/* Navigation controls */}
+            <Box
+                sx={{
+                    position: 'absolute',
+                    bottom: 40,
+                    left: 0,
+                    right: 0,
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: 2,
+                    zIndex: 100,
+                }}
+                role="group"
+                aria-label="Slide navigation"
+            >
+                <Button
+                    onClick={() => setCurrentSlide(prev => Math.max(prev - 1, 0))}
+                    disabled={currentSlide === 0}
+                    aria-label="Previous slide"
+                    sx={{
+                        minWidth: 44, height: 44, borderRadius: '50%',
+                        backgroundColor: 'rgba(255,255,255,0.9)', color: 'black',
+                        '&:hover': { backgroundColor: 'rgba(255,255,255,1)' },
+                        '&:disabled': { backgroundColor: 'rgba(255,255,255,0.3)', color: 'rgba(0,0,0,0.3)' },
+                    }}
+                >
+                    ▲
+                </Button>
+                <Box sx={{ display: 'flex', gap: 1 }} role="tablist">
+                    {slides.map((slide, i) => (
+                        <Button
+                            key={slide.id}
+                            onClick={() => goToSlide(i)}
+                            role="tab"
+                            aria-selected={currentSlide === i}
+                            aria-label={`Go to ${slide.title}`}
+                            sx={{
+                                minWidth: 12, width: 12, height: 12, padding: 0, borderRadius: '50%',
+                                backgroundColor: currentSlide === i ? 'white' : 'rgba(255,255,255,0.4)',
+                                border: '2px solid white',
+                                '&:hover': { backgroundColor: currentSlide === i ? 'white' : 'rgba(255,255,255,0.6)' },
+                            }}
+                        />
+                    ))}
+                </Box>
+                <Button
+                    onClick={() => setCurrentSlide(prev => Math.min(prev + 1, maxSlide))}
+                    disabled={currentSlide === maxSlide}
+                    aria-label="Next slide"
+                    sx={{
+                        minWidth: 44, height: 44, borderRadius: '50%',
+                        backgroundColor: 'rgba(255,255,255,0.9)', color: 'black',
+                        '&:hover': { backgroundColor: 'rgba(255,255,255,1)' },
+                        '&:disabled': { backgroundColor: 'rgba(255,255,255,0.3)', color: 'rgba(0,0,0,0.3)' },
+                    }}
+                >
+                    ▼
+                </Button>
+            </Box>
+        </Box>
+    );
+};
 
 // ===========================================
 // DISCOUNT CONFIGURATION
@@ -51,11 +371,20 @@ const REWARDS_CONFIG = {
  */
 export default function Commerce() {
     const { commerceState, sendToCommerce } = useContext(LayoutContext);
-    const { products: shopifyProducts, loading: shopifyLoading, error: shopifyError, addToCart, removeFromCart, categories, dessertSubcategories, merchandiseSubcategories, getCartCount, checkout } = useShopify();
+    const { products: shopifyProducts, loading: shopifyLoading, error: shopifyError, addToCart, removeFromCart, categories, dessertSubcategories, merchandiseSubcategories, getCartCount, checkout, getProductHierarchy, getCategoryChildren, getSubcategories, getContainerCategories } = useShopify();
     
     // State for reward selection (for quantity-based discounts with multiple options)
     const [selectedRewards, setSelectedRewards] = useState({});
-    
+
+    // State for mobile swiper - tracks current subcategory slide
+    const [currentSlide, setCurrentSlide] = useState(0);
+
+    // State for selected product per slide (index within each slide's products)
+    const [selectedProducts, setSelectedProducts] = useState({});
+
+    // State for selected container size per slide
+    const [selectedContainerSize, setSelectedContainerSize] = useState({});
+
     // Handle selecting a reward at a threshold
     const handleSelectReward = (threshold, discountId) => {
         setSelectedRewards(prev => ({
@@ -101,7 +430,31 @@ export default function Commerce() {
     
     // Blind box selector modal state
     const [showBlindBoxSelector, setShowBlindBoxSelector] = useState(false);
-    
+
+    // Catalog for product ordering
+    const [catalog, setCatalog] = useState(null);
+
+    // Fetch published catalog for product ordering
+    useEffect(() => {
+        fetchPublishedCatalog().then(setCatalog);
+    }, []);
+
+    // Get merged productOrder from ALL categories in catalog
+    const getMergedProductOrder = useMemo(() => {
+        if (!catalog?.categories) return [];
+        const allOrdered = [];
+        for (const category of catalog.categories) {
+            if (category.productOrder?.length) {
+                for (const sku of category.productOrder) {
+                    if (!allOrdered.includes(sku)) {
+                        allOrdered.push(sku);
+                    }
+                }
+            }
+        }
+        return allOrdered;
+    }, [catalog]);
+
     // Determine what to show based on route
     const currentPath = location.pathname;
     const isHomepage = currentPath === '/';
@@ -894,10 +1247,216 @@ export default function Commerce() {
         });
         return exploded;
     };
-    
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // NEW: Hierarchy-based product grouping (replaces variant metafield approach)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Explode products into cards using CATEGORY HIERARCHY instead of variant metafields
+     * - Product's category (at leaf level) determines subcategory/container
+     * - Size remains as variant options within each product
+     */
+    const explodeProductVariantsByHierarchy = (products) => {
+        const exploded = [];
+        console.log('🌳 explodeProductVariantsByHierarchy called with', products.length, 'products');
+
+        products.forEach(product => {
+            // Get hierarchy info from product's assigned category
+            const hierarchy = getProductHierarchy(product);
+
+            // Extract subcategory (Level 2) and container (Level 3) from hierarchy
+            const subcategoryData = hierarchy?.subcategory || null;
+            const containerData = hierarchy?.container || null;
+            const subcategory = subcategoryData?.handle || 'other';
+            const container = containerData?.handle || 'default';
+
+            // Debug: Log hierarchy mapping for first few products
+            if (exploded.length < 3) {
+                console.log(`🌳 Product "${product.name}" → category: ${product.category}, subcategory: ${subcategory}, container: ${container}`);
+            }
+
+            // For products with size variants, group them together
+            const sizeVariants = product.variants?.filter(v => v.sizeData || v.size) || [];
+            const hasMultipleSizes = sizeVariants.length > 1;
+
+            if (hasMultipleSizes) {
+                // Multiple size variants - show as one card with size selector
+                const prices = sizeVariants.map(v => parseFloat(v.price)).sort((a, b) => a - b);
+                const minPrice = prices[0];
+                const maxPrice = prices[prices.length - 1];
+                const priceDisplay = minPrice === maxPrice
+                    ? `$${minPrice.toFixed(2)}`
+                    : `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
+
+                const sizeNames = sizeVariants.map(v => v.sizeData?.title || v.size || v.title);
+                const sizeDescription = sizeNames.join(' | ');
+
+                // Find best image (prefer most expensive variant with image)
+                const variantsWithImages = sizeVariants.filter(v =>
+                    v.hasVariantImage === true && v.image?.url
+                );
+                let imageUrl = product.imageUrl || PLACEHOLDER_IMAGE;
+                let imageAlt = product.name;
+                if (variantsWithImages.length > 0) {
+                    const sortedByPrice = [...variantsWithImages].sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
+                    imageUrl = sortedByPrice[0].image.url;
+                    imageAlt = sortedByPrice[0].image.alt || product.name;
+                }
+
+                exploded.push({
+                    ...product,
+                    id: `${product.id}-${subcategory}-${container}`,
+                    variantId: sizeVariants[0].id,
+                    variants: sizeVariants,
+                    price: priceDisplay,
+                    originalProductId: product.id,
+                    subcategory: subcategory,
+                    subcategoryData: subcategoryData,
+                    container: container,
+                    containerData: containerData,
+                    imageUrl: imageUrl,
+                    imageAlt: imageAlt,
+                    variantOptions: containerData?.title || null,
+                    sizeOptions: sizeDescription,
+                    availableVariants: sizeVariants
+                });
+            } else {
+                // Single variant or no size variants - show as single card
+                const variant = product.variants?.[0] || {};
+                const sizeTitle = variant.sizeData?.title || variant.size || '';
+
+                const variantImage = (variant.hasVariantImage === true && variant.image?.url)
+                    ? variant.image.url
+                    : (product.imageUrl || PLACEHOLDER_IMAGE);
+
+                exploded.push({
+                    ...product,
+                    id: `${product.id}-${subcategory}-${container}`,
+                    variantId: variant.id || product.id,
+                    price: variant.price ? `$${parseFloat(variant.price).toFixed(2)}` : product.price,
+                    originalProductId: product.id,
+                    subcategory: subcategory,
+                    subcategoryData: subcategoryData,
+                    container: container,
+                    containerData: containerData,
+                    imageUrl: variantImage,
+                    imageAlt: variant.image?.alt || product.name,
+                    variantOptions: containerData?.title || null,
+                    sizeOptions: sizeTitle ? [sizeTitle] : null,
+                    variants: null,
+                    availableVariants: product.variants?.length ? [variant] : null
+                });
+            }
+        });
+
+        // Debug: Show exploded products with hierarchy info
+        console.log(`🌳 EXPLODED ${exploded.length} products`);
+        if (exploded.length > 0) {
+            const first = exploded[0];
+            console.log('🌳 First product:', first?.name);
+            console.log('🌳 First product ASSIGNED category:', first?.category, first?.categoryData);
+            console.log('🌳 First product hierarchy result - subcategory:', first?.subcategory, '| container:', first?.container);
+        }
+
+        return exploded;
+    };
+
+    /**
+     * Build subcategory definitions from CATEGORY HIERARCHY
+     * Uses Level 2 categories under a root category
+     * Extracts unique container sizes from product variants
+     */
+    const buildSubcategoriesFromHierarchy = (rootCategoryHandle) => {
+        const subcats = getSubcategories(rootCategoryHandle);
+        console.log('🔍 Subcategories for', rootCategoryHandle, ':', subcats.map(s => s.handle));
+
+        return subcats.map(subcat => {
+            // Filter products for this subcategory
+            const subcatProducts = shopifyProducts.filter(p => {
+                const hierarchy = getProductHierarchy(p);
+                return hierarchy?.subcategory?.handle === subcat.handle;
+            });
+
+            // Extract unique container+size combinations from variants
+            const containerSizeMap = new Map();
+            subcatProducts.forEach(product => {
+                product.variants?.forEach(variant => {
+                    if (variant.containerData && variant.sizeData) {
+                        const key = `${variant.container}-${variant.size}`;
+                        if (!containerSizeMap.has(key)) {
+                            // Only use the size title (from dessert.size metafield)
+                            const displayName = variant.sizeData.title || '';
+                            containerSizeMap.set(key, {
+                                id: key,
+                                title: displayName,
+                                container: variant.containerData,
+                                size: variant.sizeData,
+                                // Try to get an image from a variant with this container+size
+                                image: variant.image?.url || null,
+                            });
+                        } else if (!containerSizeMap.get(key).image && variant.image?.url) {
+                            // Update image if we find one
+                            containerSizeMap.get(key).image = variant.image.url;
+                        }
+                    }
+                });
+            });
+
+            const containerSizes = Array.from(containerSizeMap.values());
+            console.log('🔍 Container sizes for', subcat.handle, ':', containerSizes.map(c => c.title));
+
+            return {
+                id: subcat.handle,
+                title: subcat.title,
+                description: subcat.description || '',
+                image: subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.title)}`,
+                imageAspectRatio: subcat.imageAspectRatio || '1:1',
+                containers: containerSizes, // Container+size combinations from variants
+                products: subcatProducts, // Products in this subcategory
+                // Filter products by their category hierarchy
+                filter: (p) => {
+                    const hierarchy = getProductHierarchy(p);
+                    return hierarchy?.subcategory?.handle === subcat.handle;
+                }
+            };
+        });
+    };
+
+    // Helper to convert aspect ratio string to paddingTop percentage
+    const getAspectRatioPadding = (aspectRatio) => {
+        switch (aspectRatio) {
+            case '16:9': return '56.25%';
+            case '4:3': return '75%';
+            case '1:1':
+            default: return '100%';
+        }
+    };
+
+    // Use hierarchy-based subcategories for Desserts (Level 2 under 'desserts')
+    const HIERARCHY_DESSERT_SUBCATEGORIES = buildSubcategoriesFromHierarchy('desserts');
+
+    // Toggle to use hierarchy-based grouping (set to true to enable new approach)
+    const USE_HIERARCHY_GROUPING = categories.some(c => c.level > 1);
+
+    // Debug: Log hierarchy status
+    if (USE_HIERARCHY_GROUPING) {
+        console.log('🌳 Using HIERARCHY-based grouping');
+        console.log('📦 Hierarchy subcategories for desserts:', HIERARCHY_DESSERT_SUBCATEGORIES.map(s => s.title));
+    } else {
+        console.log('📦 Using VARIANT METAFIELD-based grouping (no hierarchy detected in categories)');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // END: Hierarchy-based grouping
+    // ═══════════════════════════════════════════════════════════════════════════
+
     // Subcategory definitions for Desserts
     // Dynamically loaded from Shopify metaobjects (no fallback defaults)
-    const DESSERT_SUBCATEGORIES = dessertSubcategories?.length > 0
+    // NOTE: When USE_HIERARCHY_GROUPING is true, use HIERARCHY_DESSERT_SUBCATEGORIES instead
+    const DESSERT_SUBCATEGORIES = USE_HIERARCHY_GROUPING
+        ? HIERARCHY_DESSERT_SUBCATEGORIES
+        : dessertSubcategories?.length > 0
         ? dessertSubcategories.map(subcat => ({
             id: subcat.id,
             title: subcat.title,
@@ -949,31 +1508,69 @@ export default function Commerce() {
     
     if (isCategoryPage && currentCategory) {
         // Filter products by current category (dynamic)
-        // Check against: category metafield, productType, or case-insensitive matches
         const categoryHandle = currentCategory.handle?.toLowerCase();
-        let categoryProducts = shopifyProducts.filter(p => {
-            const pCategory = p.category?.toLowerCase();
-            const pType = p.productType?.toLowerCase();
-            return pCategory === categoryHandle || 
-                   pType === categoryHandle ||
-                   pCategory === currentCategory.id?.toLowerCase();
-        });
-        
-        console.log(`📦 Filtering for category "${categoryHandle}":`, categoryProducts.length, 'products');
+        let categoryProducts;
+
+        if (USE_HIERARCHY_GROUPING) {
+            // HIERARCHY MODE: Filter by root category from hierarchy
+            // Products are assigned to leaf categories, so we look UP the hierarchy to find the root
+            categoryProducts = shopifyProducts.filter(p => {
+                const hierarchy = getProductHierarchy(p);
+                if (hierarchy?.rootCategory) {
+                    // Check if product's root category matches current category
+                    return hierarchy.rootCategory.handle?.toLowerCase() === categoryHandle;
+                }
+                // Fallback: direct category match or productType
+                const pCategory = p.category?.toLowerCase();
+                const pType = p.productType?.toLowerCase();
+                return pCategory === categoryHandle || pType === categoryHandle;
+            });
+            console.log(`📦 [HIERARCHY] Filtering for root category "${categoryHandle}":`, categoryProducts.length, 'products');
+        } else {
+            // LEGACY MODE: Direct category match
+            categoryProducts = shopifyProducts.filter(p => {
+                const pCategory = p.category?.toLowerCase();
+                const pType = p.productType?.toLowerCase();
+                return pCategory === categoryHandle ||
+                       pType === categoryHandle ||
+                       pCategory === currentCategory.id?.toLowerCase();
+            });
+            console.log(`📦 [LEGACY] Filtering for category "${categoryHandle}":`, categoryProducts.length, 'products');
+        }
         
         // Special handling for desserts - explode variants
         if (isDesserts) {
-            categoryProducts = explodeProductVariants(categoryProducts);
+            categoryProducts = USE_HIERARCHY_GROUPING
+                ? explodeProductVariantsByHierarchy(categoryProducts)
+                : explodeProductVariants(categoryProducts);
         }
         
-        // Group products by subcategory for section display
+        // Group products by subcategory for section display, sorted by productOrder
         currentSubcategories.forEach(subcat => {
-            productsBySubcategory[subcat.id] = categoryProducts.filter(subcat.filter);
+            const filtered = categoryProducts.filter(subcat.filter);
+            productsBySubcategory[subcat.id] = getMergedProductOrder.length > 0
+                ? sortProductsByOrder(filtered, getMergedProductOrder, catalog?.products || [])
+                : filtered;
         });
-        
-        // displayProducts is all products in this category
-        displayProducts = categoryProducts;
-        
+
+        // Collect products that don't match any subcategory (e.g., Level 1 products)
+        const matchedProductIds = new Set();
+        currentSubcategories.forEach(subcat => {
+            (productsBySubcategory[subcat.id] || []).forEach(p => matchedProductIds.add(p.id));
+        });
+        const unmatchedProducts = categoryProducts.filter(p => !matchedProductIds.has(p.id));
+        if (unmatchedProducts.length > 0) {
+            productsBySubcategory['_other'] = unmatchedProducts;
+            console.log(`📦 Products in "Other" section (no subcategory match):`, unmatchedProducts.length);
+        }
+
+        // Sort by productOrder from catalog, then assign to displayProducts
+        if (getMergedProductOrder.length > 0) {
+            displayProducts = sortProductsByOrder(categoryProducts, getMergedProductOrder, catalog?.products || []);
+        } else {
+            displayProducts = categoryProducts;
+        }
+
         // Use dynamic title/description from category
         pageTitle = currentCategory.title;
         pageDescription = currentCategory.description || `Shop ${currentCategory.title}`;
@@ -1034,7 +1631,7 @@ export default function Commerce() {
     
     if (shopifyLoading) {
         return (
-            <Container maxWidth="sm" sx={{ py: 8, textAlign: 'center' }}>
+            <Container maxWidth="md" sx={{ py: 8, textAlign: 'center' }}>
                 <CircularProgress />
                 <Typography sx={{ mt: 2 }}>Loading products...</Typography>
             </Container>
@@ -1043,7 +1640,7 @@ export default function Commerce() {
     
     if (shopifyError) {
         return (
-            <Container maxWidth="sm" sx={{ py: 8 }}>
+            <Container maxWidth="md" sx={{ py: 8 }}>
                 <Alert severity="error">
                     Error loading products: {shopifyError}
                 </Alert>
@@ -1062,18 +1659,120 @@ export default function Commerce() {
     
     return (
         <>
+            {/* Mobile full-screen swiper for subcategories */}
+            {isDesserts && (
+                <FullScreenSwiper
+                    slides={DESSERT_SUBCATEGORIES}
+                    currentSlide={currentSlide}
+                    onSlideChange={setCurrentSlide}
+                    selectedProducts={selectedProducts}
+                    onSelectProduct={(slideId, productIndex) => {
+                        setSelectedProducts(prev => ({ ...prev, [slideId]: productIndex }));
+                    }}
+                    selectedContainerSize={selectedContainerSize}
+                />
+            )}
+
+            {/* Container size text - fixed below header */}
+            {isDesserts && DESSERT_SUBCATEGORIES.length > 0 && (
+                <Box
+                    sx={{
+                        display: { xs: 'flex', md: 'none' },
+                        position: 'fixed',
+                        top: '220px',
+                        left: 0,
+                        right: 0,
+                        zIndex: 50,
+                        flexDirection: 'row',
+                        gap: 3,
+                        px: 2,
+                        py: 1,
+                        overflowX: 'auto',
+                        overflowY: 'hidden',
+                        '&::-webkit-scrollbar': { display: 'none' },
+                        scrollbarWidth: 'none',
+                        backgroundColor: 'transparent',
+                        pointerEvents: 'auto',
+                        touchAction: 'pan-x',
+                    }}
+                >
+                    {/* Get containers from current subcategory slide */}
+                    <Box
+                        key={currentSlide}
+                        sx={{
+                            display: 'flex',
+                            gap: 3,
+                            pointerEvents: 'auto',
+                            touchAction: 'pan-x',
+                            animation: 'fadeSlideIn 0.4s ease-out',
+                            '@keyframes fadeSlideIn': {
+                                '0%': {
+                                    opacity: 0,
+                                    transform: 'translateY(10px)',
+                                },
+                                '100%': {
+                                    opacity: 1,
+                                    transform: 'translateY(0)',
+                                },
+                            },
+                        }}
+                    >
+                        {DESSERT_SUBCATEGORIES[currentSlide]?.containers?.map((container, idx) => {
+                            const slideId = DESSERT_SUBCATEGORIES[currentSlide]?.id;
+                            const currentSelectedSize = selectedContainerSize[slideId] ?? 0;
+                            const isSelected = idx === currentSelectedSize;
+                            return (
+                                <Typography
+                                    key={container.id}
+                                    onClick={() => {
+                                        setSelectedContainerSize(prev => ({
+                                            ...prev,
+                                            [slideId]: idx
+                                        }));
+                                        // Reset selected product when changing container size
+                                        setSelectedProducts(prev => ({
+                                            ...prev,
+                                            [slideId]: 0
+                                        }));
+                                    }}
+                                    sx={{
+                                        flexShrink: 0,
+                                        fontSize: '1.6rem',
+                                        fontWeight: isSelected ? 700 : 400,
+                                        color: isSelected ? 'black' : 'rgba(0,0,0,0.5)',
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap',
+                                        '&:hover': {
+                                            color: 'black',
+                                        },
+                                    }}
+                                >
+                                    {container.title}
+                                </Typography>
+                            );
+                        })}
+                    </Box>
+                </Box>
+            )}
+
             <Helmet>
                 <title>{pageTitle ? `${pageTitle} | Surreal Creamery x tokidoki` : 'Surreal Creamery x tokidoki | Shop'}</title>
                 <meta name="description" content={pageDescription || "Shop exclusive tokidoki x Surreal Creamery collaboration. Limited edition desserts, blind box collectibles, and more!"} />
             </Helmet>
 
-            <Box sx={{ minHeight: '100vh', backgroundColor: 'white', overflowX: 'hidden' }}>
+            <Box sx={{
+                minHeight: '100vh',
+                backgroundColor: 'white',
+                overflowX: 'hidden',
+                // Hide main content on mobile when swiper is active
+                display: isDesserts ? { xs: 'none', md: 'block' } : 'block',
+            }}>
                 {/* ADDED TO CART VIEW */}
                 {showAddedToCart && addedProduct ? (
                     <Box sx={{ pb: 6 }}>
                         {/* Combined Product Info + Rewards Progress */}
                         <Box sx={{ bgcolor: 'white', py: 2, px: 2, borderBottom: '1px solid', borderColor: 'grey.200' }}>
-                            <Container maxWidth="sm" disableGutters>
+                            <Container maxWidth="md" disableGutters>
                                 {/* Product Info Row */}
                                 <Box sx={{ 
                                     display: 'flex', 
@@ -1663,7 +2362,7 @@ export default function Commerce() {
                         
                         {/* Blind Box Collector UI - Only show when a blind box is added AND we have valid discount data */}
                         {isBlindBoxAdded && hasBlindBoxDiscount ? (
-                            <Container maxWidth="sm" sx={{ mt: 4, px: 2 }}>
+                            <Container maxWidth="md" sx={{ mt: 4, px: 2 }}>
                                 <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
                                     Build Your Collection
                                 </Typography>
@@ -1915,7 +2614,7 @@ export default function Commerce() {
                         ) : (
                             /* Regular Recommendations Section - For non-blind-box products */
                             getAddedToCartRecommendations().length > 0 && (
-                            <Container maxWidth="sm" sx={{ mt: 4, px: 2 }}>
+                            <Container maxWidth="md" sx={{ mt: 4, px: 2 }}>
                                 {/* Promotion Banner */}
                                 {addedProduct?.crosssellPromotion && (
                                     <Box 
@@ -2063,7 +2762,7 @@ export default function Commerce() {
                         )}
                         
                         {/* Continue Exploring Section */}
-                        <Container maxWidth="sm" sx={{ mt: 4, px: 2 }}>
+                        <Container maxWidth="md" sx={{ mt: 4, px: 2 }}>
                             <Box sx={{ borderTop: '1px solid', borderColor: 'grey.200', pt: 3 }} />
                             <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, textAlign: 'center' }}>
                                 Continue Exploring
@@ -2126,7 +2825,7 @@ export default function Commerce() {
                 <>
                 {/* Category Tiles - ONLY show on homepage - Dynamic from API */}
                 {isHomepage && (
-                    <Container maxWidth="sm" sx={{ pt: 3, pb: 2 }}>
+                    <Container maxWidth="md" sx={{ pt: 3, pb: 2 }}>
                         <Box 
                             sx={{ 
                                 display: 'flex',
@@ -2210,7 +2909,7 @@ export default function Commerce() {
 
                 {/* Main Headline - ONLY show on homepage */}
                 {isHomepage && (
-                    <Container maxWidth="sm" sx={{ mb: 4 }}>
+                    <Container maxWidth="md" sx={{ mb: 4 }}>
                     <Typography 
                         variant="h2" 
                         component="h1" 
@@ -2249,7 +2948,7 @@ export default function Commerce() {
                         />
 
                         {/* Browse All CTA */}
-                        <Container maxWidth="sm" sx={{ py: 4, textAlign: 'center' }}>
+                        <Container maxWidth="md" sx={{ py: 4, textAlign: 'center' }}>
                             <Button
                                 variant="contained"
                                 size="large"
@@ -2280,8 +2979,8 @@ export default function Commerce() {
                 ) : isDesserts ? (
                     /* DESSERTS CATALOG VIEW - Sections by subcategory */
                     <Box sx={{ mb: 6 }}>
-                        {/* Breadcrumb Navigation */}
-                        <Container maxWidth="sm" sx={{ pt: 2, pb: 1 }}>
+                        {/* Breadcrumb Navigation - Hidden on mobile for full-screen swiper */}
+                        <Container maxWidth="md" sx={{ pt: 2, pb: 1, display: { xs: 'none', md: 'block' } }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                                 <Typography
                                     onClick={() => {
@@ -2303,17 +3002,13 @@ export default function Commerce() {
                             </Box>
                         </Container>
 
-                        <Container maxWidth="sm" sx={{ mb: 4 }}>
-
-                            {/* Subcategory Navigation Tiles - Click to scroll to section */}
+                        {/* Desktop: 3-column grid */}
+                        <Container maxWidth="md" sx={{ mb: 4, display: { xs: 'none', md: 'block' } }}>
                             <Box
                                 sx={{
                                     display: 'flex',
                                     flexWrap: 'wrap',
                                     gap: 2,
-                                    maxWidth: '500px',
-                                    mx: 'auto',
-                                    mb: 4,
                                     justifyContent: 'center'
                                 }}
                             >
@@ -2327,21 +3022,40 @@ export default function Commerce() {
                                             '&:hover': { opacity: 0.8 }
                                         }}
                                     >
-                                        <Box sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden', paddingTop: '100%', backgroundColor: 'grey.200' }}>
+                                        <Box sx={{
+                                            position: 'relative',
+                                            borderRadius: 2,
+                                            overflow: 'hidden',
+                                            paddingTop: getAspectRatioPadding(subcat.imageAspectRatio),
+                                            backgroundColor: 'grey.200'
+                                        }}>
                                             <img
                                                 src={subcat.image}
                                                 alt={subcat.title}
                                                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                                             />
-                                            {/* ZONE 1: Banner on subcategory tile (no discount for desserts) */}
+                                            {/* Category title overlay */}
+                                            <Box sx={{
+                                                position: 'absolute',
+                                                bottom: 0,
+                                                left: 0,
+                                                right: 0,
+                                                background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
+                                                p: 2,
+                                                pt: 4
+                                            }}>
+                                                <Typography
+                                                    variant="h6"
+                                                    sx={{
+                                                        color: 'white',
+                                                        fontWeight: 700,
+                                                        textShadow: '0 1px 3px rgba(0,0,0,0.5)'
+                                                    }}
+                                                >
+                                                    {subcat.title}
+                                                </Typography>
+                                            </Box>
                                             <DiscountZonePlaceholder zone={1} variant="banner" />
-                                        </Box>
-                                        <Typography variant="body1" align="center" sx={{ mt: 1, fontWeight: 600 }}>
-                                            {subcat.title}
-                                        </Typography>
-                                        {/* ZONE 1: Below subcategory name */}
-                                        <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'center' }}>
-                                            <DiscountZonePlaceholder zone={1} variant="inline" />
                                         </Box>
                                     </Box>
                                 ))}
@@ -2351,13 +3065,13 @@ export default function Commerce() {
                         {/* Product Sections - One per subcategory */}
                         {DESSERT_SUBCATEGORIES.map((subcat, index) => {
                             const sectionProducts = productsBySubcategory[subcat.id] || [];
-                            
+
                             // Skip empty sections
                             if (sectionProducts.length === 0) return null;
-                            
+
                             return (
-                                <Box 
-                                    key={subcat.id} 
+                                <Box
+                                    key={subcat.id}
                                     id={`section-${subcat.id}`}
                                     sx={{ scrollMarginTop: '80px' }} // Offset for fixed header if any
                                 >
@@ -2368,16 +3082,35 @@ export default function Commerce() {
                                         onProductClick={handleChooseProduct}
                                         showDivider={index > 0}
                                         groupByContainer={true}
+                                        catalogCategories={catalog?.categories}
+                                        onAddToCart={handleAddToCart}
                                     />
                                 </Box>
                             );
                         })}
+
+                        {/* "Other" Section - Products attached to Level 1 or unmatched */}
+                        {productsBySubcategory['_other'] && productsBySubcategory['_other'].length > 0 && (
+                            <Box
+                                id="section-other"
+                                sx={{ scrollMarginTop: '80px' }}
+                            >
+                                <Section
+                                    title="Other"
+                                    description="Additional items"
+                                    products={productsBySubcategory['_other']}
+                                    onProductClick={handleChooseProduct}
+                                    showDivider={true}
+                                    groupByContainer={false}
+                                />
+                            </Box>
+                        )}
                     </Box>
                 ) : isMerchandise ? (
                     /* MERCHANDISE CATALOG VIEW - Sections by subcategory */
                     <Box sx={{ mb: 6 }}>
                         {/* Breadcrumb Navigation */}
-                        <Container maxWidth="sm" sx={{ pt: 2, pb: 1 }}>
+                        <Container maxWidth="md" sx={{ pt: 2, pb: 1 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                                 <Typography
                                     onClick={() => navigate('/')}
@@ -2396,15 +3129,16 @@ export default function Commerce() {
                             </Box>
                         </Container>
 
-                        <Container maxWidth="sm" sx={{ mb: 4 }}>
+                        <Container maxWidth="md" sx={{ mb: 4 }}>
 
                             {/* Subcategory Navigation Tiles - Click to scroll to section */}
+                            {/* Mobile: Full-width 16:9 stacked, Desktop: 2-column grid */}
                             <Box
                                 sx={{
                                     display: 'flex',
-                                    flexWrap: 'wrap',
-                                    gap: 2,
-                                    maxWidth: '500px',
+                                    flexDirection: { xs: 'column', md: 'row' },
+                                    flexWrap: { xs: 'nowrap', md: 'wrap' },
+                                    gap: { xs: 2, md: 2 },
                                     mx: 'auto',
                                     mb: 4,
                                     justifyContent: 'center'
@@ -2426,7 +3160,7 @@ export default function Commerce() {
                                         <Box
                                             key={subcat.id}
                                             sx={{
-                                                width: 'calc(50% - 8px)'
+                                                width: { xs: '100%', md: 'calc(50% - 8px)' }
                                             }}
                                         >
                                             <Box
@@ -2436,29 +3170,43 @@ export default function Commerce() {
                                                     '&:hover': { opacity: 0.8 }
                                                 }}
                                             >
-                                                <Box sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden', paddingTop: '100%', backgroundColor: 'grey.200' }}>
+                                                <Box sx={{
+                                                    position: 'relative',
+                                                    borderRadius: 2,
+                                                    overflow: 'hidden',
+                                                    paddingTop: getAspectRatioPadding(subcat.imageAspectRatio),
+                                                    backgroundColor: 'grey.200'
+                                                }}>
                                                     <img
                                                         src={subcat.image}
                                                         alt={subcat.title}
                                                         style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                                                     />
+                                                    {/* Category title overlay */}
+                                                    <Box sx={{
+                                                        position: 'absolute',
+                                                        bottom: 0,
+                                                        left: 0,
+                                                        right: 0,
+                                                        background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
+                                                        p: 2,
+                                                        pt: 4
+                                                    }}>
+                                                        <Typography
+                                                            variant="h6"
+                                                            sx={{
+                                                                color: 'white',
+                                                                fontWeight: 700,
+                                                                textShadow: '0 1px 3px rgba(0,0,0,0.5)'
+                                                            }}
+                                                        >
+                                                            {subcat.title}
+                                                        </Typography>
+                                                    </Box>
                                                     {/* ZONE 1: Banner on subcategory tile */}
                                                     <DiscountZonePlaceholder
                                                         zone={1}
                                                         variant="banner"
-                                                        discount={blindBoxFreeGift}
-                                                        subcategoryName="Blind Boxes"
-                                                        products={shopifyProducts}
-                                                    />
-                                                </Box>
-                                                <Typography variant="body1" align="center" sx={{ mt: 1, fontWeight: 600 }}>
-                                                    {subcat.title}
-                                                </Typography>
-                                                {/* ZONE 1: Below subcategory name */}
-                                                <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'center' }}>
-                                                    <DiscountZonePlaceholder
-                                                        zone={1}
-                                                        variant="inline"
                                                         discount={blindBoxFreeGift}
                                                         subcategoryName="Blind Boxes"
                                                         products={shopifyProducts}
@@ -2650,6 +3398,22 @@ export default function Commerce() {
                                 </Box>
                             );
                         })}
+
+                        {/* "Other" Section - Products attached to Level 1 or unmatched */}
+                        {productsBySubcategory['_other'] && productsBySubcategory['_other'].length > 0 && (
+                            <Box
+                                id="section-other"
+                                sx={{ scrollMarginTop: '80px' }}
+                            >
+                                <Section
+                                    title="Other"
+                                    description="Additional items"
+                                    products={productsBySubcategory['_other']}
+                                    onProductClick={handleChooseProduct}
+                                    showDivider={true}
+                                />
+                            </Box>
+                        )}
                     </Box>
                 ) : productId ? (
                     /* PRODUCT PAGE - Show minimal background content while modal is open */
@@ -2671,7 +3435,7 @@ export default function Commerce() {
 
                 {/* About Section */}
                 <Box sx={{ backgroundColor: 'grey.50', py: 6, mt: 6 }}>
-                    <Container maxWidth="sm">
+                    <Container maxWidth="md">
                         <Typography variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
                             About the Collaboration
                         </Typography>
