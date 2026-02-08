@@ -37,6 +37,15 @@ const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedPr
     const touchEndRef = useRef(null);
     const isHorizontalGestureRef = useRef(false);
 
+    // State for smooth color interpolation
+    const [activeGradient, setActiveGradient] = useState({
+        startColor: '#e53935',
+        endColor: '#000000',
+        direction: null,
+        type: 'solid'
+    });
+    const [previousSlide, setPreviousSlide] = useState(currentSlide);
+
     const maxSlide = slides.length - 1;
 
     const prefersReducedMotion = typeof window !== 'undefined'
@@ -102,6 +111,70 @@ const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedPr
         };
     }, [maxSlide, onSlideChange]);
 
+    // Update gradient colors when slide changes (for smooth color interpolation)
+    useEffect(() => {
+        if (!slides.length) return;
+
+        const slide = slides[currentSlide];
+        if (!slide) return;
+
+        const containerSizeIndex = selectedContainerSize[slide.id] ?? 0;
+        const selectedContainer = slide.containers?.[containerSizeIndex];
+
+        if (selectedContainer) {
+            const bgColor = selectedContainer.backgroundColor || ['#e53935', '#000000', '#F5E5C0'][currentSlide] || '#f5f5f5';
+            const gradientDir = selectedContainer.gradientDirection;
+            const startColor = selectedContainer.gradientStartColor || bgColor;
+            const endColor = selectedContainer.gradientEndColor || bgColor;
+
+            // Parse gradient direction
+            let type = 'solid';
+            let angle = null;
+
+            if (gradientDir) {
+                if (gradientDir.startsWith('radial:')) {
+                    type = 'radial';
+                } else if (gradientDir.startsWith('linear:')) {
+                    type = 'linear';
+                    const parts = gradientDir.split(':');
+                    const startPos = parts[1] || 'top-left';
+                    const endPos = parts[2] || 'bottom-right';
+
+                    const posToCoord = {
+                        'top-left': { x: 0, y: 0 }, 'top': { x: 1, y: 0 }, 'top-right': { x: 2, y: 0 },
+                        'left': { x: 0, y: 1 }, 'center': { x: 1, y: 1 }, 'right': { x: 2, y: 1 },
+                        'bottom-left': { x: 0, y: 2 }, 'bottom': { x: 1, y: 2 }, 'bottom-right': { x: 2, y: 2 },
+                    };
+
+                    const start = posToCoord[startPos] || posToCoord['top-left'];
+                    const end = posToCoord[endPos] || posToCoord['bottom-right'];
+                    const dx = end.x - start.x;
+                    const dy = end.y - start.y;
+                    angle = Math.round(Math.atan2(dx, -dy) * (180 / Math.PI) + 360) % 360;
+                } else if (gradientDir.startsWith('to-')) {
+                    // Legacy format
+                    type = 'linear';
+                    const legacyAngles = {
+                        'to-bottom-right': 135, 'to-bottom-left': 225, 'to-bottom': 180,
+                        'to-right': 90, 'to-top-right': 45, 'to-top-left': 315,
+                        'to-top': 0, 'to-left': 270,
+                    };
+                    angle = legacyAngles[gradientDir] || 135;
+                }
+            }
+
+            setActiveGradient({
+                startColor,
+                endColor,
+                angle,
+                type,
+                bgColor
+            });
+        }
+
+        setPreviousSlide(currentSlide);
+    }, [currentSlide, slides, selectedContainerSize]);
+
     const goToSlide = (index) => {
         const newSlide = Math.max(0, Math.min(index, maxSlide));
         setCurrentSlide(newSlide);
@@ -159,126 +232,68 @@ const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedPr
                 '&:focus': { outline: '3px solid #005fcc', outlineOffset: '-3px' },
             }}
         >
-            {/* Full-screen background with selected container image */}
+            {/* Single animated background with color interpolation */}
+            <Box
+                sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: activeGradient.type === 'radial'
+                        ? `radial-gradient(circle at center, ${activeGradient.startColor} 0%, ${activeGradient.endColor} 100%)`
+                        : activeGradient.type === 'linear' && activeGradient.angle !== null
+                            ? `linear-gradient(${activeGradient.angle}deg, ${activeGradient.startColor} 0%, ${activeGradient.endColor} 100%)`
+                            : activeGradient.bgColor || activeGradient.startColor,
+                    transition: prefersReducedMotion ? 'none' : 'background 0.6s ease-out',
+                    pointerEvents: 'none',
+                }}
+            />
+
+            {/* Container images with scale + fade transitions */}
             {slides.map((slide, index) => {
                 const containerSizeIndex = selectedContainerSize[slide.id] ?? 0;
                 const selectedContainer = slide.containers?.[containerSizeIndex];
                 const isActive = index === currentSlide;
-                // Use product's backgroundColor from catalog, fallback to defaults
-                const bgColor = selectedContainer?.backgroundColor || ['#e53935', '#000000', '#F5E5C0'][index] || '#f5f5f5';
-                // Get gradient settings from catalog
-                const gradientDir = selectedContainer?.gradientDirection;
-                const gradientStartColor = selectedContainer?.gradientStartColor || bgColor;
-                const gradientEndColor = selectedContainer?.gradientEndColor || `color-mix(in srgb, ${bgColor} 50%, black)`;
-
-                // Parse gradient direction and compute background style
-                const getBackgroundStyle = () => {
-                    if (!gradientDir) return bgColor;
-
-                    // New format: "linear:start:end" or "radial:center"
-                    if (gradientDir.startsWith('linear:') || gradientDir.startsWith('radial:')) {
-                        const parts = gradientDir.split(':');
-                        const type = parts[0];
-
-                        if (type === 'radial') {
-                            const position = parts[1]?.replace('-', ' ') || 'center';
-                            return `radial-gradient(circle at ${position}, ${gradientStartColor} 0%, ${gradientEndColor} 100%)`;
-                        }
-
-                        // Linear gradient - calculate angle from start/end positions
-                        const startPos = parts[1] || 'top-left';
-                        const endPos = parts[2] || 'bottom-right';
-
-                        const posToCoord = {
-                            'top-left': { x: 0, y: 0 },
-                            'top': { x: 1, y: 0 },
-                            'top-right': { x: 2, y: 0 },
-                            'left': { x: 0, y: 1 },
-                            'center': { x: 1, y: 1 },
-                            'right': { x: 2, y: 1 },
-                            'bottom-left': { x: 0, y: 2 },
-                            'bottom': { x: 1, y: 2 },
-                            'bottom-right': { x: 2, y: 2 },
-                        };
-
-                        const start = posToCoord[startPos] || posToCoord['top-left'];
-                        const end = posToCoord[endPos] || posToCoord['bottom-right'];
-                        const dx = end.x - start.x;
-                        const dy = end.y - start.y;
-                        const angle = Math.round(Math.atan2(dx, -dy) * (180 / Math.PI) + 360) % 360;
-
-                        return `linear-gradient(${angle}deg, ${gradientStartColor} 0%, ${gradientEndColor} 100%)`;
-                    }
-
-                    // Legacy format: "to-bottom-right" etc.
-                    const legacyAngles = {
-                        'to-bottom-right': '135deg',
-                        'to-bottom-left': '225deg',
-                        'to-bottom': '180deg',
-                        'to-right': '90deg',
-                        'to-top-right': '45deg',
-                        'to-top-left': '315deg',
-                        'to-top': '0deg',
-                        'to-left': '270deg',
-                    };
-                    const angle = legacyAngles[gradientDir];
-                    if (angle) {
-                        return `linear-gradient(${angle}, ${gradientStartColor} 0%, ${gradientEndColor} 100%)`;
-                    }
-
-                    return bgColor;
-                };
-
-                const backgroundStyle = getBackgroundStyle();
+                const isPrevious = index === previousSlide && previousSlide !== currentSlide;
 
                 return (
                     <Box
-                        key={`bg-${slide.id}`}
+                        key={`img-${slide.id}`}
                         sx={{
                             position: 'absolute',
-                            top: 0,
+                            top: '220px', // Below category links
+                            bottom: '200px', // Above bottom content
                             left: 0,
                             right: 0,
-                            bottom: 0,
-                            background: backgroundStyle,
-                            opacity: isActive ? 1 : 0,
-                            transition: prefersReducedMotion ? 'none' : 'opacity 0.4s ease-out',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                             pointerEvents: 'none',
+                            opacity: isActive ? 1 : 0,
+                            transform: isActive ? 'scale(1)' : (isPrevious ? 'scale(0.85)' : 'scale(1.15)'),
+                            transition: prefersReducedMotion ? 'none' : 'opacity 0.5s ease-out, transform 0.5s ease-out',
                         }}
                     >
-                        {/* Selected container image - centered between categories (220px) and bottom content (200px) */}
                         {selectedContainer?.image && (
                             <Box
                                 sx={{
-                                    position: 'absolute',
-                                    top: '220px', // Below category links
-                                    bottom: '200px', // Above bottom content
-                                    left: 0,
-                                    right: 0,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
+                                    width: '70%',
+                                    maxWidth: '300px',
+                                    aspectRatio: '1',
+                                    borderRadius: 3,
+                                    overflow: 'hidden',
                                 }}
                             >
-                                <Box
-                                    sx={{
-                                        width: '70%',
-                                        maxWidth: '300px',
-                                        aspectRatio: '1',
-                                        borderRadius: 3,
-                                        overflow: 'hidden',
+                                <img
+                                    src={selectedContainer.image}
+                                    alt={selectedContainer.title || ''}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
                                     }}
-                                >
-                                    <img
-                                        src={selectedContainer.image}
-                                        alt={selectedContainer.title || ''}
-                                        style={{
-                                            width: '100%',
-                                            height: '100%',
-                                            objectFit: 'cover',
-                                        }}
-                                    />
-                                </Box>
+                                />
                             </Box>
                         )}
                     </Box>
