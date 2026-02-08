@@ -166,23 +166,70 @@ const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedPr
                 const isActive = index === currentSlide;
                 // Use product's backgroundColor from catalog, fallback to defaults
                 const bgColor = selectedContainer?.backgroundColor || ['#e53935', '#000000', '#F5E5C0'][index] || '#f5f5f5';
-                // Get gradient direction from catalog - convert from 'to-bottom-right' format to CSS angle
+                // Get gradient settings from catalog
                 const gradientDir = selectedContainer?.gradientDirection;
-                const gradientAngles = {
-                    'to-bottom-right': '135deg',
-                    'to-bottom-left': '225deg',
-                    'to-bottom': '180deg',
-                    'to-right': '90deg',
-                    'to-top-right': '45deg',
-                    'to-top-left': '315deg',
-                    'to-top': '0deg',
-                    'to-left': '270deg',
+                const gradientStartColor = selectedContainer?.gradientStartColor || bgColor;
+                const gradientEndColor = selectedContainer?.gradientEndColor || `color-mix(in srgb, ${bgColor} 50%, black)`;
+
+                // Parse gradient direction and compute background style
+                const getBackgroundStyle = () => {
+                    if (!gradientDir) return bgColor;
+
+                    // New format: "linear:start:end" or "radial:center"
+                    if (gradientDir.startsWith('linear:') || gradientDir.startsWith('radial:')) {
+                        const parts = gradientDir.split(':');
+                        const type = parts[0];
+
+                        if (type === 'radial') {
+                            const position = parts[1]?.replace('-', ' ') || 'center';
+                            return `radial-gradient(circle at ${position}, ${gradientStartColor} 0%, ${gradientEndColor} 100%)`;
+                        }
+
+                        // Linear gradient - calculate angle from start/end positions
+                        const startPos = parts[1] || 'top-left';
+                        const endPos = parts[2] || 'bottom-right';
+
+                        const posToCoord = {
+                            'top-left': { x: 0, y: 0 },
+                            'top': { x: 1, y: 0 },
+                            'top-right': { x: 2, y: 0 },
+                            'left': { x: 0, y: 1 },
+                            'center': { x: 1, y: 1 },
+                            'right': { x: 2, y: 1 },
+                            'bottom-left': { x: 0, y: 2 },
+                            'bottom': { x: 1, y: 2 },
+                            'bottom-right': { x: 2, y: 2 },
+                        };
+
+                        const start = posToCoord[startPos] || posToCoord['top-left'];
+                        const end = posToCoord[endPos] || posToCoord['bottom-right'];
+                        const dx = end.x - start.x;
+                        const dy = end.y - start.y;
+                        const angle = Math.round(Math.atan2(dx, -dy) * (180 / Math.PI) + 360) % 360;
+
+                        return `linear-gradient(${angle}deg, ${gradientStartColor} 0%, ${gradientEndColor} 100%)`;
+                    }
+
+                    // Legacy format: "to-bottom-right" etc.
+                    const legacyAngles = {
+                        'to-bottom-right': '135deg',
+                        'to-bottom-left': '225deg',
+                        'to-bottom': '180deg',
+                        'to-right': '90deg',
+                        'to-top-right': '45deg',
+                        'to-top-left': '315deg',
+                        'to-top': '0deg',
+                        'to-left': '270deg',
+                    };
+                    const angle = legacyAngles[gradientDir];
+                    if (angle) {
+                        return `linear-gradient(${angle}, ${gradientStartColor} 0%, ${gradientEndColor} 100%)`;
+                    }
+
+                    return bgColor;
                 };
-                const gradientAngle = gradientAngles[gradientDir] || null;
-                // If gradient direction is set, use gradient; otherwise use solid color
-                const backgroundStyle = gradientAngle
-                    ? `linear-gradient(${gradientAngle}, ${bgColor} 0%, color-mix(in srgb, ${bgColor} 70%, black) 100%)`
-                    : bgColor;
+
+                const backgroundStyle = getBackgroundStyle();
 
                 return (
                     <Box
@@ -1445,6 +1492,8 @@ export default function Commerce() {
                 const backgroundColor = catalogMasterImage?.backgroundColor || masterImage?.backgroundColor || firstImage?.backgroundColor || null;
                 const textColor = catalogMasterImage?.textColor || masterImage?.textColor || firstImage?.textColor || null;
                 const gradientDirection = catalogMasterImage?.gradientDirection || masterImage?.gradientDirection || firstImage?.gradientDirection || null;
+                const gradientStartColor = catalogMasterImage?.gradientStartColor || masterImage?.gradientStartColor || firstImage?.gradientStartColor || null;
+                const gradientEndColor = catalogMasterImage?.gradientEndColor || masterImage?.gradientEndColor || firstImage?.gradientEndColor || null;
                 console.log('🖼️ Product lookup:', product.name, '| sku:', variantSku, '-> catalog:', catalogProduct?.name, '-> image:', s3Image?.slice(-50), '-> bgColor:', backgroundColor, '-> gradient:', gradientDirection);
 
                 return {
@@ -1455,6 +1504,8 @@ export default function Commerce() {
                     backgroundColor,
                     textColor,
                     gradientDirection,
+                    gradientStartColor,
+                    gradientEndColor,
                 };
             });
             console.log('🔍 Products for', subcat.handle, ':', productItems.map(p => p.title));
