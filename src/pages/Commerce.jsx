@@ -29,16 +29,78 @@ const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=No+Im
 let pendingScrollRestore = null;
 
 // Swiper Component - receives currentSlide from parent
-const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedProducts = {}, onSelectProduct, selectedContainerSize = {} }) => {
+const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedProducts = {}, onSelectProduct, selectedContainerSize = {}, onSelectContainerSize }) => {
     const setCurrentSlide = onSlideChange;
+    const containerRef = useRef(null);
     const isScrollingRef = useRef(false);
     const touchStartRef = useRef(null);
     const touchEndRef = useRef(null);
+    const isHorizontalGestureRef = useRef(false);
 
     const maxSlide = slides.length - 1;
 
     const prefersReducedMotion = typeof window !== 'undefined'
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // Use effect to add non-passive touch listeners (required for preventDefault to work)
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const handleTouchStart = (e) => {
+            touchEndRef.current = null;
+            isHorizontalGestureRef.current = false;
+            touchStartRef.current = {
+                x: e.touches[0].clientX,
+                y: e.touches[0].clientY
+            };
+        };
+
+        const handleTouchMove = (e) => {
+            if (!touchStartRef.current) return;
+
+            const currentX = e.touches[0].clientX;
+            const currentY = e.touches[0].clientY;
+
+            const deltaX = Math.abs(currentX - touchStartRef.current.x);
+            const deltaY = Math.abs(currentY - touchStartRef.current.y);
+
+            if (deltaX > deltaY && deltaX > 10) {
+                isHorizontalGestureRef.current = true;
+            } else if (deltaY > deltaX && deltaY > 10) {
+                // Vertical gesture - prevent pull-to-refresh
+                e.preventDefault();
+            }
+
+            touchEndRef.current = { x: currentX, y: currentY };
+        };
+
+        const handleTouchEnd = () => {
+            if (isHorizontalGestureRef.current) {
+                isHorizontalGestureRef.current = false;
+                return;
+            }
+
+            if (!touchStartRef.current || !touchEndRef.current) return;
+            const distance = touchStartRef.current.y - touchEndRef.current.y;
+            if (distance > 50) {
+                onSlideChange(prev => Math.min(prev + 1, maxSlide));
+            } else if (distance < -50) {
+                onSlideChange(prev => Math.max(prev - 1, 0));
+            }
+        };
+
+        // Add listeners with { passive: false } to allow preventDefault
+        container.addEventListener('touchstart', handleTouchStart, { passive: true });
+        container.addEventListener('touchmove', handleTouchMove, { passive: false });
+        container.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+        return () => {
+            container.removeEventListener('touchstart', handleTouchStart);
+            container.removeEventListener('touchmove', handleTouchMove);
+            container.removeEventListener('touchend', handleTouchEnd);
+        };
+    }, [maxSlide, onSlideChange]);
 
     const goToSlide = (index) => {
         const newSlide = Math.max(0, Math.min(index, maxSlide));
@@ -61,25 +123,6 @@ const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedPr
         }
     };
 
-    const handleTouchStart = (e) => {
-        touchEndRef.current = null;
-        touchStartRef.current = e.targetTouches[0].clientY;
-    };
-
-    const handleTouchMove = (e) => {
-        touchEndRef.current = e.targetTouches[0].clientY;
-    };
-
-    const handleTouchEnd = () => {
-        if (!touchStartRef.current || !touchEndRef.current) return;
-        const distance = touchStartRef.current - touchEndRef.current;
-        if (distance > 50) {
-            setCurrentSlide(prev => Math.min(prev + 1, maxSlide));
-        } else if (distance < -50) {
-            setCurrentSlide(prev => Math.max(prev - 1, 0));
-        }
-    };
-
     const handleKeyDown = (e) => {
         if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
             e.preventDefault();
@@ -94,6 +137,7 @@ const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedPr
 
     return (
         <Box
+            ref={containerRef}
             role="region"
             aria-roledescription="carousel"
             aria-label="Category slides"
@@ -110,239 +154,234 @@ const FullScreenSwiper = ({ slides = [], currentSlide, onSlideChange, selectedPr
                 width: '100vw',
                 overflow: 'hidden',
                 zIndex: 5,
+                overscrollBehavior: 'none', // Prevent pull-to-refresh
+                touchAction: 'none', // Disable browser touch handling
                 '&:focus': { outline: '3px solid #005fcc', outlineOffset: '-3px' },
             }}
         >
-            {/* Slides container */}
-            <Box
-                onWheel={handleWheel}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    height: `${slides.length * 100}dvh`,
-                    transform: `translateY(-${currentSlide * 100}dvh)`,
-                    transition: prefersReducedMotion ? 'none' : 'transform 0.4s ease-out',
-                    touchAction: 'none',
-                }}
-            >
-                {slides.map((slide, index) => {
-                    // Get selected container size for this slide (default to first one)
-                    const containerSizeIndex = selectedContainerSize[slide.id] ?? 0;
-                    const selectedContainer = slide.containers?.[containerSizeIndex];
+            {/* Full-screen background with selected container image */}
+            {slides.map((slide, index) => {
+                const containerSizeIndex = selectedContainerSize[slide.id] ?? 0;
+                const selectedContainer = slide.containers?.[containerSizeIndex];
+                const isActive = index === currentSlide;
+                // Use product's backgroundColor from catalog, fallback to defaults
+                const bgColor = selectedContainer?.backgroundColor || ['#e53935', '#000000', '#F5E5C0'][index] || '#f5f5f5';
+                // Get gradient direction from catalog - convert from 'to-bottom-right' format to CSS angle
+                const gradientDir = selectedContainer?.gradientDirection;
+                const gradientAngles = {
+                    'to-bottom-right': '135deg',
+                    'to-bottom-left': '225deg',
+                    'to-bottom': '180deg',
+                    'to-right': '90deg',
+                    'to-top-right': '45deg',
+                    'to-top-left': '315deg',
+                    'to-top': '0deg',
+                    'to-left': '270deg',
+                };
+                const gradientAngle = gradientAngles[gradientDir] || null;
+                // If gradient direction is set, use gradient; otherwise use solid color
+                const backgroundStyle = gradientAngle
+                    ? `linear-gradient(${gradientAngle}, ${bgColor} 0%, color-mix(in srgb, ${bgColor} 70%, black) 100%)`
+                    : bgColor;
 
-                    // Filter products by selected container size
-                    const filteredProducts = selectedContainer
-                        ? slide.products?.filter(product =>
-                            product.variants?.some(v =>
-                                v.container === selectedContainer.container?.id &&
-                                v.size === selectedContainer.size?.id
-                            )
-                        ) || []
-                        : slide.products || [];
-
-                    // Get selected product index for this slide (default to 0)
-                    const selectedIndex = selectedProducts[slide.id] ?? 0;
-                    const selectedProduct = filteredProducts[selectedIndex];
-                    const backgroundImage = selectedProduct?.image || selectedProduct?.variants?.[0]?.image?.url;
-
-                    return (
+                return (
                     <Box
-                        key={slide.id}
-                        role="tabpanel"
-                        aria-label={`${slide.title}, ${index + 1} of ${slides.length}`}
+                        key={`bg-${slide.id}`}
                         sx={{
-                            height: '100dvh',
-                            width: '100%',
-                            flexShrink: 0,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            position: 'relative',
-                            backgroundColor: '#f5f5f5',
-                            pt: '180px', // Space for fixed header (nav bar + logo + location)
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            background: backgroundStyle,
+                            opacity: isActive ? 1 : 0,
+                            transition: prefersReducedMotion ? 'none' : 'opacity 0.4s ease-out',
+                            pointerEvents: 'none',
                         }}
                     >
-                        {/* Background image from selected product */}
-                        {backgroundImage && (
+                        {/* Selected container image - centered between categories (220px) and bottom content (200px) */}
+                        {selectedContainer?.image && (
                             <Box
                                 sx={{
                                     position: 'absolute',
-                                    top: 0,
+                                    top: '220px', // Below category links
+                                    bottom: '200px', // Above bottom content
                                     left: 0,
                                     right: 0,
-                                    bottom: 0,
-                                    backgroundImage: `url(${backgroundImage})`,
-                                    backgroundSize: 'cover',
-                                    backgroundPosition: 'center',
-                                    opacity: 1,
-                                    transition: 'background-image 0.4s ease-out',
-                                }}
-                            />
-                        )}
-                        {/* Spacer to push content down */}
-                        <Box sx={{ flex: 1 }} />
-
-                        {/* Subcategory title above products */}
-                        <Typography
-                            variant="h4"
-                            sx={{
-                                color: 'black',
-                                fontWeight: 700,
-                                textAlign: 'left',
-                                px: 2,
-                                marginBottom: '16px !important',
-                            }}
-                        >
-                            {slide.title}
-                        </Typography>
-
-                        {/* Product thumbnails - horizontal scroll */}
-                        <Box
-                            sx={{
-                                px: 2,
-                                pb: 14, // Space for navigation controls
-                            }}
-                        >
-                            <Box
-                                sx={{
                                     display: 'flex',
-                                    flexDirection: 'row',
-                                    gap: 2,
-                                    overflowX: 'auto',
-                                    pb: 1,
-                                    '&::-webkit-scrollbar': { display: 'none' },
-                                    scrollbarWidth: 'none',
-                                    pointerEvents: 'auto',
-                                    touchAction: 'pan-x',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
                                 }}
                             >
-                                {/* Products filtered by container size */}
-                                {filteredProducts.slice(0, 10).map((product, productIndex) => {
-                                    const isSelected = productIndex === selectedIndex;
-                                    return (
-                                    <Box
-                                        key={product.id}
-                                        onClick={() => onSelectProduct?.(slide.id, productIndex)}
-                                        sx={{
-                                            flexShrink: 0,
-                                            width: 100,
-                                            textAlign: 'center',
-                                            cursor: 'pointer',
-                                            opacity: isSelected ? 1 : 0.6,
-                                            transform: isSelected ? 'scale(1.05)' : 'scale(1)',
-                                            transition: 'all 0.2s ease-out',
+                                <Box
+                                    sx={{
+                                        width: '70%',
+                                        maxWidth: '300px',
+                                        aspectRatio: '1',
+                                        borderRadius: 3,
+                                        overflow: 'hidden',
+                                    }}
+                                >
+                                    <img
+                                        src={selectedContainer.image}
+                                        alt={selectedContainer.title || ''}
+                                        style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: 'cover',
                                         }}
-                                    >
-                                        <Box
-                                            sx={{
-                                                width: 100,
-                                                height: 100,
-                                                borderRadius: 2,
-                                                overflow: 'hidden',
-                                                backgroundColor: '#f0f0f0',
-                                                mb: 1,
-                                                border: isSelected ? '3px solid black' : '3px solid transparent',
-                                                boxSizing: 'border-box',
-                                            }}
-                                        >
-                                            <img
-                                                src={product.image || product.variants?.[0]?.image?.url || 'https://placehold.co/100x100/e0e0e0/666?text=...'}
-                                                alt={product.name}
-                                                style={{
-                                                    width: '100%',
-                                                    height: '100%',
-                                                    objectFit: 'cover',
-                                                }}
-                                            />
-                                        </Box>
-                                        <Typography
-                                            sx={{
-                                                fontSize: '1.6rem',
-                                                fontWeight: isSelected ? 700 : 500,
-                                                color: 'black',
-                                                lineHeight: 1.3,
-                                                wordWrap: 'break-word',
-                                            }}
-                                        >
-                                            {product.name}
-                                        </Typography>
-                                    </Box>
-                                    );
-                                })}
-                                {filteredProducts.length === 0 && (
-                                    <Typography sx={{ color: '#888', py: 2 }}>
-                                        No products available
-                                    </Typography>
-                                )}
+                                    />
+                                </Box>
                             </Box>
-                        </Box>
+                        )}
                     </Box>
-                    );
-                })}
-            </Box>
+                );
+            })}
 
-            {/* Navigation controls */}
-            <Box
-                sx={{
-                    position: 'absolute',
-                    bottom: 40,
-                    left: 0,
-                    right: 0,
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    gap: 2,
-                    zIndex: 100,
-                }}
-                role="group"
-                aria-label="Slide navigation"
-            >
-                <Button
-                    onClick={() => setCurrentSlide(prev => Math.max(prev - 1, 0))}
-                    disabled={currentSlide === 0}
-                    aria-label="Previous slide"
+            {/* Touch is handled by containerRef with non-passive listeners */}
+
+            {/* Fixed bottom content - outside transform container */}
+            {slides.map((slide, index) => {
+                // Get selected container size for this slide (default to first one)
+                const containerSizeIndex = selectedContainerSize[slide.id] ?? 0;
+                const selectedContainer = slide.containers?.[containerSizeIndex];
+
+                // Filter products by selected container size
+                const filteredProducts = selectedContainer
+                    ? slide.products?.filter(product =>
+                        product.variants?.some(v =>
+                            v.container === selectedContainer.container?.id &&
+                            v.size === selectedContainer.size?.id
+                        )
+                    ) || []
+                    : slide.products || [];
+
+                // Get selected product index for this slide (default to 0)
+                const selectedIndex = selectedProducts[slide.id] ?? 0;
+
+                const isActive = index === currentSlide;
+
+                return (
+                <Box
+                    key={`bottom-${slide.id}`}
                     sx={{
-                        minWidth: 44, height: 44, borderRadius: '50%',
-                        backgroundColor: 'rgba(255,255,255,0.9)', color: 'black',
-                        '&:hover': { backgroundColor: 'rgba(255,255,255,1)' },
-                        '&:disabled': { backgroundColor: 'rgba(255,255,255,0.3)', color: 'rgba(0,0,0,0.3)' },
+                        position: 'fixed',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        px: 2,
+                        pb: 4,
+                        pointerEvents: isActive ? 'auto' : 'none',
+                        zIndex: isActive ? 110 : 100, // Active slide on top
+                        visibility: isActive ? 'visible' : 'hidden', // Hide inactive to prevent blocking
                     }}
                 >
-                    ▲
-                </Button>
-                <Box sx={{ display: 'flex', gap: 1 }} role="tablist">
-                    {slides.map((slide, i) => (
-                        <Button
-                            key={slide.id}
-                            onClick={() => goToSlide(i)}
-                            role="tab"
-                            aria-selected={currentSlide === i}
-                            aria-label={`Go to ${slide.title}`}
-                            sx={{
-                                minWidth: 12, width: 12, height: 12, padding: 0, borderRadius: '50%',
-                                backgroundColor: currentSlide === i ? 'white' : 'rgba(255,255,255,0.4)',
-                                border: '2px solid white',
-                                '&:hover': { backgroundColor: currentSlide === i ? 'white' : 'rgba(255,255,255,0.6)' },
-                            }}
-                        />
-                    ))}
+                    {/* Subcategory title above products */}
+                    <Typography
+                        variant="h4"
+                        sx={{
+                            color: 'black',
+                            fontWeight: 700,
+                            textAlign: 'left',
+                            marginBottom: '16px !important',
+                            opacity: isActive ? 1 : 0,
+                            transform: isActive ? 'scale(1)' : 'scale(0.9)',
+                            transformOrigin: 'left center',
+                            transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
+                        }}
+                    >
+                        {slide.title}
+                    </Typography>
+                    <Box
+                        sx={{
+                            display: 'flex',
+                            flexDirection: 'row',
+                            gap: 2,
+                            overflowX: 'auto',
+                            overflowY: 'hidden',
+                            pb: 1,
+                            '&::-webkit-scrollbar': { display: 'none' },
+                            scrollbarWidth: 'none',
+                            pointerEvents: 'auto',
+                            touchAction: 'pan-x pan-y', // Allow both horizontal scroll and vertical swipe pass-through
+                            WebkitOverflowScrolling: 'touch',
+                        }}
+                    >
+                        {/* Sub-subcategories (containers) */}
+                        {(slide.containers || []).map((container, containerIndex) => {
+                            const isSelected = containerIndex === containerSizeIndex;
+                            const staggerDelay = containerIndex * 0.05; // 50ms stagger between items
+                            return (
+                            <Box
+                                key={container.id}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelectContainerSize?.(slide.id, containerIndex);
+                                }}
+                                onTouchEnd={(e) => {
+                                    // Handle tap selection on mobile
+                                    e.stopPropagation();
+                                }}
+                                sx={{
+                                    flexShrink: 0,
+                                    width: 80,
+                                    textAlign: 'center',
+                                    cursor: 'pointer',
+                                    opacity: isActive ? (isSelected ? 1 : 0.6) : 0,
+                                    transform: isActive
+                                        ? (isSelected ? 'scale(1.05)' : 'scale(1)')
+                                        : 'scale(0.8)',
+                                    transition: `opacity 0.3s ease-out ${staggerDelay}s, transform 0.3s ease-out ${staggerDelay}s`,
+                                }}
+                            >
+                                <Box
+                                    sx={{
+                                        width: 80,
+                                        height: 80,
+                                        borderRadius: 2,
+                                        overflow: 'hidden',
+                                        mb: 0.5,
+                                        border: isSelected ? '2px solid white' : '2px solid transparent',
+                                        boxSizing: 'border-box',
+                                    }}
+                                >
+                                    <img
+                                        src={container.image || 'https://placehold.co/100x100/e0e0e0/666?text=...'}
+                                        alt={container.title}
+                                        style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: 'cover',
+                                        }}
+                                    />
+                                </Box>
+                                <Typography
+                                    sx={{
+                                        fontSize: '1.6rem',
+                                        fontWeight: isSelected ? 700 : 500,
+                                        color: 'black',
+                                        lineHeight: 1.3,
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 3,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                    }}
+                                >
+                                    {container.title}
+                                </Typography>
+                            </Box>
+                            );
+                        })}
+                        {(!slide.containers || slide.containers.length === 0) && (
+                            <Typography sx={{ color: '#888', py: 2 }}>
+                                No sub-categories available
+                            </Typography>
+                        )}
+                    </Box>
                 </Box>
-                <Button
-                    onClick={() => setCurrentSlide(prev => Math.min(prev + 1, maxSlide))}
-                    disabled={currentSlide === maxSlide}
-                    aria-label="Next slide"
-                    sx={{
-                        minWidth: 44, height: 44, borderRadius: '50%',
-                        backgroundColor: 'rgba(255,255,255,0.9)', color: 'black',
-                        '&:hover': { backgroundColor: 'rgba(255,255,255,1)' },
-                        '&:disabled': { backgroundColor: 'rgba(255,255,255,0.3)', color: 'rgba(0,0,0,0.3)' },
-                    }}
-                >
-                    ▼
-                </Button>
-            </Box>
+                );
+            })}
         </Box>
     );
 };
@@ -1378,33 +1417,47 @@ export default function Commerce() {
                 return hierarchy?.subcategory?.handle === subcat.handle;
             });
 
-            // Extract unique container+size combinations from variants
-            const containerSizeMap = new Map();
-            subcatProducts.forEach(product => {
-                product.variants?.forEach(variant => {
-                    if (variant.containerData && variant.sizeData) {
-                        const key = `${variant.container}-${variant.size}`;
-                        if (!containerSizeMap.has(key)) {
-                            // Only use the size title (from dessert.size metafield)
-                            const displayName = variant.sizeData.title || '';
-                            containerSizeMap.set(key, {
-                                id: key,
-                                title: displayName,
-                                container: variant.containerData,
-                                size: variant.sizeData,
-                                // Try to get an image from a variant with this container+size
-                                image: variant.image?.url || null,
-                            });
-                        } else if (!containerSizeMap.get(key).image && variant.image?.url) {
-                            // Update image if we find one
-                            containerSizeMap.get(key).image = variant.image.url;
-                        }
-                    }
-                });
-            });
+            // Build list of individual products with their catalog images
+            const productItems = subcatProducts.map(product => {
+                const productName = product.name?.toLowerCase();
+                // Get first variant SKU for catalog lookup
+                const firstVariant = product.variants?.[0];
+                const variantSku = firstVariant?.sku?.toUpperCase();
 
-            const containerSizes = Array.from(containerSizeMap.values());
-            console.log('🔍 Container sizes for', subcat.handle, ':', containerSizes.map(c => c.title));
+                // Look up product image from catalog
+                let catalogProduct = catalog?.products?.find(p => {
+                    if (variantSku && p.sku?.toUpperCase() === variantSku) return true;
+                    if (variantSku && p.variants?.some(v => v.sku?.toUpperCase() === variantSku)) return true;
+                    return false;
+                });
+                // Fallback: match by product name if SKU lookup failed
+                if (!catalogProduct && productName) {
+                    catalogProduct = catalog?.products?.find(p =>
+                        p.name?.toLowerCase() === productName
+                    );
+                }
+                // Get the master image from catalog (includes backgroundColor and textColor)
+                const catalogMasterImage = catalogProduct?.masterImage;
+                const masterImage = catalogProduct?.images?.find(img => img.url?.includes('/master/'));
+                const firstImage = catalogProduct?.images?.[0];
+                const s3Image = catalogMasterImage?.url || masterImage?.url || firstImage?.url || null;
+                // Get colors and gradient direction from masterImage (set in admin)
+                const backgroundColor = catalogMasterImage?.backgroundColor || masterImage?.backgroundColor || firstImage?.backgroundColor || null;
+                const textColor = catalogMasterImage?.textColor || masterImage?.textColor || firstImage?.textColor || null;
+                const gradientDirection = catalogMasterImage?.gradientDirection || masterImage?.gradientDirection || firstImage?.gradientDirection || null;
+                console.log('🖼️ Product lookup:', product.name, '| sku:', variantSku, '-> catalog:', catalogProduct?.name, '-> image:', s3Image?.slice(-50), '-> bgColor:', backgroundColor, '-> gradient:', gradientDirection);
+
+                return {
+                    id: product.id,
+                    title: product.name,
+                    product: product,
+                    image: s3Image,
+                    backgroundColor,
+                    textColor,
+                    gradientDirection,
+                };
+            });
+            console.log('🔍 Products for', subcat.handle, ':', productItems.map(p => p.title));
 
             return {
                 id: subcat.handle,
@@ -1412,7 +1465,7 @@ export default function Commerce() {
                 description: subcat.description || '',
                 image: subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.title)}`,
                 imageAspectRatio: subcat.imageAspectRatio || '1:1',
-                containers: containerSizes, // Container+size combinations from variants
+                containers: productItems, // Individual products with catalog images
                 products: subcatProducts, // Products in this subcategory
                 // Filter products by their category hierarchy
                 filter: (p) => {
@@ -1434,7 +1487,10 @@ export default function Commerce() {
     };
 
     // Use hierarchy-based subcategories for Desserts (Level 2 under 'desserts')
-    const HIERARCHY_DESSERT_SUBCATEGORIES = buildSubcategoriesFromHierarchy('desserts');
+    // Must recalculate when catalog loads to get S3 master images
+    const HIERARCHY_DESSERT_SUBCATEGORIES = useMemo(() => {
+        return buildSubcategoriesFromHierarchy('desserts');
+    }, [catalog, shopifyProducts, categories]);
 
     // Toggle to use hierarchy-based grouping (set to true to enable new approach)
     const USE_HIERARCHY_GROUPING = categories.some(c => c.level > 1);
@@ -1670,23 +1726,26 @@ export default function Commerce() {
                         setSelectedProducts(prev => ({ ...prev, [slideId]: productIndex }));
                     }}
                     selectedContainerSize={selectedContainerSize}
+                    onSelectContainerSize={(slideId, containerIndex) => {
+                        setSelectedContainerSize(prev => ({ ...prev, [slideId]: containerIndex }));
+                    }}
                 />
             )}
 
-            {/* Container size text - fixed below header */}
+            {/* Dessert categories - fixed below header */}
             {isDesserts && DESSERT_SUBCATEGORIES.length > 0 && (
                 <Box
                     sx={{
                         display: { xs: 'flex', md: 'none' },
                         position: 'fixed',
-                        top: '220px',
+                        top: '190px',
                         left: 0,
                         right: 0,
                         zIndex: 50,
                         flexDirection: 'row',
                         gap: 3,
                         px: 2,
-                        py: 1,
+                        py: 0,
                         overflowX: 'auto',
                         overflowY: 'hidden',
                         '&::-webkit-scrollbar': { display: 'none' },
@@ -1696,62 +1755,33 @@ export default function Commerce() {
                         touchAction: 'pan-x',
                     }}
                 >
-                    {/* Get containers from current subcategory slide */}
-                    <Box
-                        key={currentSlide}
-                        sx={{
-                            display: 'flex',
-                            gap: 3,
-                            pointerEvents: 'auto',
-                            touchAction: 'pan-x',
-                            animation: 'fadeSlideIn 0.4s ease-out',
-                            '@keyframes fadeSlideIn': {
-                                '0%': {
-                                    opacity: 0,
-                                    transform: 'translateY(10px)',
-                                },
-                                '100%': {
-                                    opacity: 1,
-                                    transform: 'translateY(0)',
-                                },
-                            },
-                        }}
-                    >
-                        {DESSERT_SUBCATEGORIES[currentSlide]?.containers?.map((container, idx) => {
-                            const slideId = DESSERT_SUBCATEGORIES[currentSlide]?.id;
-                            const currentSelectedSize = selectedContainerSize[slideId] ?? 0;
-                            const isSelected = idx === currentSelectedSize;
-                            return (
-                                <Typography
-                                    key={container.id}
-                                    onClick={() => {
-                                        setSelectedContainerSize(prev => ({
-                                            ...prev,
-                                            [slideId]: idx
-                                        }));
-                                        // Reset selected product when changing container size
-                                        setSelectedProducts(prev => ({
-                                            ...prev,
-                                            [slideId]: 0
-                                        }));
-                                    }}
-                                    sx={{
-                                        flexShrink: 0,
-                                        fontSize: '1.6rem',
-                                        fontWeight: isSelected ? 700 : 400,
-                                        color: isSelected ? 'black' : 'rgba(0,0,0,0.5)',
-                                        cursor: 'pointer',
-                                        whiteSpace: 'nowrap',
-                                        '&:hover': {
-                                            color: 'black',
-                                        },
-                                    }}
-                                >
-                                    {container.title}
-                                </Typography>
-                            );
-                        })}
-                    </Box>
+                    {DESSERT_SUBCATEGORIES.map((category, idx) => {
+                        const isSelected = idx === currentSlide;
+                        // Use white text on black background (slide 1)
+                        const isBlackSlide = currentSlide === 1;
+                        const selectedColor = isBlackSlide ? 'white' : 'black';
+                        const unselectedColor = isBlackSlide ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
+                        return (
+                            <Typography
+                                key={category.id}
+                                onClick={() => setCurrentSlide(idx)}
+                                sx={{
+                                    flexShrink: 0,
+                                    fontSize: '1.6rem',
+                                    fontWeight: isSelected ? 700 : 400,
+                                    color: isSelected ? selectedColor : unselectedColor,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                    transition: 'color 0.3s ease-out',
+                                    '&:hover': {
+                                        color: selectedColor,
+                                    },
+                                }}
+                            >
+                                {category.title}
+                            </Typography>
+                        );
+                    })}
                 </Box>
             )}
 
