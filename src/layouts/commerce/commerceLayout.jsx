@@ -13,13 +13,23 @@ const CommerceLayout = () => {
     // Check if we're on the catering page
     const isOnCateringPage = location.pathname === '/catering' || location.pathname === '/catering/';
 
-    // Show footer ONLY on /catering main page when no packaging is selected
-    // Hide footer when in catering packaging flow (Cookie Tray, Cake Jar Box, etc.)
-    const hideFooter = isOnCateringPage && selectedPackaging && selectedPackaging.slotCount > 0;
+    // Check if we're on a page where Commerce.jsx renders its own footer
+    const isOnDessertsPage = location.pathname === '/desserts' || location.pathname === '/desserts/' || location.pathname === '/' || location.pathname === '/shop' || location.pathname === '/shop/' || location.pathname === '/collectibles' || location.pathname === '/collectibles/' || location.pathname.startsWith('/category/') || location.pathname.startsWith('/product/');
+
+    // Full-screen pages — hide both header and footer
+    const isFullScreenPage = location.pathname === '/delivery-check';
+
+    // Hide footer:
+    // - On desserts/shop pages (footer is in the mobile swiper)
+    // - On catering packaging flow
+    // - On full-screen pages
+    const isCheckoutPage = location.pathname === '/checkout';
+    const hideFooter = isFullScreenPage || isCheckoutPage || isOnDessertsPage || (isOnCateringPage && selectedPackaging && selectedPackaging.slotCount > 0);
 
     // Debug logging
     console.log('[CommerceLayout] Footer visibility:', {
         isOnCateringPage,
+        isOnDessertsPage,
         selectedPackaging: selectedPackaging?.name,
         slotCount: selectedPackaging?.slotCount,
         hideFooter
@@ -27,7 +37,7 @@ const CommerceLayout = () => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-            <Header />
+            {!isFullScreenPage && <Header />}
             <main style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                 <Outlet />
             </main>

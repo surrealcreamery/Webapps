@@ -4,6 +4,7 @@ import { format, parse } from 'date-fns';
 
 // Helper to format date like "Friday, November 28th, 2025"
 const formatEventDate = (dateString) => {
+    if (!dateString) return '';
     try {
         const date = new Date(dateString.replace(/-/g, '/'));
         return format(date, 'EEEE, MMMM do, yyyy');
@@ -12,17 +13,34 @@ const formatEventDate = (dateString) => {
     }
 };
 
-// Helper to format time like "3:00pm - 7:00pm"
+// Helper to format date like "February 10th, 2026" (shorter, no day of week)
+const formatShortDate = (dateString) => {
+    if (!dateString) return '';
+    try {
+        const date = new Date(dateString.replace(/-/g, '/'));
+        return format(date, 'MMMM do, yyyy');
+    } catch (e) {
+        return '';
+    }
+};
+
+// Helper to format time like "from 3:00pm to 7:00pm"
 const formatTimeSlot = (slot) => {
     if (!slot || !slot.includes(' - ')) return '';
     try {
         const [startTime, endTime] = slot.split(' - ');
         const start = parse(startTime, 'HH:mm', new Date());
         const end = parse(endTime, 'HH:mm', new Date());
-        return `${format(start, 'h:mmaaa')} - ${format(end, 'h:mmaaa')}`.toLowerCase();
+        return `from ${format(start, 'h:mmaaa')} to ${format(end, 'h:mmaaa')}`.toLowerCase();
     } catch (e) {
         return '';
     }
+};
+
+// Helper to format date range for fundraiser hosts
+const formatFundraiserDateRange = (startDate, endDate) => {
+    if (!startDate || !endDate) return null;
+    return `Host a Fundraiser Between ${formatShortDate(startDate)} and ${formatShortDate(endDate)}`;
 };
 
 export const DirectorySection = ({ events, onChooseFundraiser, view, handleViewChange }) => {
@@ -70,46 +88,49 @@ export const DirectorySection = ({ events, onChooseFundraiser, view, handleViewC
                         borderColor: 'grey.300'
                     }}
                 >
-                    <Box sx={{ height: 250, backgroundColor: 'grey.200' }}>
+                    {event.imageUrl && (
                         <img
                             src={event.imageUrl}
                             alt={event.title}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            style={{ width: '100%', height: 'auto', display: 'block' }}
                         />
-                    </Box>
+                    )}
                     {/* ✅ Wrapper box for all text content */}
                     <Box sx={{ p: 2, backgroundColor: 'background.paper' }}>
                         <Typography variant="h2" component="h2" sx={{ textAlign: 'left', mb: 1.5 }}>
                             {event.title}
                         </Typography>
 
-                        {/* ✅ Show date and time if single date event */}
+                        {/* ✅ Show date and time */}
                         {(() => {
-                            // Check if event has single date (start date equals end date and only one day of week)
-                            const daysOfWeek = event['Days of Week'] || event.daysOfWeek || [];
                             const startDate = event['Start Date'] || event.startDate;
                             const endDate = event['End Date'] || event.endDate;
-                            const eventTimes = event['Event Times'] || event.eventTimes || [];
-                            
-                            const isSingleDate = daysOfWeek.length === 1 && startDate === endDate;
-                            
-                            if (isSingleDate && startDate) {
-                                const dateDisplay = formatEventDate(startDate);
-                                const timeDisplay = eventTimes.length > 0 ? formatTimeSlot(eventTimes[0]) : '';
-                                
+                            const eventTimes = event['Event Times'] || event.eventTimes;
+                            const eventType = event.type || event['Type'];
+                            const eventRole = event.Role || event.role;
+
+                            // Check if this is a fundraiser host (show date range)
+                            const isFundraiserHost = (eventType === 'Fundraiser' || eventType === 'Rolling Fundraiser') && eventRole === 'Host';
+
+                            if (isFundraiserHost && startDate && endDate) {
+                                // Fundraiser host: show date range
                                 return (
-                                    <Box sx={{ mb: 1.5 }}>
-                                        {dateDisplay && (
-                                            <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
-                                                {dateDisplay}
-                                            </Typography>
-                                        )}
-                                        {timeDisplay && (
-                                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                                                {timeDisplay}
-                                            </Typography>
-                                        )}
-                                    </Box>
+                                    <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500, mt: '8px !important', mb: 1.5 }}>
+                                        {formatFundraiserDateRange(startDate, endDate)}
+                                    </Typography>
+                                );
+                            }
+
+                            // Regular event: show date and time
+                            const timeStr = Array.isArray(eventTimes) ? eventTimes[0] : eventTimes;
+                            const dateDisplay = startDate ? formatEventDate(startDate) : '';
+                            const timeDisplay = timeStr ? formatTimeSlot(timeStr) : '';
+
+                            if (dateDisplay || timeDisplay) {
+                                return (
+                                    <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500, mt: '8px !important', mb: 1.5 }}>
+                                        {dateDisplay}{dateDisplay && timeDisplay && ' '}{timeDisplay}
+                                    </Typography>
                                 );
                             }
                             return null;

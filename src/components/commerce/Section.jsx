@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography, Container } from '@mui/material';
+import { Box, Typography, Container, Button } from '@mui/material';
 import { DiscountZonePlaceholder } from './DiscountZonePlaceholder';
 
 /**
@@ -17,6 +17,8 @@ import { DiscountZonePlaceholder } from './DiscountZonePlaceholder';
  * @param {Object} productDiscount - Discount data for Zone 3 (product level)
  * @param {string} subcategoryName - Name of subcategory for Buy X Get Y messaging
  * @param {Array} allProducts - All products data for looking up images in modals
+ * @param {Array} catalogCategories - Catalog categories for looking up container images
+ * @param {Function} onAddToCart - Callback for add to cart (productId, variantId, quantity, customAttributes)
  */
 export const Section = ({
     title,
@@ -31,8 +33,18 @@ export const Section = ({
     productDiscount = null,
     subcategoryName = 'items',
     allProducts = [],
-    groupByContainer = false
+    groupByContainer = false,
+    catalogCategories = [],
+    onAddToCart = null,
 }) => {
+
+    // Debug: Log Section props
+    console.log(`[Section] "${title}" rendered:`, {
+        productsCount: products?.length,
+        groupByContainer,
+        hasOnAddToCart: !!onAddToCart,
+        hasCatalogCategories: !!catalogCategories?.length
+    });
 
     if (!products || products.length === 0) {
         return null; // Don't render empty sections
@@ -59,9 +71,13 @@ export const Section = ({
             groups[containerTitle].products.push(product);
 
             // Calculate price range
+            const selectedSlug = localStorage.getItem('selectedLocation');
             const getPrice = (p) => {
                 if (p.availableVariants?.length > 0) {
-                    return p.availableVariants.map(v => parseFloat(v.price) || 0);
+                    return p.availableVariants.map(v => {
+                        const locPrice = selectedSlug && v.locationPrices?.[selectedSlug];
+                        return parseFloat(locPrice != null ? locPrice : v.price) || 0;
+                    });
                 }
                 const priceStr = p.price?.toString() || '0';
                 return [parseFloat(priceStr.replace(/[^0-9.]/g, '')) || 0];
@@ -78,20 +94,8 @@ export const Section = ({
             });
         });
 
-        // Sort products within each group: "Make Your Own" (MYO in SKU) first, then alphabetically
-        Object.values(groups).forEach(group => {
-            group.products.sort((a, b) => {
-                // Check SKU for "MYO" - check product SKU or first variant's SKU
-                const aSkuHasMYO = a.sku?.toUpperCase().includes('MYO')
-                    || a.availableVariants?.[0]?.sku?.toUpperCase().includes('MYO');
-                const bSkuHasMYO = b.sku?.toUpperCase().includes('MYO')
-                    || b.availableVariants?.[0]?.sku?.toUpperCase().includes('MYO');
-
-                if (aSkuHasMYO && !bSkuHasMYO) return -1;
-                if (!aSkuHasMYO && bSkuHasMYO) return 1;
-                return (a.name || '').localeCompare(b.name || '');
-            });
-        });
+        // Products are already sorted by productOrder from Commerce.jsx
+        // Don't re-sort here - preserve the incoming order
 
         // Sort groups alphabetically, but put "Other" at the end
         return Object.entries(groups).sort(([a], [b]) => {
@@ -123,10 +127,12 @@ export const Section = ({
                 backgroundColor,
                 py: 4,
                 borderTop: showDivider ? '1px solid' : 'none',
-                borderColor: 'divider'
+                borderColor: 'divider',
+                overflow: 'hidden',
+                width: '100%'
             }}
         >
-            <Container maxWidth="sm">
+            <Container maxWidth="md" sx={{ overflow: 'hidden' }}>
                 {/* Section Header */}
                 <Typography
                     variant="h3"
@@ -216,66 +222,215 @@ export const Section = ({
                 {/* Product Grid - 3 columns on desktop, 2 on mobile */}
                 {groupByContainer && groupedProducts ? (
                     // Grouped by container
-                    groupedProducts.map(([containerName, groupData]) => (
-                        <Box
-                            key={containerName}
-                            id={getContainerAnchorId(containerName, title)}
-                            sx={{ mb: 4, scrollMarginTop: '80px' }}
-                        >
-                            {/* Container Group Header */}
-                            <Typography
-                                variant="h6"
-                                sx={{
-                                    fontWeight: 600,
-                                    mb: 2,
-                                    color: 'text.primary',
-                                    fontSize: '1.6rem',
-                                    textAlign: 'center'
-                                }}
-                            >
-                                {containerName}
-                            </Typography>
-                            <Box
-                                sx={{
-                                    display: 'grid',
-                                    gridTemplateColumns: {
-                                        xs: 'repeat(2, 1fr)',
-                                        sm: 'repeat(2, 1fr)',
-                                        md: 'repeat(3, 1fr)'
-                                    },
-                                    gap: 3
-                                }}
-                            >
-                                {groupData.products.map((product) => {
-                                    // Check if this is a Make Your Own product (MYO in SKU)
-                                    const isMYO = product.sku?.toUpperCase().includes('MYO')
-                                        || product.availableVariants?.[0]?.sku?.toUpperCase().includes('MYO');
+                    groupedProducts.map(([containerName, groupData]) => {
+                        // Look up container image from catalog categories
+                        const containerCategory = catalogCategories?.find(
+                            c => c.name?.toLowerCase() === containerName?.toLowerCase()
+                        );
+                        const containerImage = containerCategory?.image?.url;
 
-                                    return (
+                        // Find MYO product in this container group
+                        // Check for "MYO" or "MAKE-YOUR-OWN" in SKU, or "Make Your Own" in name
+                        const myoProduct = groupData.products.find(p => {
+                            const sku = (p.sku || p.availableVariants?.[0]?.sku || '').toUpperCase();
+                            const name = (p.name || '').toLowerCase();
+                            return sku.includes('MYO') ||
+                                   sku.includes('MAKE-YOUR-OWN') ||
+                                   name.includes('make your own');
+                        });
+
+                        // Filter out MYO products from the grid (they'll be shown in the builder)
+                        const nonMyoProducts = groupData.products.filter(p => {
+                            const sku = (p.sku || p.availableVariants?.[0]?.sku || '').toUpperCase();
+                            const name = (p.name || '').toLowerCase();
+                            return !(sku.includes('MYO') ||
+                                     sku.includes('MAKE-YOUR-OWN') ||
+                                     name.includes('make your own'));
+                        });
+
+                        return (
+                            <Box
+                                key={containerName}
+                                id={getContainerAnchorId(containerName, title)}
+                                sx={{ mb: 4, scrollMarginTop: '80px', overflow: 'hidden', maxWidth: '100%' }}
+                            >
+                                {/* Container Group Header with optional banner image (16:9) */}
+                                {containerImage && (
+                                    <Box
+                                        sx={{
+                                            position: 'relative',
+                                            width: '100%',
+                                            paddingTop: '56.25%', // 16:9 aspect ratio
+                                            borderRadius: 2,
+                                            overflow: 'hidden',
+                                            mb: 2
+                                        }}
+                                    >
+                                        <img
+                                            src={containerImage}
+                                            alt={containerName}
+                                            style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                width: '100%',
+                                                height: '100%',
+                                                objectFit: 'cover'
+                                            }}
+                                        />
+                                    </Box>
+                                )}
+                                <Typography
+                                    variant="h6"
+                                    sx={{
+                                        fontWeight: 600,
+                                        mb: 2,
+                                        color: 'text.primary',
+                                        fontSize: '1.6rem',
+                                        textAlign: 'center'
+                                    }}
+                                >
+                                    {containerName}
+                                </Typography>
+
+                                {/* MYO Hero Area */}
+                                {myoProduct && (
+                                    <Box
+                                        onClick={() => onProductClick(myoProduct.id)}
+                                        sx={{
+                                            position: 'relative',
+                                            width: '100%',
+                                            borderRadius: 3,
+                                            overflow: 'hidden',
+                                            mb: 3,
+                                            cursor: 'pointer',
+                                            transition: 'transform 0.2s',
+                                            '&:hover': {
+                                                transform: 'scale(1.01)',
+                                            },
+                                        }}
+                                    >
+                                        {/* Hero Image */}
                                         <Box
-                                            key={product.id}
                                             sx={{
-                                                gridColumn: isMYO ? {
-                                                    xs: 'span 2',
-                                                    md: 'span 2'
-                                                } : 'span 1'
+                                                position: 'relative',
+                                                width: '100%',
+                                                paddingTop: { xs: '75%', md: '50%' },
                                             }}
                                         >
-                                            <ProductCard
-                                                product={product}
-                                                onClick={() => onProductClick(product.id)}
-                                                discountPercent={discountPercent}
-                                                productDiscount={productDiscount}
-                                                subcategoryName={subcategoryName}
-                                                allProducts={allProducts}
-                                                featured={isMYO}
+                                            <img
+                                                src={myoProduct.imageUrl || 'https://placehold.co/800x400/e0e0e0/666666?text=Make+Your+Own'}
+                                                srcSet={myoProduct.pwa ? `${myoProduct.pwa.heroSm} 800w, ${myoProduct.pwa.heroMd} 1280w, ${myoProduct.pwa.heroLg} 1920w` : undefined}
+                                                sizes={myoProduct.pwa ? "(max-width: 600px) 100vw, (max-width: 960px) 100vw, 900px" : undefined}
+                                                alt={myoProduct.imageAlt || myoProduct.name}
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: 0,
+                                                    left: 0,
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover',
+                                                }}
                                             />
+                                            {/* Gradient overlay */}
+                                            <Box
+                                                sx={{
+                                                    position: 'absolute',
+                                                    bottom: 0,
+                                                    left: 0,
+                                                    right: 0,
+                                                    height: '60%',
+                                                    background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
+                                                }}
+                                            />
+                                            {/* Text overlay */}
+                                            <Box
+                                                sx={{
+                                                    position: 'absolute',
+                                                    bottom: 0,
+                                                    left: 0,
+                                                    right: 0,
+                                                    p: { xs: 2, sm: 3 },
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    alignItems: 'center',
+                                                }}
+                                            >
+                                                <Typography
+                                                    sx={{
+                                                        color: 'white',
+                                                        fontWeight: 700,
+                                                        fontSize: { xs: '1.6rem', sm: '1.8rem' },
+                                                        textAlign: 'center',
+                                                        textShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                                                        mb: 0.5,
+                                                    }}
+                                                >
+                                                    {myoProduct.name}
+                                                </Typography>
+                                                <Typography
+                                                    sx={{
+                                                        color: 'rgba(255,255,255,0.9)',
+                                                        fontSize: { xs: '1.2rem', sm: '1.4rem' },
+                                                        textAlign: 'center',
+                                                        mb: 1.5,
+                                                    }}
+                                                >
+                                                    Starting from {myoProduct.price || `$${parseFloat(myoProduct.availableVariants?.[0]?.price || '0').toFixed(2)}`}
+                                                </Typography>
+                                                <Button
+                                                    variant="contained"
+                                                    sx={{
+                                                        bgcolor: 'white',
+                                                        color: '#333',
+                                                        fontWeight: 700,
+                                                        fontSize: { xs: '1.3rem', sm: '1.5rem' },
+                                                        px: { xs: 3, sm: 4 },
+                                                        py: { xs: 1, sm: 1.25 },
+                                                        borderRadius: 2,
+                                                        textTransform: 'none',
+                                                        '&:hover': {
+                                                            bgcolor: 'rgba(255,255,255,0.9)',
+                                                        },
+                                                    }}
+                                                >
+                                                    Create Your Own
+                                                </Button>
+                                            </Box>
                                         </Box>
-                                    );
-                                })}
+                                    </Box>
+                                )}
+
+                                {/* Product Grid - excludes MYO products (they're in the builder) */}
+                                {nonMyoProducts.length > 0 && (
+                                    <Box
+                                        sx={{
+                                            display: 'grid',
+                                            gridTemplateColumns: {
+                                                xs: 'repeat(2, 1fr)',
+                                                sm: 'repeat(2, 1fr)',
+                                                md: 'repeat(3, 1fr)'
+                                            },
+                                            gap: 3
+                                        }}
+                                    >
+                                        {nonMyoProducts.map((product) => (
+                                            <Box key={product.id} sx={{ height: '100%' }}>
+                                                <ProductCard
+                                                    product={product}
+                                                    onClick={() => onProductClick(product.id)}
+                                                    discountPercent={discountPercent}
+                                                    productDiscount={productDiscount}
+                                                    subcategoryName={subcategoryName}
+                                                    allProducts={allProducts}
+                                                />
+                                            </Box>
+                                        ))}
+                                    </Box>
+                                )}
                             </Box>
-                        </Box>
-                    ))
+                        );
+                    })
                 ) : (
                     // Flat list (original behavior)
                     <Box
@@ -318,6 +473,9 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
             sx={{
                 cursor: 'pointer',
                 transition: 'transform 0.2s',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
                 '&:hover': {
                     transform: 'scale(1.02)'
                 }
@@ -332,6 +490,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                     overflow: 'hidden',
                     backgroundColor: featured ? 'primary.light' : 'grey.200',
                     mb: 1,
+                    flexShrink: 0,
                     ...(featured && {
                         border: '2px solid',
                         borderColor: 'primary.main',
@@ -340,6 +499,8 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
             >
                 <img
                     src={product.imageUrl || 'https://placehold.co/400x400/e0e0e0/666666?text=Product'}
+                    srcSet={product.pwa ? `${product.pwa.sm} 480w, ${product.pwa.md} 960w, ${product.pwa.lg} 1440w` : undefined}
+                    sizes={product.pwa ? "(max-width: 600px) 50vw, (max-width: 960px) 50vw, 300px" : undefined}
                     alt={product.imageAlt || product.name}
                     style={{
                         position: 'absolute',
@@ -367,7 +528,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                 sx={{
                     fontWeight: featured ? 700 : 600,
                     mb: 0.5,
-                    fontSize: featured ? '1.8rem' : 'inherit',
+                    fontSize: featured ? '1.8rem' : '1.6rem',
                     textAlign: 'center'
                 }}
             >
@@ -393,7 +554,9 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
             {product.availableVariants && product.availableVariants.length > 0 ? (
                 <Box sx={{ mt: 0.5, textAlign: 'center' }}>
                     {product.availableVariants.map((variant, idx) => {
-                        const originalPrice = parseFloat(variant.price);
+                        const locSlug = localStorage.getItem('selectedLocation');
+                        const locPrice = locSlug && variant.locationPrices?.[locSlug];
+                        const originalPrice = parseFloat(locPrice != null ? locPrice : variant.price);
                         const discountedPrice = discountPercent
                             ? originalPrice * (1 - discountPercent / 100)
                             : null;
@@ -404,7 +567,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                                     variant="body2"
                                     color="text.secondary"
                                 >
-                                    {variant.sizeData?.title || variant.size || 'Regular'}
+                                    {variant.name || variant.catalogName || variant.sizeData?.title || variant.size || 'Regular'}
                                 </Typography>
                                 {discountPercent ? (
                                     <>

@@ -18,6 +18,7 @@ export function ProductDetailsCarousel({ images }) {
   const carousel = useCarousel({ thumbs: { slidesToShow: 'auto' } });
 
   const slides = images?.map((img) => ({ src: img })) || [];
+  const isSingle = slides.length <= 1;
 
   const lightbox = useLightbox(slides);
 
@@ -26,6 +27,27 @@ export function ProductDetailsCarousel({ images }) {
       carousel.mainApi?.scrollTo(lightbox.selected, true);
     }
   }, [carousel.mainApi, lightbox.open, lightbox.selected]);
+
+  if (isSingle) {
+    return (
+      <Box sx={{ mb: 2.5, display: 'flex', justifyContent: 'center' }}>
+        <Image
+          alt={slides[0]?.src || ''}
+          src={slides[0]?.src || ''}
+          ratio="1/1"
+          onClick={() => slides[0] && lightbox.onOpen(slides[0].src)}
+          sx={{ cursor: 'zoom-in', borderRadius: 2, maxWidth: 480, width: '100%' }}
+        />
+        <Lightbox
+          index={lightbox.selected}
+          slides={slides}
+          open={lightbox.open}
+          close={lightbox.onClose}
+          onGetCurrentIndex={(index) => lightbox.setSelected(index)}
+        />
+      </Box>
+    );
+  }
 
   return (
     <>

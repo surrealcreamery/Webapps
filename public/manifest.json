@@ -1,21 +1,21 @@
 {
-  "name": "Surreal Creamery Admin",
-  "short_name": "SC Admin",
-  "description": "Surreal Creamery In-Store Orders Management",
-  "start_url": "/admin/in-store-orders",
+  "name": "Surreal Creamery Events",
+  "short_name": "SC Events",
+  "description": "Surreal Creamery Events & Fundraisers",
+  "start_url": "/",
   "display": "standalone",
   "orientation": "any",
   "theme_color": "#000000",
   "background_color": "#ffffff",
   "icons": [
     {
-      "src": "/src/assets/images/svg/surreal-brandmark.svg",
+      "src": "/surreal-brandmark.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/src/assets/images/sc_favicon.ico",
+      "src": "/sc_favicon.ico",
       "sizes": "48x48",
       "type": "image/x-icon"
     }

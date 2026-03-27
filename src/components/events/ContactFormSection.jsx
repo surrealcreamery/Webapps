@@ -7,12 +7,13 @@ export const ContactFormSection = ({ onBack, onSubmit, contactInfo, onFieldChang
     // Debugging log to check the incoming currentEvent prop
     console.log('ContactFormSection received currentEvent:', currentEvent);
 
-    // ✅ Only show organization field if role is "Host"
-    const isHost = currentEvent?.Role === 'Host';
-    
-    // ✅ Log the role for debugging
-    console.log('User role for this event:', currentEvent?.Role);
-    console.log('Should show organization field?', isHost);
+    // ✅ Show organization field for all fundraiser events (Fundraiser or Rolling Fundraiser)
+    const eventType = (currentEvent?.type || currentEvent?.Type || '').toLowerCase();
+    const isFundraiser = eventType === 'fundraiser' || eventType === 'rolling fundraiser';
+
+    // ✅ Log for debugging
+    console.log('Event type:', eventType);
+    console.log('Should show organization field?', isFundraiser);
 
     // Handle checkbox change
     const handleSmsOptInChange = (event) => {
@@ -50,13 +51,14 @@ export const ContactFormSection = ({ onBack, onSubmit, contactInfo, onFieldChang
                     error={!!formErrors.lastName}
                     helperText={formErrors.lastName || ' '}
                 />
-                {/* ✅ Only render organization field for Hosts */}
-                {isHost && (
-                    <TextField 
-                        fullWidth 
-                        margin="dense" 
-                        label="Organization Name" 
-                        name="organizationName" 
+                {/* ✅ Render organization field for all fundraiser events */}
+                {isFundraiser && (
+                    <TextField
+                        fullWidth
+                        margin="dense"
+                        label="Organization Name"
+                        name="organizationName"
+                        required
                         value={contactInfo.organizationName}
                         onChange={onFieldChange}
                         error={!!formErrors.organizationName}
@@ -98,7 +100,7 @@ export const ContactFormSection = ({ onBack, onSubmit, contactInfo, onFieldChang
                     }
                     label={
                         <Typography variant="body2" color="text.secondary">
-                            {isHost 
+                            {isFundraiser
                                 ? "Text me my fundraiser confirmation and future updates. Msg & data rates may apply. Reply STOP to opt out."
                                 : "Text me my event confirmation and future updates. Msg & data rates may apply. Reply STOP to opt out."
                             }

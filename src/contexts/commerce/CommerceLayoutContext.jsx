@@ -16,6 +16,12 @@ export const LayoutProvider = ({ children }) => {
         const parsed = persistedStateJSON ? JSON.parse(persistedStateJSON) : undefined;
         // If parsed data exists, reconstruct a valid XState State object from it
         if (parsed && parsed.value && parsed.context) {
+            // If loading a product URL, clear stale modal state so the URL's product takes over
+            if (window.location.pathname.startsWith('/product/')) {
+                parsed.context.selectedProductId = null;
+                parsed.context.showProductModal = false;
+                parsed.value = { commerce: 'idle' };
+            }
             rehydratedState = commerceMachine.resolveState(parsed);
         }
     } catch (e) {
@@ -52,6 +58,25 @@ export const LayoutProvider = ({ children }) => {
     // ===== HEADER BUTTON VISIBILITY =====
     const [showBackButton, setShowBackButton] = useState(false);
 
+    // ===== ACTIVE TEXT COLOR (for swiper pages) =====
+    // This allows the current product's text color to be passed to header components
+    const [activeTextColor, setActiveTextColor] = useState('black');
+
+    // ===== KIOSK CART COUNT (for header badge in paired kiosk mode) =====
+    const [kioskCartCount, setKioskCartCount] = useState(0);
+
+    // ===== KIOSK VIEW MODE (slideshow vs grid) =====
+    const [kioskViewMode, setKioskViewMode] = useState('slideshow');
+
+    // ===== LOCAL CART COUNT (for header badge in normal web mode) =====
+    const [cartCount, setCartCount] = useState(0);
+
+    // ===== PRODUCT DETAIL MODE =====
+    // When true, header hides nav bar and shows close button instead of Menu
+    // Always start false — Commerce.jsx will set it when entering product detail
+    const [isProductDetail, setIsProductDetail] = useState(false);
+    const [onCloseProductDetail, setOnCloseProductDetail] = useState(null);
+
     useEffect(() => {
         // Show back button on product pages (/product/:id)
         const isProductPage = location.pathname.startsWith('/product/');
@@ -68,24 +93,52 @@ export const LayoutProvider = ({ children }) => {
     const resetFlow = useCallback(() => {
         sendToCommerce({ type: 'RESET' });
         localStorage.removeItem(COMMERCE_STORAGE_KEY);
-        navigate('/');
+        navigate('/desserts');
     }, [sendToCommerce, navigate]);
 
-    const contextValue = useMemo(() => ({ 
+    const contextValue = useMemo(() => ({
         // State & Send
-        commerceState, 
+        commerceState,
         sendToCommerce,
-        
+
         // UI state for header
         showBackButton,
-        
+
+        // Active text color for swiper pages (set by Commerce, read by Header)
+        activeTextColor,
+        setActiveTextColor,
+
+        // Product detail mode (hides nav, turns Menu into X)
+        isProductDetail,
+        setIsProductDetail,
+        onCloseProductDetail,
+        setOnCloseProductDetail,
+
+        // Kiosk cart count (for header badge)
+        kioskCartCount,
+        setKioskCartCount,
+
+        // Kiosk view mode (slideshow vs grid)
+        kioskViewMode,
+        setKioskViewMode,
+
+        // Local cart count (for header badge in normal web mode)
+        cartCount,
+        setCartCount,
+
         // Navigation helpers
         goBack,
         resetFlow,
     }), [
-        commerceState, 
+        commerceState,
         sendToCommerce,
         showBackButton,
+        activeTextColor,
+        isProductDetail,
+        onCloseProductDetail,
+        kioskCartCount,
+        kioskViewMode,
+        cartCount,
         goBack,
         resetFlow,
     ]);

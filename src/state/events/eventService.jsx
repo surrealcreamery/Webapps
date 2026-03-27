@@ -28,7 +28,7 @@ export const fetchInitialData = async () => {
     const normalizedEvents = eventsData.map(event => ({
         id: event['Event ID'],
         title: event['Event Name'],
-        imageUrl: event['Image URL'] || '/src/assets/images/placeholder.png',
+        imageUrl: event['Image URL'] || null,
         description: event['Description'],
         type: event['Event Type'] || 'Event',
         status: 'Active',
@@ -44,6 +44,7 @@ export const fetchInitialData = async () => {
         endDate: event['End Date'],
         daysOfWeek: (event['Days of Week'] || []).map(day => dayNameToNumber[day]),
         eventTimes: event['Event Times'] || [],
+        locationNames: event['Location Names'] || [],
     }));
     
     return {

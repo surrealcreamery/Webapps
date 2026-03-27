@@ -19,11 +19,12 @@ const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=Produ
  * @param {string} primaryAlt - Alt text for single image (imageAlt field)
  * @param {number} maxVisibleThumbnails - Max thumbnails before showing "View more" (default: 5)
  */
-export const ProductImageCarousel = ({ 
-    images = [], 
+export const ProductImageCarousel = ({
+    images = [],
     fallbackImage,
     productName = 'Product',
     primaryAlt,
+    pwa,
     maxVisibleThumbnails = 5
 }) => {
     const [activeIndex, setActiveIndex] = useState(0);
@@ -142,13 +143,16 @@ export const ProductImageCarousel = ({
                 {/* Main Image */}
                 <img
                     src={normalizedImages[activeIndex].url}
+                    srcSet={pwa ? `${pwa.sm} 480w, ${pwa.md} 960w, ${pwa.lg} 1440w` : undefined}
+                    sizes={pwa ? "(max-width: 600px) 100vw, (max-width: 960px) 80vw, 600px" : undefined}
                     alt={normalizedImages[activeIndex].alt}
-                    style={{ 
-                        width: '100%', 
-                        height: 'auto', 
+                    style={{
+                        width: 'auto',
+                        maxWidth: '100%',
+                        maxHeight: '33vh',
                         display: 'block',
-                        aspectRatio: '1/1',
-                        objectFit: 'cover'
+                        margin: '0 auto',
+                        objectFit: 'contain'
                     }}
                 />
 
@@ -259,7 +263,7 @@ export const ProductImageCarousel = ({
                             }}
                         >
                             <img
-                                src={image.url}
+                                src={pwa?.sm || image.url}
                                 alt="" // Decorative, main alt is on the tab
                                 aria-hidden="true"
                                 style={{

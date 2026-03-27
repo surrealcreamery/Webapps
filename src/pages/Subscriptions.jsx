@@ -123,6 +123,7 @@ import StepPlanSummary from '@/components/subscription/stepPlanSummary.jsx';
 import StepContactInfo from '@/components/subscription/stepContactInfo.jsx';
 import StepPayment from '@/components/subscription/stepPayment.jsx';
 import StepFinalSummary from '@/components/subscription/stepFinalSummary.jsx';
+import ConfirmProfileUpdate from '@/components/subscription/confirmProfileUpdate.jsx';
 import ViewAllDrinksModal from '@/components/subscription/ViewAllDrinksModal.jsx';
 
 /**
@@ -327,6 +328,9 @@ export default function Home() {
                         isEditing={context.isEditingContact}
                         isGift={context.isGift}
                     />;
+        }
+        if (wizardState.hasTag('showsProfileUpdate')) {
+            return <ConfirmProfileUpdate send={sendToWizard} profileMismatch={context.profileMismatch} />;
         }
         if (wizardState.hasTag('showsPayment')) {
             return <StepPayment send={sendToWizard} current={wizardState} onSnackbar={setSnackbar} />;

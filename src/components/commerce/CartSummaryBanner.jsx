@@ -1,8 +1,8 @@
 import React from 'react';
 import { Box, Button, Typography, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
 import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
+import { useCart } from '@/hooks/useCart';
 
 /**
  * Apple-style cart summary banner
@@ -10,10 +10,10 @@ import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
  * Fixed position in page flow (not floating)
  */
 export function CartSummaryBanner({ onClose }) {
-  const { checkout } = useShopify();
+  const localCart = useCart();
   const { sendToCommerce } = React.useContext(LayoutContext);
 
-  const lineItems = checkout?.lineItems || [];
+  const lineItems = localCart.cart;
   
   // Get the most recently added item (last in array)
   const latestItem = lineItems[lineItems.length - 1];
@@ -58,8 +58,8 @@ export function CartSummaryBanner({ onClose }) {
           {/* Product Image - Hidden on mobile */}
           <Box
             component="img"
-            src={latestItem.variant?.image?.src}
-            alt={latestItem.title}
+            src={latestItem.image}
+            alt={latestItem.name}
             sx={{
               width: 80,
               height: 80,
@@ -76,10 +76,10 @@ export function CartSummaryBanner({ onClose }) {
               ✓ Added to cart
             </Typography>
             <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-              {latestItem.title}
+              {latestItem.name}
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              {latestItem.variant?.title !== 'Default Title' && latestItem.variant?.title}
+              {latestItem.variantName && latestItem.variantName !== 'Default Title' && latestItem.variantName}
             </Typography>
           </Box>
 

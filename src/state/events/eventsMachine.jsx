@@ -1,5 +1,5 @@
 import { setup, assign, fromPromise, createMachine } from 'xstate';
-import { OTP_VERIFY_URL, CHECK_GUEST_STATUS_URL, AUTHENTICATE_GUEST_URL, CREATE_EVENT_REGISTRATION_URL, LIST_REGISTERED_EVENTS_FOR_USER_URL, LIST_AND_UPDATE_TRANSACTION_DETAILS_AND_TALLY_URL, CREATE_ORGANIZATION_URL, UPDATE_PAYEE_URL } from '@/constants/events/eventsConstants';
+import { EVENTS_API_URL, OTP_VERIFY_URL, CHECK_GUEST_STATUS_URL, AUTHENTICATE_GUEST_URL, CREATE_EVENT_REGISTRATION_URL, LIST_REGISTERED_EVENTS_FOR_USER_URL, LIST_AND_UPDATE_TRANSACTION_DETAILS_AND_TALLY_URL, CREATE_ORGANIZATION_URL, UPDATE_PAYEE_URL } from '@/constants/events/eventsConstants';
 import { format } from 'date-fns';
 
 // Helper function to format phone numbers to E.164
@@ -27,13 +27,21 @@ const dayNameToNumber = (dayName) => {
 // ✅ NEW: Helper to get all valid day numbers from daysOfWeek array
 const getDayNumbers = (daysOfWeek) => {
     if (!daysOfWeek || !Array.isArray(daysOfWeek)) return [];
-    
+
     return daysOfWeek.map(day => {
         // If already a number, return it
         if (typeof day === 'number') return day;
         // If a string, convert it
         return dayNameToNumber(day);
     }).filter(num => num !== undefined);
+};
+
+// ✅ NEW: Helper to parse eventTimes (handles both string and array formats)
+const parseEventTimes = (eventTimes) => {
+    if (!eventTimes) return [];
+    if (Array.isArray(eventTimes)) return eventTimes;
+    // String format: "19:00 - 20:00" or "19:00 - 20:00, 21:00 - 22:00"
+    return eventTimes.split(',').map(t => t.trim()).filter(Boolean);
 };
 
 // ✅ NEW: Helper function to calculate first valid date for an event
@@ -138,14 +146,23 @@ const calculateFirstValidDate = (currentEvent) => {
     return null;
 };
 
+// Derive registration role from event type (Fundraiser/Rolling Fundraiser → Host, Event → Participant)
+const roleFromEventType = (eventType) => {
+    const t = (eventType || 'Event').toLowerCase();
+    return (t === 'fundraiser' || t === 'rolling fundraiser') ? 'Host' : 'Participant';
+};
+
 // Helper function to validate the contact form
 const validateContactForm = (contactInfo, currentEvent) => {
     const errors = {};
     if (!contactInfo.firstName) errors.firstName = 'First name is required';
     if (!contactInfo.lastName) errors.lastName = 'Last name is required';
 
-    if (currentEvent?.Role === 'Host' && !contactInfo.organizationName) {
-        errors.organizationName = 'Organization name is required for hosts';
+    // Organization name is required for all fundraiser events
+    const eventType = (currentEvent?.type || currentEvent?.Type || '').toLowerCase();
+    const isFundraiser = eventType === 'fundraiser' || eventType === 'rolling fundraiser';
+    if (isFundraiser && !contactInfo.organizationName) {
+        errors.organizationName = 'Organization name is required';
     }
 
     if (!contactInfo.email) errors.email = 'Email is required';
@@ -178,8 +195,13 @@ const initialContext = {
     otpChannel: null,
     potentialAccounts: [],
     selectedAccountId: null,
-    partialMatchAlternatives: [],
+    matchType: null,
+    matchedAccounts: [],
+    emailMatched: false,
+    phoneMatched: false,
+    orgMatchFound: false,
     selectedPartialMatch: null,
+    profileMismatch: null,
     sid: null,
     lastFetchTimestamp: null,
     newlyRegisteredEvent: null,
@@ -191,7 +213,7 @@ export const eventsMachine = setup({
         const response = await fetch(CHECK_GUEST_STATUS_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(input)
+            body: JSON.stringify({ action: 'checkGuestStatus', ...input })
         });
         if (!response.ok) throw new Error('Failed to check guest status.');
         return await response.json();
@@ -206,7 +228,7 @@ export const eventsMachine = setup({
             to = formatPhoneNumberE164(identifier);
         }
         const payload = {
-            action: 'check',
+            action: 'verifyOtp',
             to,
             channel,
             code: otp,
@@ -222,13 +244,12 @@ export const eventsMachine = setup({
             throw new Error(errorData.message);
         }
         return await response.json();
-    },
-    ),
+    }),
     createOrganization: fromPromise(async ({ input }) => {
         const response = await fetch(CREATE_ORGANIZATION_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(input)
+            body: JSON.stringify({ action: 'createOrganization', ...input })
         });
         if (!response.ok) throw new Error('Failed to create organization.');
         return await response.json();
@@ -237,9 +258,9 @@ export const eventsMachine = setup({
         const response = await fetch(CREATE_EVENT_REGISTRATION_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(input)
+            body: JSON.stringify({ action: 'createEventRegistration', ...input })
         });
-        
+
         if (!response.ok) {
             if (response.status === 400) {
                 const errorData = await response.json().catch(() => ({}));
@@ -262,7 +283,7 @@ export const eventsMachine = setup({
         const response = await fetch(UPDATE_PAYEE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(input)
+            body: JSON.stringify({ action: 'updatePayee', ...input })
         });
         if (!response.ok) throw new Error('Failed to update payee information.');
         return await response.json();
@@ -276,7 +297,7 @@ export const eventsMachine = setup({
             channel = 'sms';
             to = formatPhoneNumberE164(identifier);
         }
-        const payload = { action: 'send', to, channel };
+        const payload = { action: 'sendOtp', to, channel };
         if (email) payload.email = email;
         const response = await fetch(OTP_VERIFY_URL, {
             method: 'POST',
@@ -298,33 +319,78 @@ export const eventsMachine = setup({
             channel = 'sms';
             to = formatPhoneNumberE164(identifier);
         }
-        const response = await fetch(OTP_VERIFY_URL, {
+
+        // Step 1: Verify OTP with Twilio
+        const otpResponse = await fetch(OTP_VERIFY_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'check', to, channel, code: otp })
+            body: JSON.stringify({ action: 'verifyOtp', to, channel, code: otp })
         });
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ message: 'Verification failed' }));
+        if (!otpResponse.ok) {
+            const errorData = await otpResponse.json().catch(() => ({ message: 'Verification failed' }));
             throw new Error(errorData.message || 'Invalid verification code.');
         }
+        const otpResult = await otpResponse.json();
+
+        // Check if OTP was approved
+        if (!otpResult.valid && otpResult.status !== 'approved') {
+            throw new Error(otpResult.message || 'Invalid or expired verification code.');
+        }
+
+        // Step 2: Look up guest by email or phone
+        const lookupPayload = {
+            action: 'checkGuestStatus',
+            ...(channel === 'email' ? { email: to } : { mobileNumber: to })
+        };
+
+        const guestResponse = await fetch(CHECK_GUEST_STATUS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(lookupPayload)
+        });
+
+        if (!guestResponse.ok) {
+            // OTP verified but couldn't look up guest - return empty to show "no account found"
+            console.warn('Guest lookup failed after OTP verification');
+            return [];
+        }
+
+        const guestResult = await guestResponse.json();
+        console.log('Guest lookup result:', guestResult);
+
+        // checkGuestStatus now returns: { matchType, accounts, emailMatched, phoneMatched, orgMatchFound }
+        if (guestResult?.matchType === 'none' || !guestResult?.accounts?.length) {
+            return []; // No account found
+        }
+
+        // Return the accounts array (each has Guest ID, First Name, etc.)
+        return guestResult.accounts;
+    }),
+    updateCustomerProfile: fromPromise(async ({ input }) => {
+        const response = await fetch(EVENTS_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'updateCustomerProfile', ...input })
+        });
+        if (!response.ok) throw new Error('Failed to update profile.');
         return await response.json();
     }),
     fetchRegisteredEvents: fromPromise(async ({ input }) => {
         console.log("📋 USER DASHBOARD: Fetching registered events with payload:", input);
         console.log("   - guestId:", input.guestId);
         console.log("   - sid:", input.sid);
-        
+
         const response = await fetch(LIST_REGISTERED_EVENTS_FOR_USER_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ guestId: input.guestId, sid: input.sid })
+            body: JSON.stringify({ action: 'getRegisteredEvents', guestId: input.guestId, sid: input.sid })
         });
         if (!response.ok) throw new Error("Could not fetch user's registered events.");
         const rawEvents = await response.json();
-        
+
         console.log("📋 USER DASHBOARD: Received registered events:", rawEvents);
         console.log("   - Event count:", Array.isArray(rawEvents) ? rawEvents.length : 'Not an array');
-        
+
         return rawEvents;
     }),
     fetchTransactionDetails: fromPromise(async ({ input }) => {
@@ -332,7 +398,7 @@ export const eventsMachine = setup({
         const response = await fetch(LIST_AND_UPDATE_TRANSACTION_DETAILS_AND_TALLY_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(input)
+            body: JSON.stringify({ action: 'getTransactionDetails', ...input })
         });
         if (!response.ok) throw new Error("Could not fetch transaction details.");
 
@@ -372,7 +438,12 @@ export const eventsMachine = setup({
   },
   actions: {
     assignError: assign({
-        error: ({ event }) => event.data?.message || 'An unknown error occurred.',
+        error: ({ event }) => {
+            // XState v5: error is in event.error, not event.data
+            const err = event.error || event.data;
+            if (typeof err === 'string') return err;
+            return err?.message || 'An unknown error occurred.';
+        },
     }),
     softReset: assign({
         selectedEventId: null,
@@ -401,10 +472,18 @@ export const eventsMachine = setup({
       actions: 'softReset',
     },
     'DATA.LOADED': {
-        actions: assign({
-            fundraiserEvents: ({ event }) => event.events,
-            locations: ({ event }) => event.locations,
-        })
+        actions: [
+            assign({
+                fundraiserEvents: ({ event }) => event.events,
+                locations: ({ event }) => event.locations,
+            }),
+            ({ event, context }) => {
+                console.log('=== STATE MACHINE: DATA.LOADED received ===');
+                console.log('Events count:', event.events?.length);
+                console.log('Current selectedEventId:', context.selectedEventId);
+                console.log('===========================================');
+            }
+        ]
     },
   },
 
@@ -759,23 +838,23 @@ export const eventsMachine = setup({
                             
                             // ✅ Handle both field name formats
                             const locationIds = currentEvent['Location ID'] || currentEvent.locationIds;
-                            const eventTimes = currentEvent['Event Times'] || currentEvent.eventTimes;
+                            const eventTimes = parseEventTimes(currentEvent['Event Times'] || currentEvent.eventTimes);
                             const daysOfWeek = currentEvent['Days of Week'] || currentEvent.daysOfWeek;
-                            
+
                             const hasSingleLocation = locationIds && locationIds.length === 1;
-                            const hasSingleTime = eventTimes && eventTimes.length === 1;
+                            const hasSingleTime = eventTimes.length === 1;
                             const hasSingleDay = daysOfWeek && daysOfWeek.length === 1;
-                            
+
                             console.log('🔍 Checking if can skip to contact form:', {
                                 hasSingleLocation,
                                 hasSingleTime,
                                 hasSingleDay,
                                 result: hasSingleLocation && hasSingleDay && hasSingleTime
                             });
-                            
+
                             return hasSingleLocation && hasSingleDay && hasSingleTime;
                         },
-                        actions: assign({ 
+                        actions: assign({
                             selectedLocationId: ({ context }) => {
                                 const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
                                 const locationIds = currentEvent['Location ID'] || currentEvent.locationIds;
@@ -783,7 +862,7 @@ export const eventsMachine = setup({
                             },
                             selectedTime: ({ context }) => {
                                 const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
-                                const eventTimes = currentEvent['Event Times'] || currentEvent.eventTimes;
+                                const eventTimes = parseEventTimes(currentEvent['Event Times'] || currentEvent.eventTimes);
                                 return eventTimes[0];
                             },
                             selectedDate: ({ context }) => {
@@ -792,7 +871,7 @@ export const eventsMachine = setup({
                             }
                         })
                     },
-                    
+
                     // ✅ NEW: If location already selected (from clicking a location card), go to date selection
                     {
                         target: 'selectingDate',
@@ -804,21 +883,21 @@ export const eventsMachine = setup({
                     },
                     
                     // ✅ NEW: Skip to time selection if single location and single day (but multiple times)
-                    { 
-                        target: 'selectingTime', 
+                    {
+                        target: 'selectingTime',
                         guard: ({ context }) => {
                             const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
                             if (!currentEvent) return false;
-                            
+
                             // ✅ Handle both field name formats
                             const locationIds = currentEvent['Location ID'] || currentEvent.locationIds;
-                            const eventTimes = currentEvent['Event Times'] || currentEvent.eventTimes;
+                            const eventTimes = parseEventTimes(currentEvent['Event Times'] || currentEvent.eventTimes);
                             const daysOfWeek = currentEvent['Days of Week'] || currentEvent.daysOfWeek;
-                            
+
                             const hasSingleLocation = locationIds && locationIds.length === 1;
                             const hasSingleDay = daysOfWeek && daysOfWeek.length === 1;
-                            const hasMultipleTimes = eventTimes && eventTimes.length > 1;
-                            
+                            const hasMultipleTimes = eventTimes.length > 1;
+
                             return hasSingleLocation && hasSingleDay && hasMultipleTimes;
                         },
                         actions: assign({ 
@@ -875,14 +954,14 @@ export const eventsMachine = setup({
                             target: 'selectingContact',
                             guard: ({ context }) => {
                                 const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
-                                const eventTimes = currentEvent?.['Event Times'] || currentEvent?.eventTimes;
-                                return eventTimes?.length === 1;
+                                const eventTimes = parseEventTimes(currentEvent?.['Event Times'] || currentEvent?.eventTimes);
+                                return eventTimes.length <= 1;
                             },
                             actions: assign({
                                 selectedTime: ({ context }) => {
                                     const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
-                                    const eventTimes = currentEvent['Event Times'] || currentEvent.eventTimes;
-                                    return eventTimes[0];
+                                    const eventTimes = parseEventTimes(currentEvent['Event Times'] || currentEvent.eventTimes);
+                                    return eventTimes[0] || null;
                                 }
                             })
                         },
@@ -967,8 +1046,9 @@ export const eventsMachine = setup({
                             target: 'selectingTime',
                             guard: ({ context }) => {
                                 const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                const eventTimes = parseEventTimes(currentEvent?.['Event Times'] || currentEvent?.eventTimes);
                                 // User saw time selection if there were multiple times
-                                return currentEvent?.eventTimes?.length > 1;
+                                return eventTimes.length > 1;
                             }
                         },
                         // If user saw date selection (came from selectingDate), go back there
@@ -976,9 +1056,10 @@ export const eventsMachine = setup({
                             target: 'selectingDate',
                             guard: ({ context }) => {
                                 const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
+                                const eventTimes = parseEventTimes(currentEvent?.['Event Times'] || currentEvent?.eventTimes);
                                 // User saw date selection if NOT (single day AND single time)
                                 const hasSingleDay = currentEvent?.daysOfWeek?.length === 1;
-                                const hasSingleTime = currentEvent?.eventTimes?.length === 1;
+                                const hasSingleTime = eventTimes.length === 1;
                                 return !(hasSingleDay && hasSingleTime);
                             }
                         },
@@ -1035,30 +1116,32 @@ export const eventsMachine = setup({
                             }),
                             onDone: [
                                 {
+                                    // Scenario 1: No match — new user, skip auth
+                                    target: 'creatingOrganization',
+                                    guard: ({ event }) => event.output?.matchType === 'none',
+                                    actions: ({ event }) => {
+                                        console.log('✅ checkGuestStatus: No matches found — new user');
+                                    }
+                                },
+                                {
+                                    // Scenarios 2-5: At least one match — require auth
                                     target: 'awaitingGuestAuthentication',
-                                    guard: ({ event }) => Array.isArray(event.output) && event.output.length === 1 && event.output[0]?.['Guest ID'],
                                     actions: [
                                         assign({
-                                            contactInfo: ({ event, context }) => ({ ...context.contactInfo, ...event.output[0] }),
-                                            guestId: ({ event }) => event.output[0]['Guest ID']
+                                            matchType: ({ event }) => event.output.matchType,
+                                            matchedAccounts: ({ event }) => event.output.accounts,
+                                            emailMatched: ({ event }) => event.output.emailMatched,
+                                            phoneMatched: ({ event }) => event.output.phoneMatched,
+                                            orgMatchFound: ({ event }) => event.output.orgMatchFound,
+                                            selectedPartialMatch: null,
                                         }),
                                         ({ event }) => {
-                                            console.log('✅ checkGuestStatus: Perfect match found!');
-                                            console.log('   Setting guestId to:', event.output[0]['Guest ID']);
+                                            console.log('✅ checkGuestStatus: Match found!');
+                                            console.log('   matchType:', event.output.matchType);
+                                            console.log('   accounts:', event.output.accounts?.length);
+                                            console.log('   orgMatchFound:', event.output.orgMatchFound);
                                         }
                                     ]
-                                },
-                                {
-                                    target: 'awaitingGuestAuthentication',
-                                    guard: ({ event }) => Array.isArray(event.output) && event.output[0]?.partialMatch,
-                                    actions: assign({
-                                        partialMatchAlternatives: ({ event }) => event.output[0].partialMatch,
-                                        selectedPartialMatch: null
-                                    })
-                                },
-                                {
-                                    target: 'creatingOrganization',
-                                    guard: ({ event }) => event.output?.action === 'Create Event',
                                 }
                             ],
                             onError: {
@@ -1067,28 +1150,78 @@ export const eventsMachine = setup({
                             }
                         }
                     },
-                    resolvingPartialMatch: {
+                    resolvingAccountMatch: {
                         on: {
-                            SELECT_PARTIAL_MATCH: {
+                            SELECT_ACCOUNT_OPTION: {
                                 actions: assign({
                                     selectedPartialMatch: ({ event }) => event.selection
                                 })
                             },
-                            CONFIRM_PARTIAL_MATCH: [
+                            CONFIRM_ACCOUNT_OPTION: [
                                 {
                                     target: 'creatingOrganization',
-                                    guard: ({ context }) => context.selectedPartialMatch?.isNew
+                                    guard: ({ context }) => context.selectedPartialMatch?.isNew === true
                                 },
                                 {
                                     target: 'creatingRegistration',
-                                    guard: ({ context }) => !!context.selectedPartialMatch,
+                                    guard: ({ context }) => !!context.selectedPartialMatch && !context.selectedPartialMatch.isNew,
                                     actions: assign({
                                         guestId: ({ context }) => context.selectedPartialMatch['Guest ID'],
-                                        contactInfo: ({ context }) => ({ ...context.contactInfo, ...context.selectedPartialMatch }),
+                                        contactInfo: ({ context }) => ({
+                                            ...context.contactInfo,
+                                            firstName: context.selectedPartialMatch['First Name'] || context.contactInfo.firstName,
+                                            lastName: context.selectedPartialMatch['Last Name'] || context.contactInfo.lastName,
+                                            email: context.selectedPartialMatch['Email'] || context.contactInfo.email,
+                                            mobileNumber: context.selectedPartialMatch['Mobile Number'] || context.contactInfo.mobileNumber,
+                                            organizationName: context.selectedPartialMatch['Organization Name'] || context.contactInfo.organizationName,
+                                        }),
                                     })
                                 }
                             ],
                             BACK: '#fundraiser.wizardFlow.selectingContact'
+                        }
+                    },
+                    confirmingProfileUpdate: {
+                        on: {
+                            CONFIRM_PROFILE_UPDATE: {
+                                target: 'updatingProfile',
+                            },
+                            SKIP_PROFILE_UPDATE: {
+                                target: 'creatingRegistration',
+                                actions: assign({
+                                    contactInfo: ({ context }) => ({
+                                        ...context.contactInfo,
+                                        firstName: context.profileMismatch.onFile.firstName,
+                                        lastName: context.profileMismatch.onFile.lastName,
+                                        organizationName: context.profileMismatch.onFile.organizationName || context.contactInfo.organizationName,
+                                    }),
+                                    profileMismatch: null,
+                                })
+                            }
+                        }
+                    },
+                    updatingProfile: {
+                        invoke: {
+                            src: 'updateCustomerProfile',
+                            input: ({ context }) => ({
+                                customerId: context.profileMismatch.customerId,
+                                guestId: context.profileMismatch.guestId,
+                                firstName: context.profileMismatch.submitted.firstName,
+                                lastName: context.profileMismatch.submitted.lastName,
+                                organizationName: context.profileMismatch.submitted.organizationName,
+                                sid: context.sid,
+                            }),
+                            onDone: {
+                                target: 'creatingRegistration',
+                                actions: assign({ profileMismatch: null })
+                            },
+                            onError: {
+                                target: 'creatingRegistration',
+                                actions: [
+                                    assign({ profileMismatch: null }),
+                                    ({ event }) => console.warn('Profile update failed (non-fatal):', event.error?.message)
+                                ]
+                            }
                         }
                     },
                     creatingOrganization: {
@@ -1105,7 +1238,7 @@ export const eventsMachine = setup({
                                             console.log('✅ Organization created! Guest ID:', guestId);
                                             return guestId;
                                         },
-                                        partialMatchAlternatives: []
+                                        matchedAccounts: []
                                         // Keep sid - user already authenticated!
                                     }),
                                     ({ context }) => {
@@ -1142,6 +1275,20 @@ export const eventsMachine = setup({
                         initial: 'choosingMethod',
                         states: {
                             choosingMethod: {
+                                always: [
+                                    // Auto-select email if only email matched
+                                    {
+                                        target: 'sendingGuestOtp',
+                                        guard: ({ context }) => context.matchType === 'email',
+                                        actions: assign({ otpChannel: 'email' })
+                                    },
+                                    // Auto-select phone if only phone matched
+                                    {
+                                        target: 'sendingGuestOtp',
+                                        guard: ({ context }) => context.matchType === 'phone',
+                                        actions: assign({ otpChannel: 'sms' })
+                                    },
+                                ],
                                 on: {
                                     CHOOSE_EMAIL: {
                                         target: 'sendingGuestOtp',
@@ -1198,10 +1345,10 @@ export const eventsMachine = setup({
                                         email: context.contactInfo.email,
                                     }),
                                     onDone: {
-                                        target: 'decidePartialMatchPath',
+                                        target: 'decidePostAuthPath',
                                         actions: [
                                             assign({
-                                                guestId: ({ context, event }) => context.guestId || event.output['Guest ID'],
+                                                isAuthenticated: true,
                                                 potentialAccounts: ({ context }) => [{
                                                     'Guest ID': context.guestId,
                                                     'First Name': context.contactInfo.firstName,
@@ -1211,10 +1358,11 @@ export const eventsMachine = setup({
                                                     'Organization Name': context.contactInfo.organizationName,
                                                 }]
                                             }),
-                                            ({ context, event }) => {
+                                            ({ context }) => {
                                                 console.log('✅ OTP verified successfully!');
-                                                console.log('   guestId:', context.guestId || event.output['Guest ID']);
-                                                console.log('   sid should still be:', context.sid);
+                                                console.log('   matchedAccounts:', context.matchedAccounts.length);
+                                                console.log('   orgMatchFound:', context.orgMatchFound);
+                                                console.log('   sid:', context.sid);
                                             }
                                         ]
                                     },
@@ -1224,10 +1372,67 @@ export const eventsMachine = setup({
                                     }
                                 }
                             },
-                            decidePartialMatchPath: {
+                            decidePostAuthPath: {
                                 always: [
-                                    { target: '#fundraiser.wizardFlow.submitting.resolvingPartialMatch', guard: ({ context }) => context.partialMatchAlternatives?.length > 0 },
-                                    { target: '#fundraiser.wizardFlow.submitting.creatingRegistration' }
+                                    {
+                                        // No Guest ID on matched account → create GUEST record first (e.g., customer from subscriptions)
+                                        target: '#fundraiser.wizardFlow.submitting.creatingOrganization',
+                                        guard: ({ context }) => {
+                                            if (context.matchedAccounts.length !== 1) return false;
+                                            return !context.matchedAccounts[0]['Guest ID'];
+                                        },
+                                    },
+                                    {
+                                        // Scenario 2a-mismatch: 1 account, org matches, but name differs → prompt update
+                                        target: '#fundraiser.wizardFlow.submitting.confirmingProfileUpdate',
+                                        guard: ({ context }) => {
+                                            if (context.matchedAccounts.length !== 1) return false;
+                                            const account = context.matchedAccounts[0];
+                                            const submittedOrg = (context.contactInfo.organizationName || '').toLowerCase().trim();
+                                            const accountOrg = (account['Organization Name'] || '').toLowerCase().trim();
+                                            if (submittedOrg !== '' && submittedOrg !== accountOrg) return false;
+                                            const firstNameDiffers = context.contactInfo.firstName.trim() !== (account['First Name'] || '').trim();
+                                            const lastNameDiffers = context.contactInfo.lastName.trim() !== (account['Last Name'] || '').trim();
+                                            return firstNameDiffers || lastNameDiffers;
+                                        },
+                                        actions: assign({
+                                            guestId: ({ context }) => context.matchedAccounts[0]['Guest ID'],
+                                            profileMismatch: ({ context }) => {
+                                                const account = context.matchedAccounts[0];
+                                                return {
+                                                    customerId: account['Customer ID'],
+                                                    guestId: account['Guest ID'],
+                                                    onFile: {
+                                                        firstName: account['First Name'] || '',
+                                                        lastName: account['Last Name'] || '',
+                                                        organizationName: account['Organization Name'] || '',
+                                                    },
+                                                    submitted: {
+                                                        firstName: context.contactInfo.firstName,
+                                                        lastName: context.contactInfo.lastName,
+                                                        organizationName: context.contactInfo.organizationName,
+                                                    }
+                                                };
+                                            }
+                                        })
+                                    },
+                                    {
+                                        // Scenario 2a: Exactly 1 account, org matches, name matches → use directly
+                                        target: '#fundraiser.wizardFlow.submitting.creatingRegistration',
+                                        guard: ({ context }) => {
+                                            if (context.matchedAccounts.length !== 1) return false;
+                                            const submittedOrg = (context.contactInfo.organizationName || '').toLowerCase().trim();
+                                            const accountOrg = (context.matchedAccounts[0]['Organization Name'] || '').toLowerCase().trim();
+                                            return submittedOrg === '' || submittedOrg === accountOrg;
+                                        },
+                                        actions: assign({
+                                            guestId: ({ context }) => context.matchedAccounts[0]['Guest ID'],
+                                        })
+                                    },
+                                    {
+                                        // All other scenarios → show account selection
+                                        target: '#fundraiser.wizardFlow.submitting.resolvingAccountMatch',
+                                    }
                                 ]
                             }
                         }
@@ -1235,8 +1440,8 @@ export const eventsMachine = setup({
                     creatingRegistration: {
                         entry: ({ context }) => {
                             const currentEvent = context.fundraiserEvents?.find(e => e.id === context.selectedEventId);
-                            const role = currentEvent?.Role || currentEvent?.role || 'Participant';
-                            
+                            const role = roleFromEventType(currentEvent?.['Event Type'] || currentEvent?.eventType);
+
                             console.log('📝 Creating registration with:');
                             console.log('   guestId:', context.guestId);
                             console.log('   sid:', context.sid);
@@ -1256,11 +1461,10 @@ export const eventsMachine = setup({
                             input: ({ context }) => {
                                 const localDate = new Date(context.selectedDate);
                                 const utcDate = new Date(Date.UTC(localDate.getFullYear(), localDate.getMonth(), localDate.getDate()));
-                                
-                                // ✅ Get role from current event
+
                                 const currentEvent = context.fundraiserEvents?.find(e => e.id === context.selectedEventId);
-                                const role = currentEvent?.Role || currentEvent?.role || 'Participant';
-                                
+                                const role = roleFromEventType(currentEvent?.['Event Type'] || currentEvent?.eventType);
+
                                 return {
                                     guestId: context.guestId,
                                     eventId: context.selectedEventId,
@@ -1268,7 +1472,7 @@ export const eventsMachine = setup({
                                     time: context.selectedTime,
                                     locationId: context.selectedLocationId,
                                     sid: context.sid,
-                                    role: role,
+                                    role,
                                     smsOptIn: context.contactInfo.smsOptIn === true
                                 };
                             },
@@ -1313,12 +1517,12 @@ export const eventsMachine = setup({
                                             // Build the newly registered event object from context
                                             const currentEvent = context.fundraiserEvents?.find(e => e.id === context.selectedEventId);
                                             const selectedLocation = context.locations?.find(loc => loc.id === context.selectedLocationId);
-                                            const role = currentEvent?.Role || currentEvent?.role || 'Participant';
-                                            
+                                            const role = roleFromEventType(currentEvent?.['Event Type'] || currentEvent?.eventType);
+
                                             // Format date for display
                                             const localDate = new Date(context.selectedDate);
                                             const formattedDate = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
-                                            
+
                                             const newEvent = {
                                                 'Registered Event ID': `temp-${Date.now()}`, // Temporary ID until refresh
                                                 'Event ID': context.selectedEventId,
@@ -1333,13 +1537,13 @@ export const eventsMachine = setup({
                                                 'Status': 'Pending',
                                                 'Role': role
                                             };
-                                            
+
                                             console.log('🎉 Registration successful! Adding event to list:', newEvent);
-                                            
+
                                             // Add to the appropriate list based on role
                                             const currentEvents = context.registeredEvents || { hostedEvents: [], participantEvents: [] };
                                             let updatedEvents;
-                                            
+
                                             if (role === 'Host') {
                                                 updatedEvents = {
                                                     hostedEvents: [...(currentEvents.hostedEvents || []), newEvent],
@@ -1414,7 +1618,8 @@ export const eventsMachine = setup({
                     onDone: {
                         target: 'enteringOtp',
                         actions: assign({
-                            sid: ({ event }) => event.output.sid
+                            sid: ({ event }) => event.output.sid,
+                            error: null
                         })
                     },
                     onError: { target: 'enteringIdentifier', actions: 'assignError' }
@@ -1441,7 +1646,8 @@ export const eventsMachine = setup({
                             actions: assign({
                                 potentialAccounts: ({ event }) => event.output,
                                 selectedAccountId: null,
-                                guestId: ({event}) => event.output.guestId
+                                guestId: ({event}) => event.output.guestId,
+                                error: null
                             })
                         },
                         {
@@ -1450,7 +1656,8 @@ export const eventsMachine = setup({
                             actions: assign({
                                     isAuthenticated: true,
                                     guestId: ({ event }) => event.output[0]['Guest ID'],
-                                    potentialAccounts: ({ event }) => event.output
+                                    potentialAccounts: ({ event }) => event.output,
+                                    error: null
                                 })
                         },
                         {

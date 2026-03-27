@@ -529,34 +529,34 @@ const MAKE_YOUR_OWN_JAR = { name: 'Make Your Own Cake Jar', image: 'https://imag
 const MAKE_YOUR_OWN_COOKIE = { name: 'Make Your Own Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-sugar-cookie.png', color: '#F5DEB3', glutenFree: false, vegan: false };
 
 // Make Your Own Cupcake - shown in Your Cupcakes section
-const MAKE_YOUR_OWN_CUPCAKE = { name: 'Make Your Own Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-vanilla.png', color: '#FFB6C1', glutenFree: false, vegan: false };
+const MAKE_YOUR_OWN_CUPCAKE = { name: 'Make Your Own Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-vanilla.png', glutenFree: false, vegan: false };
 
 // Base cookie options for Make Your Own Cookie
 const BASE_COOKIES = [
-    { name: 'Sugar Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-sugar-cookie.png', color: '#F5DEB3' },
-    { name: "M&M Cookie", image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-M&M.png', color: '#FFD700' },
-    { name: 'Red Velvet Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-red-velvet.png', color: '#C41E3A' },
-    { name: "S'mores Cookie", image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-smores.png', color: '#8B4513' },
-    { name: 'Chocolate Chip Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-chocolate-chip.png', color: '#D2691E' },
+    { name: 'Sugar Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-sugar-cookie.png' },
+    { name: "M&M Cookie", image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-M&M.png' },
+    { name: 'Red Velvet Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-red-velvet.png' },
+    { name: "S'mores Cookie", image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-smores.png' },
+    { name: 'Chocolate Chip Cookie', image: 'https://images.surrealcreamery.com/catering/make-your-own/cookie-chocolate-chip.png' },
 ];
 
 // Base cupcake options for Make Your Own Cupcake
 const BASE_CUPCAKES = [
-    { name: 'Vanilla Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-vanilla.png', color: '#FFF8DC' },
-    { name: 'Chocolate Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-chocolate.png', color: '#3D1C02' },
-    { name: 'Red Velvet Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-red-velvet.png', color: '#C41E3A' },
-    { name: 'Strawberry Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-strawberry.png', color: '#FF6B81' },
-    { name: 'Taro Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-taro.png', color: '#9370DB' },
-    { name: 'Espresso Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-espresso.png', color: '#4A3728' },
+    { name: 'Vanilla Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-vanilla.png' },
+    { name: 'Chocolate Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-chocolate.png' },
+    { name: 'Red Velvet Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-red-velvet.png' },
+    { name: 'Strawberry Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-strawberry.png' },
+    { name: 'Taro Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-taro.png' },
+    { name: 'Espresso Cupcake', image: 'https://images.surrealcreamery.com/catering/make-your-own/cupcake-espresso.png' },
 ];
 
 // Cupcake frostings
 const CUPCAKE_FROSTINGS = [
-    { name: 'Marshmallow', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-marshmallow.png', color: '#FFFFFF' },
-    { name: 'Blue Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-blue-vanilla.png', color: '#87CEEB' },
-    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-chocolate.png', color: '#3D1C02' },
-    { name: 'Cream Cheese', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-cream-cheese.png', color: '#FFFDD0' },
-    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-strawberry.png', color: '#FF6B81' },
+    { name: 'Marshmallow', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-marshmallow.png' },
+    { name: 'Blue Vanilla', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-blue-vanilla.png' },
+    { name: 'Chocolate', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-chocolate.png' },
+    { name: 'Cream Cheese', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-cream-cheese.png' },
+    { name: 'Strawberry', image: 'https://images.surrealcreamery.com/catering/make-your-own/frosting-cupcake-strawberry.png' },
 ];
 
 // Cupcake toppings

@@ -18,16 +18,7 @@ import {
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import { useNavigate } from 'react-router-dom';
 import {
-    OTP_VERIFY_URL,
-    LIST_CUSTOMER_SUBSCRIPTIONS_URL,
-    UPDATE_PROFILE_URL,
-    SUBSCRIBER_URL,
-    CANCEL_SUBSCRIPTION_URL,
-    RETRIEVE_CUSTOMER_URL,
-    UPDATE_SUBSCRIPTION_PAYMENT_URL,
-    RETRIEVE_SUBSCRIPTION_URL,
-    LIST_ENTITLEMENTS_URL,
-    SAVE_CARD_URL,
+    SUBSCRIPTION_API_URL,
 } from '@/constants/subscriptions/subscriptionsConstants';
 import OtpInput from '@/components/subscription/otpInput';
 import { parsePhoneNumber } from 'react-phone-number-input';
@@ -158,10 +149,10 @@ const AddNewCard = ({ customerId, onCardAdded, onCancel }) => {
         const fetchCards = async () => {
             if (!customerId) return;
             try {
-                const response = await fetch(RETRIEVE_CUSTOMER_URL, {
+                const response = await fetch(SUBSCRIPTION_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ CID: customerId })
+                    body: JSON.stringify({ action: 'retrieveCustomerCards', CID: customerId })
                 });
                 if (response.ok) {
                     const customerDataArray = await response.json();
@@ -179,10 +170,10 @@ const AddNewCard = ({ customerId, onCardAdded, onCancel }) => {
         setError('');
         try {
             const idempotencyKey = crypto.randomUUID();
-            const response = await fetch(SAVE_CARD_URL, {
+            const response = await fetch(SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-                body: JSON.stringify({ nonce, customerId, idempotency_key: idempotencyKey }),
+                body: JSON.stringify({ action: 'saveNewCard', nonce, customerId, idempotency_key: idempotencyKey }),
             });
 
             if (response.status !== 200) {
@@ -228,10 +219,11 @@ const ConfirmNewPaymentMethod = ({ subscription, newCard, onConfirmSuccess, onBa
         setIsLoading(true);
         setError('');
         try {
-            await fetch(UPDATE_SUBSCRIPTION_PAYMENT_URL, {
+            await fetch(SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    action: 'updateSubscriptionPayment',
                     subscriptionId: squareId,
                     cardId: newCard.id
                 })
@@ -289,10 +281,10 @@ const UpdatePayment = ({ customerId, subscription, onBack, onNavigate }) => {
             setIsLoading(true);
             setError('');
             try {
-                const response = await fetch(RETRIEVE_CUSTOMER_URL, {
+                const response = await fetch(SUBSCRIPTION_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ CID: customerId })
+                    body: JSON.stringify({ action: 'retrieveCustomerCards', CID: customerId })
                 });
                 if (!response.ok) throw new Error('Could not fetch your saved cards.');
                 const customerDataArray = await response.json();
@@ -327,10 +319,11 @@ const UpdatePayment = ({ customerId, subscription, onBack, onNavigate }) => {
         setIsLoading(true);
         setError('');
         try {
-            await fetch(UPDATE_SUBSCRIPTION_PAYMENT_URL, {
+            await fetch(SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    action: 'updateSubscriptionPayment',
                     subscriptionId: squareId,
                     cardId: selectedCardId
                 })
@@ -406,10 +399,10 @@ const ManageSubscription = ({ subscription, onBack, onNavigate, successMessage }
         const fetchSubscriptionDetails = async () => {
             setIsLoading(true);
             try {
-                const response = await fetch(RETRIEVE_SUBSCRIPTION_URL, {
+                const response = await fetch(SUBSCRIPTION_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ subscriptionId: squareSubscriptionId })
+                    body: JSON.stringify({ action: 'retrieveSubscription', subscriptionId: squareSubscriptionId })
                 });
                 if (!response.ok) { throw new Error('Failed to retrieve subscription details.'); }
                 const data = await response.json();
@@ -440,8 +433,8 @@ const ManageSubscription = ({ subscription, onBack, onNavigate, successMessage }
     const handleConfirmCancel = async () => {
         setIsLoading(true); setError(''); setSuccess('');
         try {
-            const response = await fetch(CANCEL_SUBSCRIPTION_URL, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subscriptionId: detailedSubscription.id })
+            const response = await fetch(SUBSCRIPTION_API_URL, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancelSubscription', subscriptionId: detailedSubscription.id })
             });
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ message: 'Failed to cancel subscription.' }));
@@ -546,15 +539,15 @@ const Redeem = () => {
                 setError('');
                 try {
                     const [subsResponse, benefitsResponse] = await Promise.all([
-                        fetchWithTimeout(LIST_CUSTOMER_SUBSCRIPTIONS_URL, { 
-                            method: 'POST', 
-                            headers: { 'Content-Type': 'application/json' }, 
-                            body: JSON.stringify({ CID: customerIdFromContext }) 
+                        fetchWithTimeout(SUBSCRIPTION_API_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'listCustomerSubscriptions', CID: customerIdFromContext })
                         }),
-                        fetchWithTimeout(LIST_ENTITLEMENTS_URL, { 
-                            method: 'POST', 
-                            headers: { 'Content-Type': 'application/json' }, 
-                            body: JSON.stringify({ CID: customerIdFromContext }) 
+                        fetchWithTimeout(SUBSCRIPTION_API_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'listCustomerEntitlements', CID: customerIdFromContext })
                         })
                     ]);
 
@@ -622,7 +615,7 @@ const Redeem = () => {
         if (!channel) { setError('Please enter a valid email or phone number.'); return; }
         setFormattedContact(contactToSend); setAuthChannel(channel); setIsLoading(true);
         try {
-            const response = await fetch(OTP_VERIFY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', to: contactToSend, channel }) });
+            const response = await fetch(SUBSCRIPTION_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'sendOtp', to: contactToSend, channel }) });
             if (!response.ok) {
                 const result = await response.json().catch(() => ({ message: "Failed to send OTP" }));
                 throw new Error(result.message);
@@ -639,14 +632,14 @@ const Redeem = () => {
         }
         setError(''); setIsLoading(true);
         try {
-            const otpResponse = await fetch(OTP_VERIFY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'check', to: formattedContact, code: otpCode, channel: authChannel }) });
+            const otpResponse = await fetch(SUBSCRIPTION_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'verifyOtp', to: formattedContact, code: otpCode, channel: authChannel }) });
             const otpResult = await otpResponse.json();
     
             if (otpResult.success !== 'approved') {
                 throw new Error(otpResult.message || 'Invalid verification code.');
             }
             
-            const customerInfoResponse = await fetch(SUBSCRIBER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [authChannel === 'email' ? 'email' : 'phone']: formattedContact }) });
+            const customerInfoResponse = await fetch(SUBSCRIPTION_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'submitCustomer', [authChannel === 'email' ? 'email' : 'phone']: formattedContact }) });
             let customerInfoResult = await customerInfoResponse.json();
     
             if (customerInfoResult && !Array.isArray(customerInfoResult)) {
@@ -663,10 +656,10 @@ const Redeem = () => {
                 const accountsWithSubCounts = await Promise.all(
                     customerInfoResult.map(async (account) => {
                         try {
-                            const subsResponse = await fetch(LIST_CUSTOMER_SUBSCRIPTIONS_URL, {
+                            const subsResponse = await fetch(SUBSCRIPTION_API_URL, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ CID: account.id }),
+                                body: JSON.stringify({ action: 'listCustomerSubscriptions', CID: account.id }),
                             });
 
                             if (!subsResponse.ok) {
@@ -722,10 +715,10 @@ const Redeem = () => {
         setError('');
         setIsLoading(true);
         try {
-            const response = await fetch(UPDATE_PROFILE_URL, {
+            const response = await fetch(SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ CID: customerIdFromContext, ...profile })
+                body: JSON.stringify({ action: 'updateCustomerProfile', CID: customerIdFromContext, ...profile })
             });
 
             if (!response.ok) {

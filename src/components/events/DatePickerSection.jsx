@@ -39,12 +39,17 @@ const CustomDay = (props) => {
 };
 
 export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selectedLocation, onContinue, currentEvent, error }) => {
-    
+
     console.log('--- DatePicker Diagnostics ---');
     console.log('1. Received currentEvent prop:', currentEvent);
     console.log('2. Received selectedDate prop:', selectedDate);
     console.log('3. Received error prop:', error);
 
+    // Guard against undefined currentEvent
+    if (!currentEvent) {
+        console.error('DatePickerSection: currentEvent is undefined');
+        return null;
+    }
 
     const shouldDisableDate = (date) => {
         // Prevent selection of today's date

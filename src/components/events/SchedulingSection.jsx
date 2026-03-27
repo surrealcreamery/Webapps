@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Box, Typography, Button, Stack, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { LocalizationProvider, DateCalendar, PickersDay } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -41,11 +41,17 @@ const CustomDay = (props) => {
 // --- EXPORTED COMPONENTS ---
 
 export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selectedLocation, onContinue, currentEvent }) => {
-    
+
     // 🪵 DIAGNOSTIC LOGS: Check the incoming data
     console.log('--- DatePicker Diagnostics ---');
     console.log('1. Received currentEvent prop:', currentEvent);
     console.log('2. Received selectedDate prop:', selectedDate);
+
+    // Guard against undefined currentEvent
+    if (!currentEvent) {
+        console.error('SchedulingSection DatePickerSection: currentEvent is undefined');
+        return null;
+    }
 
     const shouldDisableDate = (date) => {
         const startDate = parse(currentEvent.startDate, 'yyyy-MM-dd', new Date());
@@ -124,6 +130,27 @@ export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selected
 };
 
 export const TimePickerSection = ({ currentEvent, selectedDate, selectedTime, onTimeChange, onBack, onContinue }) => {
+    // Parse event times - hooks must be called unconditionally
+    const timeSlots = useMemo(() => {
+        if (!currentEvent) return [];
+        return Array.isArray(currentEvent.eventTimes)
+            ? currentEvent.eventTimes
+            : (currentEvent.eventTimes || '').split(',').map(t => t.trim()).filter(Boolean);
+    }, [currentEvent?.eventTimes]);
+
+    // Auto-select if only one time slot and none selected
+    useEffect(() => {
+        if (currentEvent && timeSlots.length === 1 && !selectedTime) {
+            onTimeChange(timeSlots[0]);
+        }
+    }, [currentEvent, timeSlots, selectedTime, onTimeChange]);
+
+    // Guard against undefined currentEvent - AFTER hooks
+    if (!currentEvent) {
+        console.error('TimePickerSection: currentEvent is undefined');
+        return null;
+    }
+
     return (
         <Box>
             <Typography variant="h2" component="h2" gutterBottom>
@@ -139,9 +166,9 @@ export const TimePickerSection = ({ currentEvent, selectedDate, selectedTime, on
             </Box>
 
             <Stack spacing={1.5}>
-                {(currentEvent.eventTimes || []).map(timeSlot => (
-                    <Button 
-                        key={timeSlot} 
+                {timeSlots.map(timeSlot => (
+                    <Button
+                        key={timeSlot}
                         variant={selectedTime === timeSlot ? "contained" : "outlined"}
                         onClick={() => onTimeChange(timeSlot)}
                         fullWidth

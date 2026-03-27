@@ -4,7 +4,7 @@ import { isValidPhoneNumber } from 'react-phone-number-input/input';
 import SmsIcon from '@mui/icons-material/Sms';
 import EmailIcon from '@mui/icons-material/Email';
 
-export const GuestOtpChoiceSection = ({ onBack, onChooseEmail, onChooseSms, contactInfo }) => {
+export const GuestOtpChoiceSection = ({ onBack, onChooseEmail, onChooseSms, contactInfo, emailMatched = true, phoneMatched = true }) => {
     return (
         <Box>
             <Typography variant="h1" gutterBottom>Authentication Required</Typography>
@@ -14,6 +14,7 @@ export const GuestOtpChoiceSection = ({ onBack, onChooseEmail, onChooseSms, cont
                     variant="outlined" 
                     startIcon={<EmailIcon />} 
                     onClick={onChooseEmail}
+                    disabled={!emailMatched}
                     sx={{ justifyContent: 'flex-start', py: 1.5, textTransform: 'none', color: 'black', borderColor: 'black', '& .MuiSvgIcon-root': { color: 'black' }, '&:hover': { borderColor: 'black', backgroundColor: 'rgba(0,0,0,0.04)' } }}
                 >
                     {contactInfo.email}
@@ -23,7 +24,7 @@ export const GuestOtpChoiceSection = ({ onBack, onChooseEmail, onChooseSms, cont
                     startIcon={<SmsIcon />} 
                     onClick={onChooseSms}
                     // ✅ Updated to use mobileNumber for validation
-                    disabled={!isValidPhoneNumber(contactInfo.mobileNumber || '')}
+                    disabled={!phoneMatched || !isValidPhoneNumber(contactInfo.mobileNumber || '')}
                     sx={{ justifyContent: 'flex-start', py: 1.5, textTransform: 'none', color: 'black', borderColor: 'black', '& .MuiSvgIcon-root': { color: 'black' }, '&:hover': { borderColor: 'black', backgroundColor: 'rgba(0,0,0,0.04)' } }}
                 >
                     {/* ✅ Updated to display mobileNumber */}

@@ -147,6 +147,7 @@ const initialWizardContext = {
     utmParams: null, error: null, isSubmitting: false,
     currentStep: null,
     isComplete: false,
+    profileMismatch: null,
 };
 
 export const wizardMachine = setup({
@@ -167,10 +168,10 @@ export const wizardMachine = setup({
         }),
         submitCustomer: fromPromise(async ({ input }) => {
             const { customer, index, role } = input;
-            const response = await fetch(api.SUBSCRIBER_URL, {
+            const response = await fetch(api.SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...customer, role })
+                body: JSON.stringify({ action: 'submitCustomer', ...customer, role })
             });
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ message: 'Customer submission failed' }));
@@ -181,10 +182,10 @@ export const wizardMachine = setup({
         }),
         sendOtp: fromPromise(async ({ input }) => {
             const { to, channel } = input;
-            const response = await fetch(api.OTP_VERIFY_URL, {
+            const response = await fetch(api.SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'send', to, channel })
+                body: JSON.stringify({ action: 'sendOtp', to, channel })
             });
             const result = await response.json();
             if (!response.ok || result.success === false) {
@@ -194,10 +195,10 @@ export const wizardMachine = setup({
         }),
         verifyOtp: fromPromise(async ({ input }) => {
             const { to, channel, code } = input;
-            const response = await fetch(api.OTP_VERIFY_URL, {
+            const response = await fetch(api.SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'check', to, code, channel })
+                body: JSON.stringify({ action: 'verifyOtp', to, code, channel })
             });
             const result = await response.json();
             if (!response.ok || result.success !== 'approved') {
@@ -207,55 +208,64 @@ export const wizardMachine = setup({
         }),
         fetchCustomerInfo: fromPromise(async ({ input }) => {
             const { email, phone } = input;
-            const response = await fetch(api.SUBSCRIBER_URL, {
+            const response = await fetch(api.SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, phone })
+                body: JSON.stringify({ action: 'submitCustomer', email, phone })
             });
             if (!response.ok) {
                 throw new Error("Could not find a customer with that contact info.");
             }
             const result = await response.json();
-            if (!result || (!result.id && !result.CID)) {
+            const subscriber = Array.isArray(result) ? result[0] : result;
+            if (!subscriber || !subscriber['Subscriber ID']) {
                 throw new Error("No account associated with this contact was found.");
             }
-            return result;
+            return subscriber;
         }),
         fetchCustomerProfile: fromPromise(async ({ input }) => {
-            const response = await fetch(api.SUBSCRIBER_URL, {
+            const response = await fetch(api.SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ CID: input.CID })
+                body: JSON.stringify({ action: 'submitCustomer', subscriberId: input.subscriberId })
             });
             if (!response.ok) {
                 throw new Error('Could not retrieve customer profile.');
             }
             const data = await response.json();
-            const profile = data[0] || null;
-            if (!profile || !profile.id) {
-                throw new Error(`No valid customer profile found for CID: ${input.CID}`);
+            const profile = Array.isArray(data) ? data[0] : data;
+            if (!profile || !profile['Subscriber ID']) {
+                throw new Error(`No valid subscriber profile found for ID: ${input.subscriberId}`);
             }
             return profile;
         }),
         fetchSavedCards: fromPromise(async ({ input }) => {
-            const response = await fetch(api.RETRIEVE_CUSTOMER_URL, {
+            const response = await fetch(api.SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ CID: input.primaryCustomerId })
+                body: JSON.stringify({ action: 'retrieveCustomerCards', subscriberId: input.primaryCustomerId })
             });
             if (!response.ok) {
                 throw new Error('Could not retrieve saved cards.');
             }
             const data = await response.json();
-            return data[0]?.cards || [];
+            const rawCards = data.cards || [];
+            return rawCards.map(c => ({
+                id: c['Card ID'] || c.id,
+                card_brand: c['Card Brand'] || c.card_brand || '',
+                last_4: c['Last 4'] || c.last_4 || '',
+                exp_month: c['Exp Month'] || c.exp_month || '',
+                exp_year: c['Exp Year'] || c.exp_year || '',
+            }));
         }),
         processSavedCardPayment: fromPromise(async ({ input }) => {
             const { primaryCustomerId, cardId, planId, modelId, locationId, idempotencyKey, linkedCustomerIds } = input;
-            const response = await fetch(api.SUBSCRIPTION_CHARGE_URL, {
+            const response = await fetch(api.SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', },
                 body: JSON.stringify({
-                    customerId: primaryCustomerId,
+                    action: 'processPayment',
+                    subscriberId: primaryCustomerId,
                     cardId,
                     planId,
                     modelId,
@@ -269,7 +279,7 @@ export const wizardMachine = setup({
                 throw new Error(errorData.message || 'Saved card payment failed.');
             }
             const result = await response.json();
-            return { success: true, paymentId: result.paymentId };
+            return { success: true, paymentId: result.subscriptionId || result.paymentId };
         }),
         saveNewCard: fromPromise(async ({ input }) => {
             console.log(
@@ -278,12 +288,13 @@ export const wizardMachine = setup({
                 { ...input, paymentNonce: 'REDACTED' }
             );
             const { paymentNonce, idempotencyKey, primaryCustomerId, planId, linkedCustomerIds } = input;
-            const response = await fetch(api.SAVE_CARD_URL, {
+            const response = await fetch(api.SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, },
                 body: JSON.stringify({
+                    action: 'saveNewCard',
                     nonce: paymentNonce,
-                    customerId: primaryCustomerId,
+                    subscriberId: primaryCustomerId,
                     planId: planId,
                     idempotency_key: idempotencyKey,
                     ...(linkedCustomerIds && linkedCustomerIds.length > 0 && { linkedCustomerId: linkedCustomerIds })
@@ -294,7 +305,24 @@ export const wizardMachine = setup({
                 throw new Error(errorData.message || 'New card payment failed.');
             }
             const result = await response.json();
-            return result;
+            // Normalize card response for frontend consumption
+            return {
+                ...result,
+                card: {
+                    id: result.cardId,
+                    card_brand: result.cardBrand || '',
+                    last_4: result.lastFour || '',
+                },
+            };
+        }),
+        updateSubscriberProfile: fromPromise(async ({ input }) => {
+            const response = await fetch(api.SUBSCRIPTION_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'updateCustomerProfile', ...input })
+            });
+            if (!response.ok) throw new Error('Failed to update profile.');
+            return await response.json();
         }),
     },
     actions: {
@@ -456,10 +484,10 @@ export const wizardMachine = setup({
                     return context.customerForms;
                 }
                 const prefilledForm = {
-                    firstName: profile.given_name || '',
-                    lastName: profile.family_name || '',
-                    email: profile.email_address || '',
-                    phone: profile.phone_number || ''
+                    firstName: profile['First Name'] || profile.given_name || '',
+                    lastName: profile['Last Name'] || profile.family_name || '',
+                    email: profile['Email'] || profile.email_address || '',
+                    phone: profile['Phone'] || profile.phone_number || ''
                 };
                 const newForms = [...context.customerForms];
                 if (newForms.length > 0) {
@@ -635,6 +663,7 @@ export const wizardMachine = setup({
                         currentStep: null,
                         otpMethod: null,
                         isComplete: false,
+                        profileMismatch: null,
                     };
 
                     if (context.isReauthenticated) {
@@ -763,7 +792,7 @@ export const wizardMachine = setup({
                 prefillingOnBoot: {
                     invoke: {
                         src: 'fetchCustomerProfile',
-                        input: ({ context }) => ({ CID: context.primaryCustomerId }),
+                        input: ({ context }) => ({ subscriberId: context.primaryCustomerId }),
                         onDone: {
                             target: 'restoring',
                             actions: [
@@ -1063,7 +1092,8 @@ export const wizardMachine = setup({
                                             );
 
                                             const customerData = event.output;
-                                            const newCustomerId = customerData.CID || customerData.id;
+                                            const subscriberData = customerData[0] || {};
+                                            const newCustomerId = subscriberData['Subscriber ID'] || customerData.CID || customerData.id;
 
                                             const isPrimaryContactEdit = context.isEditingContact && customerData.index === 0;
                                             const hasOldCustomerId = !!context.primaryCustomerId;
@@ -1089,7 +1119,8 @@ export const wizardMachine = setup({
                                             'clearAuthSession',
                                             assign(({ context, event }) => {
                                                 const customerData = event.output;
-                                                const newCustomerId = customerData.CID || customerData.id;
+                                                const subscriberData = customerData[0] || {};
+                                                const newCustomerId = subscriberData['Subscriber ID'] || customerData.CID || customerData.id;
                                                 const oldCustomerId = context.primaryCustomerId;
 
                                                 console.log(
@@ -1118,8 +1149,8 @@ export const wizardMachine = setup({
                                                     primaryCustomerId: newCustomerId,
                                                     linkedCustomerIds: newLinkedIds,
                                                     isReauthenticated: false,
-                                                    authRequired: customerData?.status === 'has_card',
-                                                    maskedPhone: customerData.maskedPhone,
+                                                    authRequired: subscriberData['Status'] === 'existing',
+                                                    maskedPhone: subscriberData['Phone'] || context.maskedPhone,
                                                     isEditingContact: false,
                                                     currentCustomerIndex: context.preEditCustomerIndex,
                                                     preEditCustomerIndex: null,
@@ -1153,7 +1184,9 @@ export const wizardMachine = setup({
                                         target: 'checkIfDone',
                                         actions: [assign(({ context, event }) => {
                                             const customerData = event.output;
-                                            const customerId = customerData.CID || customerData.id;
+                                            // API returns array; subscriber data is in customerData[0]
+                                            const subscriberData = customerData[0] || {};
+                                            const customerId = subscriberData['Subscriber ID'] || customerData.CID || customerData.id;
                                             const newSubmittedCustomers = [...context.submittedCustomers];
                                             if (newSubmittedCustomers.findIndex(c => c.index === customerData.index) === -1) {
                                                 newSubmittedCustomers.push(customerData);
@@ -1172,14 +1205,34 @@ export const wizardMachine = setup({
                                                 newLinkedIds.push(customerId);
                                             }
 
+                                            // Detect name mismatch for primary customer
+                                            let profileMismatch = context.profileMismatch;
+                                            if (currentCustomerIndex === 0) {
+                                                if (subscriberData['Status'] === 'existing') {
+                                                    const submittedFirst = context.customerForms[0].firstName.trim();
+                                                    const submittedLast = context.customerForms[0].lastName.trim();
+                                                    const onFileFirst = (subscriberData['First Name'] || '').trim();
+                                                    const onFileLast = (subscriberData['Last Name'] || '').trim();
+
+                                                    if (submittedFirst !== onFileFirst || submittedLast !== onFileLast) {
+                                                        profileMismatch = {
+                                                            subscriberId: subscriberData['Subscriber ID'],
+                                                            onFile: { firstName: onFileFirst, lastName: onFileLast },
+                                                            submitted: { firstName: submittedFirst, lastName: submittedLast },
+                                                        };
+                                                    }
+                                                }
+                                            }
+
                                             return {
                                                 isSubmitting: false,
                                                 submittedCustomers: newSubmittedCustomers,
                                                 primaryCustomerId: primaryId,
                                                 linkedCustomerIds: newLinkedIds,
-                                                authRequired: currentCustomerIndex === 0 ? customerData?.status === 'has_card' : context.authRequired,
-                                                maskedPhone: currentCustomerIndex === 0 ? customerData.maskedPhone : context.maskedPhone,
-                                                currentCustomerIndex: context.currentCustomerIndex + 1
+                                                authRequired: currentCustomerIndex === 0 ? subscriberData['Status'] === 'existing' : context.authRequired,
+                                                maskedPhone: currentCustomerIndex === 0 ? (subscriberData['Phone'] || context.maskedPhone) : context.maskedPhone,
+                                                currentCustomerIndex: context.currentCustomerIndex + 1,
+                                                profileMismatch,
                                             };
                                         }), 'persistState']
                                     }
@@ -1193,6 +1246,15 @@ export const wizardMachine = setup({
                         checkIfDone: {
                             always: [
                                 {
+                                    target: '#wizard.displayFlow.confirmingProfileUpdate',
+                                    guard: ({ context }) => {
+                                        const totalForms = context.isGift
+                                            ? context.numberOfSubscriptions + 1
+                                            : context.numberOfSubscriptions;
+                                        return context.currentCustomerIndex >= totalForms && context.profileMismatch !== null;
+                                    },
+                                },
+                                {
                                     target: '#wizard.displayFlow.authenticationOrPayment',
                                     guard: ({ context }) => {
                                         const totalForms = context.isGift
@@ -1202,6 +1264,54 @@ export const wizardMachine = setup({
                                     },
                                 },
                                 { target: 'idle' }
+                            ]
+                        }
+                    }
+                },
+                confirmingProfileUpdate: {
+                    tags: 'showsProfileUpdate',
+                    on: {
+                        CONFIRM_PROFILE_UPDATE: { target: 'updatingProfile' },
+                        SKIP_PROFILE_UPDATE: {
+                            target: 'authenticationOrPayment',
+                            actions: [assign({
+                                customerForms: ({ context }) => {
+                                    const newForms = [...context.customerForms];
+                                    newForms[0] = {
+                                        ...newForms[0],
+                                        firstName: context.profileMismatch.onFile.firstName,
+                                        lastName: context.profileMismatch.onFile.lastName,
+                                    };
+                                    return newForms;
+                                },
+                                profileMismatch: null,
+                            }), 'persistState']
+                        },
+                        BACK: {
+                            target: 'contactInfo',
+                            actions: [assign({ profileMismatch: null }), 'persistState']
+                        }
+                    }
+                },
+                updatingProfile: {
+                    tags: 'showsProfileUpdate',
+                    invoke: {
+                        src: 'updateSubscriberProfile',
+                        input: ({ context }) => ({
+                            subscriberId: context.profileMismatch.subscriberId,
+                            firstName: context.profileMismatch.submitted.firstName,
+                            lastName: context.profileMismatch.submitted.lastName,
+                        }),
+                        onDone: {
+                            target: 'authenticationOrPayment',
+                            actions: [assign({ profileMismatch: null }), 'persistState']
+                        },
+                        onError: {
+                            target: 'authenticationOrPayment',
+                            actions: [
+                                assign({ profileMismatch: null }),
+                                ({ event }) => console.warn('Profile update failed (non-fatal):', event.error?.message),
+                                'persistState'
                             ]
                         }
                     }
@@ -1315,7 +1425,7 @@ export const wizardMachine = setup({
                                             actions: [
                                                 assign({
                                                     isReauthenticated: true,
-                                                    primaryCustomerId: ({ event }) => event.output.id || event.output.CID,
+                                                    primaryCustomerId: ({ event }) => event.output['Subscriber ID'],
                                                     authRequired: false
                                                 }),
                                                 'setAuthSession',

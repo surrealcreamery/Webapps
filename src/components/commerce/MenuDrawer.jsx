@@ -11,6 +11,7 @@ import {
     Divider
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import StorefrontIcon from '@mui/icons-material/Storefront';
 import { useNavigate } from 'react-router-dom';
 
 const MENU_ITEMS = [
@@ -20,8 +21,8 @@ const MENU_ITEMS = [
         description: 'Ice cream, milkshakes & more'
     },
     {
-        title: 'Merchandise',
-        path: '/merchandise',
+        title: 'Collectibles',
+        path: '/collectibles',
         description: 'tokidoki collectibles'
     }
 ];
@@ -102,6 +103,25 @@ export const MenuDrawer = ({ open, onClose }) => {
                             {index < MENU_ITEMS.length - 1 && <Divider />}
                         </React.Fragment>
                     ))}
+                </List>
+
+                {/* Kiosk Mode */}
+                <Divider />
+                <List>
+                    <ListItem disablePadding>
+                        <ListItemButton
+                            onClick={() => { onClose(); navigate('/kiosk'); }}
+                            sx={{ py: 2, px: 3 }}
+                        >
+                            <StorefrontIcon sx={{ mr: 2, color: 'text.secondary' }} />
+                            <ListItemText
+                                primary="Kiosk Mode"
+                                primaryTypographyProps={{ fontSize: '2.4rem', fontWeight: 500 }}
+                                secondary="Enter device code to activate"
+                                secondaryTypographyProps={{ fontSize: '1.6rem', color: 'text.secondary' }}
+                            />
+                        </ListItemButton>
+                    </ListItem>
                 </List>
 
                 {/* Footer */}

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useContext, useEffect } from 'react';
 import { Box, Typography, Button, CircularProgress, Alert, Divider, Stack, Container, Breadcrumbs, Link as MuiLink } from '@mui/material';
+import { format, parse } from 'date-fns';
 import { LayoutContext } from '@/contexts/events/EventsLayoutContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 // Import all the separated components
 import { DirectorySection } from '@/components/events/DirectorySection';
@@ -18,6 +19,7 @@ import { TransactionDetails } from '@/components/events/TransactionDetails';
 import { PayoutDetails } from '@/components/events/PayoutDetails';
 import { MarketingMaterials } from '@/components/events/MarketingMaterials';
 import { ResolvingPartialMatch } from '@/components/events/ResolvingPartialMatch';
+import { ConfirmProfileUpdate } from '@/components/events/ConfirmProfileUpdate';
 import { DuplicateErrorSection } from '@/components/events/DuplicateErrorSection';
 
 // ✅ 1. Import your new data-fetching function
@@ -37,21 +39,34 @@ const VerifyingLoader = () => (
 );
 
 export default function Home() {
+    // ========================================
+    // ALL HOOKS MUST BE AT THE TOP - React Rules of Hooks
+    // ========================================
     const { fundraiserState, sendToFundraiser, logout } = useContext(LayoutContext);
+    const navigate = useNavigate();
+    const location = useLocation();
+    const locationListRef = useRef(null);
+    const [view, setView] = useState('All');
 
-    // ✅ 2. KEEP THIS NEW useEffect HOOK for data fetching
+    // ✅ Data fetching effect
     useEffect(() => {
         // Don't run if the machine/send function isn't ready
         if (!sendToFundraiser) return;
 
         const loadData = async () => {
             try {
-                console.log("Fetching fresh data on page load...");
+                console.log("=== FETCHING DATA ===");
+                console.log("Current state before fetch:", JSON.stringify(fundraiserState?.value));
                 const { events, locations } = await fetchInitialData();
-                
+
+                console.log("Data fetched - events count:", events?.length);
+                console.log("Data fetched - events:", events);
+
                 // Send the fresh data to the machine
+                console.log("Sending DATA.LOADED to machine...");
                 sendToFundraiser({ type: 'DATA.LOADED', events, locations });
-                
+                console.log("DATA.LOADED sent!");
+
             } catch (error) {
                 console.error("Failed to load initial data:", error);
                 // Only send failure if we're still in the 'booting' state
@@ -60,30 +75,58 @@ export default function Home() {
                 }
             }
         };
-        
+
         loadData();
     }, [sendToFundraiser]); // Runs once when sendToFundraiser is available
+
+    // Auto-select event when navigated from homepage with a specific event
+    useEffect(() => {
+        const eventId = location.state?.selectedEventId;
+        if (!eventId || !sendToFundraiser || !fundraiserState) return;
+        // Only trigger when in the directory state (events are loaded and ready)
+        if (fundraiserState.matches('directory')) {
+            sendToFundraiser({ type: 'CHOOSE_FUNDRAISER', eventId });
+            // Clear the navigation state so it doesn't re-trigger
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [location.state, fundraiserState, sendToFundraiser, navigate, location.pathname]);
 
     // This effect runs when the user navigates to a new "page" (state node).
     useEffect(() => {
         window.scrollTo(0, 0);
     }, [JSON.stringify(fundraiserState?.value)]); // Added optional chaining
-    
+
+    // Handle stale selectedEventId - if event no longer exists, reset to directory
+    // Note: Must be called unconditionally, so null checks are inside the callback
+    useEffect(() => {
+        if (!fundraiserState || !fundraiserState.context) return;
+
+        const { fundraiserEvents, selectedEventId } = fundraiserState.context;
+        const currentEvent = fundraiserEvents?.find(event => event.id === selectedEventId);
+
+        if (fundraiserState.matches('wizardFlow') &&
+            !fundraiserState.context.isAuthenticated &&
+            fundraiserEvents &&
+            fundraiserEvents.length > 0 &&
+            selectedEventId &&
+            !currentEvent) {
+            console.log('Event not found (stale ID), resetting to directory. selectedEventId:', selectedEventId);
+            sendToFundraiser({ type: 'RESET' });
+        }
+    }, [fundraiserState, sendToFundraiser]);
+
+    // ========================================
+    // EARLY RETURNS - After all hooks
+    // ========================================
     if (!fundraiserState || !fundraiserState.context) {
         return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>;
     }
 
-    const navigate = useNavigate();
-        
-    const locationListRef = useRef(null);
-    
     console.log('Current machine state:', fundraiserState.value);
 
-    if (fundraiserState.matches({ wizardFlow: { submitting: 'resolvingPartialMatch' } })) {
-        console.log('Partial Match Alternatives:', fundraiserState.context.partialMatchAlternatives);
+    if (fundraiserState.matches({ wizardFlow: { submitting: 'resolvingAccountMatch' } })) {
+        console.log('Matched Accounts:', fundraiserState.context.matchedAccounts);
     }
-
-    const [view, setView] = useState('All');
     const handleViewChange = (event, newView) => { if (newView !== null) setView(newView); };
 
     const handleChooseFundraiser = (eventId) => sendToFundraiser({ type: 'CHOOSE_FUNDRAISER', eventId: eventId });
@@ -120,7 +163,25 @@ export default function Home() {
     };
 
     const { fundraiserEvents, registeredEvents, selectedEventId, viewingEventId, selectedLocationId, locations, selectedDate, contactInfo, formErrors } = fundraiserState.context;
+
+    // DEBUG LOGS
+    console.log('=== DEBUG EVENT LOADING ===');
+    console.log('1. selectedEventId:', selectedEventId);
+    console.log('2. fundraiserEvents count:', fundraiserEvents?.length || 0);
+    console.log('3. fundraiserEvents:', fundraiserEvents);
+    if (fundraiserEvents?.length > 0) {
+        console.log('3a. First event keys:', Object.keys(fundraiserEvents[0]));
+        console.log('3b. First event id field:', fundraiserEvents[0].id);
+        console.log('3c. First event Event ID field:', fundraiserEvents[0]['Event ID']);
+        console.log('3d. First event recordId field:', fundraiserEvents[0].recordId);
+    }
+
     const currentEvent = fundraiserEvents?.find(event => event.id === selectedEventId);
+    console.log('4. currentEvent found:', currentEvent ? 'YES' : 'NO', currentEvent?.title);
+    console.log('5. State value:', JSON.stringify(fundraiserState.value));
+    console.log('6. isAuthenticated:', fundraiserState.context.isAuthenticated);
+    console.log('=== END DEBUG ===');
+
     const selectedLocation = locations.find(loc => loc.id === selectedLocationId);
     
     // ✅ FIX: registeredEvents is now an object with hostedEvents and participantEvents
@@ -156,6 +217,7 @@ export default function Home() {
       fundraiserState.matches({ wizardFlow: { submitting: 'decidingAuthPath' } }) ||
       fundraiserState.matches({ wizardFlow: { submitting: 'checkingGuestStatus' } }) ||
       fundraiserState.matches({ wizardFlow: { submitting: 'creatingOrganization' } }) ||
+      fundraiserState.matches({ wizardFlow: { submitting: 'updatingProfile' } }) ||
       fundraiserState.matches({ wizardFlow: { submitting: 'creatingRegistration' } });
 
     // ✅ 3. UPDATE THIS LOADING CHECK
@@ -165,8 +227,11 @@ export default function Home() {
     if (fundraiserState.matches('failure')) {
         return <Alert severity="error">{fundraiserState.context.error}</Alert>;
     }
+
+    // If in wizardFlow but currentEvent not found
     if (fundraiserState.matches('wizardFlow') && !currentEvent && !fundraiserState.context.isAuthenticated) {
-        return (<DirectorySection events={fundraiserState.context.fundraiserEvents} onChooseFundraiser={handleChooseFundraiser} view={view} handleViewChange={handleViewChange} />);
+        // Show loading spinner while we wait for data or reset
+        return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>;
     }
 
     return (
@@ -203,18 +268,24 @@ export default function Home() {
                 {/* ✅ FIX: EVENT LANDING PAGE - Button in hero, location list below if multiple locations */}
                 {fundraiserState.matches({ wizardFlow: 'eventLanding' }) && currentEvent && (
                     <>
-                        <HeroSection 
-                            title={currentEvent.title} 
-                            imageUrl={currentEvent.imageUrl} 
-                            description={currentEvent.description || currentEvent['Description']} 
+                        <HeroSection
+                            title={currentEvent.title}
+                            imageUrl={currentEvent.imageUrl}
+                            description={currentEvent.description || currentEvent['Description']}
                             bulletPoints={currentEvent.bulletPoints || currentEvent['Bullet Points']}
                             onSelectLocationClick={handleProceedToScheduling}
                             isSingleLocation={isSingleLocation}
-                            // ✅ NEW: Pass date, time, and location for single-date/location events
-                            eventDate={isSingleLocation ? (currentEvent.startDate || currentEvent['Start Date']) : null}
-                            eventTime={isSingleLocation && currentEvent.eventTimes?.[0] ? currentEvent.eventTimes[0] : 
-                                      (isSingleLocation && currentEvent['Event Times']?.[0] ? currentEvent['Event Times'][0] : null)}
+                            // ✅ Always pass date and time
+                            eventDate={currentEvent.startDate || currentEvent['Start Date']}
+                            eventTime={
+                                (Array.isArray(currentEvent.eventTimes) ? currentEvent.eventTimes[0] : currentEvent.eventTimes) ||
+                                (Array.isArray(currentEvent['Event Times']) ? currentEvent['Event Times'][0] : currentEvent['Event Times'])
+                            }
                             locationAddress={isSingleLocation && locations?.length === 1 ? locations[0].Address : null}
+                            // ✅ NEW: For fundraiser host date range display
+                            eventType={currentEvent.type || currentEvent['Type']}
+                            eventRole={currentEvent.Role || currentEvent.role}
+                            eventEndDate={currentEvent.endDate || currentEvent['End Date']}
                         />
                         
                         {!isSingleLocation && (
@@ -246,7 +317,42 @@ export default function Home() {
                             <Typography variant="h1" component="h1" sx={{ mb: 2 }}>
                                 {currentEvent.title}
                             </Typography>
-                            
+
+                            {/* Date and Time */}
+                            {(() => {
+                                const dateStr = currentEvent.startDate || currentEvent['Start Date'];
+                                const timeStr = (Array.isArray(currentEvent.eventTimes) ? currentEvent.eventTimes[0] : currentEvent.eventTimes) ||
+                                               (Array.isArray(currentEvent['Event Times']) ? currentEvent['Event Times'][0] : currentEvent['Event Times']);
+
+                                let formattedDate = '';
+                                let formattedTime = '';
+
+                                if (dateStr) {
+                                    try {
+                                        const date = new Date(dateStr.replace(/-/g, '/'));
+                                        formattedDate = format(date, 'EEEE, MMMM do, yyyy');
+                                    } catch (e) {}
+                                }
+
+                                if (timeStr && timeStr.includes(' - ')) {
+                                    try {
+                                        const [startTime, endTime] = timeStr.split(' - ');
+                                        const start = parse(startTime, 'HH:mm', new Date());
+                                        const end = parse(endTime, 'HH:mm', new Date());
+                                        formattedTime = `from ${format(start, 'h:mmaaa')} to ${format(end, 'h:mmaaa')}`.toLowerCase();
+                                    } catch (e) {}
+                                }
+
+                                if (formattedDate || formattedTime) {
+                                    return (
+                                        <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 500, mb: 2 }}>
+                                            {formattedDate}{formattedDate && formattedTime && ' '}{formattedTime}
+                                        </Typography>
+                                    );
+                                }
+                                return null;
+                            })()}
+
                             {/* Description */}
                             {(currentEvent.description || currentEvent['Description']) && (
                                 <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
@@ -298,7 +404,7 @@ export default function Home() {
                 )}
                 
                 {/* This prop was already correct, good! */}
-                {fundraiserState.matches({ wizardFlow: 'selectingDate' }) && selectedLocation && (
+                {fundraiserState.matches({ wizardFlow: 'selectingDate' }) && selectedLocation && currentEvent && (
                     <DatePickerSection 
                         onBack={() => sendToFundraiser({ type: 'BACK' })} 
                         onDateChange={handleDateSelect} 
@@ -312,23 +418,27 @@ export default function Home() {
 
                 {fundraiserState.matches({ wizardFlow: 'selectingTime' }) && currentEvent && (<TimePickerSection currentEvent={currentEvent} selectedDate={fundraiserState.context.selectedDate} selectedTime={fundraiserState.context.selectedTime} onTimeChange={handleTimeSelect} onBack={() => sendToFundraiser({ type: 'BACK' })} onContinue={handleProceedToContact} />)}
                 
-                {fundraiserState.matches({ wizardFlow: 'selectingContact' }) && (<ContactFormSection onBack={() => sendToFundraiser({ type: 'BACK' })} onSubmit={handleSubmitContact} contactInfo={contactInfo} onFieldChange={handleContactChange} formErrors={formErrors} currentEvent={currentEvent} />)}
+                {fundraiserState.matches({ wizardFlow: 'selectingContact' }) && currentEvent && (<ContactFormSection onBack={() => sendToFundraiser({ type: 'BACK' })} onSubmit={handleSubmitContact} contactInfo={contactInfo} onFieldChange={handleContactChange} formErrors={formErrors} currentEvent={currentEvent} />)}
                 
                 {fundraiserState.matches('loginFlow') && (<LoginFlow send={sendToFundraiser} context={fundraiserState} />)}
                 
                 {/* Updated rendering logic for the verifying screen */}
                 {shouldShowVerifyingLoader && <VerifyingLoader />}
                 
-                {fundraiserState.matches({ wizardFlow: { submitting: 'resolvingPartialMatch' } }) && (
+                {fundraiserState.matches({ wizardFlow: { submitting: 'resolvingAccountMatch' } }) && (
                     <ResolvingPartialMatch send={sendToFundraiser} context={fundraiserState} />
                 )}
 
-                {fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.choosingMethod') && (<GuestOtpChoiceSection contactInfo={contactInfo} onBack={() => sendToFundraiser({ type: 'BACK' })} onChooseEmail={() => sendToFundraiser({ type: 'CHOOSE_EMAIL' })} onChooseSms={() => sendToFundraiser({ type: 'CHOOSE_SMS' })} />)}
+                {fundraiserState.matches({ wizardFlow: { submitting: 'confirmingProfileUpdate' } }) && (
+                    <ConfirmProfileUpdate send={sendToFundraiser} context={fundraiserState} />
+                )}
+
+                {fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.choosingMethod') && (<GuestOtpChoiceSection contactInfo={contactInfo} emailMatched={fundraiserState.context.emailMatched} phoneMatched={fundraiserState.context.phoneMatched} onBack={() => sendToFundraiser({ type: 'BACK' })} onChooseEmail={() => sendToFundraiser({ type: 'CHOOSE_EMAIL' })} onChooseSms={() => sendToFundraiser({ type: 'CHOOSE_SMS' })} />)}
                 {(fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.enteringGuestOtp') || fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.verifyingGuestOtp')) && (<GuestOtpInputSection contactInfo={contactInfo} otpChannel={fundraiserState.context.otpChannel} error={fundraiserState.context.error} isVerifying={fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.verifyingGuestOtp')} onBack={() => sendToFundraiser({ type: 'BACK_TO_GUEST_METHOD_CHOICE' })} onSubmitOtp={(otp) => sendToFundraiser({ type: 'SUBMIT_GUEST_OTP', value: otp })} />)}
                 
                 
-                {fundraiserState.matches({ wizardFlow: 'duplicateError' }) && (
-                    <DuplicateErrorSection 
+                {fundraiserState.matches({ wizardFlow: 'duplicateError' }) && currentEvent && (
+                    <DuplicateErrorSection
                         currentEvent={currentEvent}
                         onViewOtherEvents={() => sendToFundraiser({ type: 'RESET' })}
                     />

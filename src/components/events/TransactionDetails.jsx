@@ -9,10 +9,18 @@ const formatDateSafe = (dateValue, formatString) => {
 };
 
 export const TransactionDetails = ({ event, onBack, onGoHome, onViewPayouts }) => {
+    console.log('=== TransactionDetails DEBUG ===');
+    console.log('Full event object:', event);
+    console.log("event['Transaction Details']:", event['Transaction Details']);
+    console.log("event['Fundraiser Tally']:", event['Fundraiser Tally']);
+    console.log("event['Event Name']:", event['Event Name']);
+
     const transactions = event['Transaction Details'] || [];
     const grandTotal = event['Fundraiser Tally'] || 0;
     const eventName = event['Event Name']?.[0] || 'Event Details';
     const amountDonated = grandTotal * 0.10;
+
+    console.log('Parsed values:', { transactions, grandTotal, eventName, transactionCount: transactions.length });
 
     const groupedTransactions = useMemo(() => {
         if (!transactions) return [];

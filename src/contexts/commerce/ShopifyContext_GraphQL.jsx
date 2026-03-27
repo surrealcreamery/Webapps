@@ -1,18 +1,14 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import Client from 'shopify-buy';
 
 // Your Shopify credentials
 const SHOPIFY_DOMAIN = 'surreal-9940.myshopify.com';
-const STOREFRONT_ACCESS_TOKEN = 'b826d9dc5dacd8d58a91e1de899e2c9a';
-
-// Initialize Shopify Buy SDK client (for cart/checkout)
-const client = Client.buildClient({
-  domain: SHOPIFY_DOMAIN,
-  storefrontAccessToken: STOREFRONT_ACCESS_TOKEN
-});
+const STOREFRONT_ACCESS_TOKEN = '7c5bd87859d6a652f014fe891e2c49ab';
 
 // GraphQL endpoint for fetching products with metafields
-const STOREFRONT_API_URL = `https://${SHOPIFY_DOMAIN}/api/2024-01/graphql.json`;
+const STOREFRONT_API_URL = `https://${SHOPIFY_DOMAIN}/api/2024-04/graphql.json`;
+
+// PWA Categories API (for image aspect ratios and DynamoDB category data)
+const CATALOG_API_URL = 'https://ou6oqgnnqjo542342x64srup4q0ofoua.lambda-url.us-east-1.on.aws/';
 
 const ShopifyContext = createContext();
 
@@ -23,7 +19,6 @@ export const ShopifyProvider = ({ children }) => {
   const [merchandiseSubcategories, setMerchandiseSubcategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [checkout, setCheckout] = useState(null);
 
   // Test mode - hidden products tagged "test-item" are shown when user types "test"
   const [testModeEnabled, setTestModeEnabled] = useState(() => {
@@ -78,7 +73,6 @@ export const ShopifyProvider = ({ children }) => {
         fetchDessertSubcategories(),
         fetchMerchandiseSubcategories(),
         fetchProductsWithMetafields(),
-        restoreOrCreateCheckout()
       ]);
     } catch (err) {
       console.error('Error initializing Shopify:', err);
@@ -92,9 +86,10 @@ export const ShopifyProvider = ({ children }) => {
    */
   const fetchCategories = async () => {
     try {
+      // Fetch categories with parent reference for hierarchy support
       const query = `
         query getProductCategories {
-          metaobjects(type: "product_category", first: 20) {
+          metaobjects(type: "product_category", first: 50) {
             edges {
               node {
                 id
@@ -108,6 +103,11 @@ export const ShopifyProvider = ({ children }) => {
                         url
                         altText
                       }
+                    }
+                    ... on Metaobject {
+                      id
+                      handle
+                      type
                     }
                   }
                 }
@@ -142,6 +142,8 @@ export const ShopifyProvider = ({ children }) => {
         const node = edge.node;
         const fields = {};
         let imageUrl = null;
+        let parentGid = null;
+        let parentHandle = null;
 
         // Helper to find field value by normalized key (handles spaces, case, underscores)
         const normalizeKey = (key) => key.toLowerCase().replace(/[\s_-]+/g, '');
@@ -156,8 +158,30 @@ export const ShopifyProvider = ({ children }) => {
         };
 
         node.fields.forEach(field => {
+          // Check for parent metaobject reference (handles various key names)
+          const normalizedKey = normalizeKey(field.key);
+          const isParentField = normalizedKey === 'parent' ||
+                                normalizedKey === 'parentcategory' ||
+                                normalizedKey === 'parent_category' ||
+                                normalizedKey === 'categoryparent' ||
+                                field.key.toLowerCase().includes('parent');
+
+          // Handle parent as resolved reference object
+          if (isParentField && field.reference?.id) {
+            parentGid = field.reference.id;
+            parentHandle = field.reference.handle;
+            fields[field.key] = { gid: parentGid, handle: parentHandle };
+            console.log(`🔗 Found parent reference for ${node.handle}: ${parentHandle} (field key: "${field.key}")`);
+          }
+          // Handle parent as GID string value (e.g., "gid://shopify/Metaobject/123456")
+          else if (isParentField && field.value && field.value.startsWith('gid://shopify/Metaobject/')) {
+            parentGid = field.value;
+            // Handle will be resolved after all categories are loaded
+            fields[field.key] = { gid: parentGid, handle: null };
+            console.log(`🔗 Found parent GID for ${node.handle}: ${parentGid} (field key: "${field.key}", will resolve handle later)`);
+          }
           // Check for image reference fields (multiple possible structures)
-          if (field.reference?.image?.url) {
+          else if (field.reference?.image?.url) {
             // Standard MediaImage reference structure
             fields[field.key] = {
               url: field.reference.image.url,
@@ -188,9 +212,6 @@ export const ShopifyProvider = ({ children }) => {
           || fields.name
           || node.handle;
 
-        // Debug: Log the resolved values
-        console.log(`🏷️ Category "${node.handle}" → title: "${title}", imageUrl: ${imageUrl ? 'YES' : 'NO'}, fields:`, Object.keys(fields));
-
         return {
           id: node.handle,
           gid: node.id,
@@ -198,15 +219,187 @@ export const ShopifyProvider = ({ children }) => {
           title: title,
           description: findFieldValue('product_category_description') || findFieldValue('description') || fields.description || '',
           image: imageUrl ? { url: imageUrl } : fields.image || null,
-          sortOrder: parseInt(fields.sort_order || fields.sortorder || fields['sort-order'] || fields.display_order || '999', 10)
+          sortOrder: parseInt(fields.sort_order || fields.sortorder || fields['sort-order'] || fields.display_order || '999', 10),
+          parentGid: parentGid,
+          parentHandle: parentHandle
         };
+      });
+
+      // Build hierarchy: calculate level and ancestors for each category
+      const categoryMap = new Map(cats.map(c => [c.handle, c]));
+      const categoryMapByGid = new Map(cats.map(c => [c.gid, c]));
+
+      // First pass: resolve parentHandle from parentGid where needed
+      cats.forEach(cat => {
+        if (cat.parentGid && !cat.parentHandle) {
+          const parentCat = categoryMapByGid.get(cat.parentGid);
+          if (parentCat) {
+            cat.parentHandle = parentCat.handle;
+            console.log(`🔗 Resolved parent for ${cat.handle}: ${cat.parentHandle} (from GID ${cat.parentGid})`);
+          } else {
+            console.log(`⚠️ Could not resolve parent GID for ${cat.handle}: ${cat.parentGid}`);
+          }
+        }
+      });
+
+      cats.forEach(cat => {
+        // Build ancestor chain (from root to parent)
+        const ancestors = [];
+        let current = cat;
+        let depth = 0;
+        const maxDepth = 10;
+
+        while ((current.parentHandle || current.parentGid) && depth < maxDepth) {
+          const parent = categoryMap.get(current.parentHandle) || categoryMapByGid.get(current.parentGid);
+          if (parent) {
+            ancestors.unshift(parent); // Add to beginning (root first)
+            current = parent;
+          } else {
+            break;
+          }
+          depth++;
+        }
+
+        cat.ancestors = ancestors;
+        cat.level = ancestors.length + 1; // Level 1 = root, Level 2 = child, Level 3 = grandchild
+        cat.isLeaf = !cats.some(c => c.parentHandle === cat.handle || c.parentGid === cat.gid); // No children = leaf
+
+        // For hierarchy-based grouping: identify level 2 (subcategory) and level 3 (container)
+        if (cat.level === 1) {
+          cat.rootCategory = cat;
+          cat.subcategory = null;
+          cat.container = null;
+        } else if (cat.level === 2) {
+          cat.rootCategory = ancestors[0];
+          cat.subcategory = cat;
+          cat.container = null;
+        } else if (cat.level >= 3) {
+          cat.rootCategory = ancestors[0];
+          cat.subcategory = ancestors[1] || ancestors[0];
+          cat.container = cat; // Level 3+ = container equivalent
+        }
       });
 
       // Sort by sortOrder
       cats.sort((a, b) => a.sortOrder - b.sortOrder);
 
-      console.log('✅ Loaded product categories:', cats);
-      console.log('📦 Category handles:', cats.map(c => c.handle));
+      console.log('✅ Loaded product categories with hierarchy:', cats);
+      console.log('📦 Category hierarchy:', cats.map(c => `${c.handle} (L${c.level}, parent: ${c.parentHandle || 'none'})`));
+
+      // Debug: Show raw fields from ALL categories to find parent field
+      console.log('🔍 Raw category fields from Shopify (FULL DATA):');
+      data.metaobjects.edges.forEach(edge => {
+        console.log(`  📁 ${edge.node.handle}:`);
+        edge.node.fields.forEach(f => {
+          if (f.reference) {
+            console.log(`      "${f.key}": [REFERENCE] →`, f.reference);
+          } else {
+            console.log(`      "${f.key}": "${f.value}"`);
+          }
+        });
+      });
+
+      // Fetch catalog category data and use as source of truth for hierarchy, ordering, images
+      try {
+        const pwaResponse = await fetch(CATALOG_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'getCategories' })
+        });
+        const pwaData = await pwaResponse.json();
+
+        if (pwaData.success && pwaData.categories) {
+          // Build lookups for catalog categories
+          const catalogByGid = new Map();   // shopifyCategoryId → catalog category
+          const catalogById = new Map();    // catalog sk (ID) → catalog category
+          pwaData.categories.forEach(pwaCat => {
+            const shopifyGid = pwaCat.platformIds?.shopifyCategoryId;
+            if (shopifyGid) catalogByGid.set(shopifyGid, pwaCat);
+            if (pwaCat.sk) catalogById.set(pwaCat.sk, pwaCat);
+          });
+
+          // Merge catalog data into Shopify categories (images, aspect ratio, hierarchy, ordering)
+          cats.forEach(cat => {
+            const pwaCat = catalogByGid.get(cat.gid);
+            if (!pwaCat) return;
+
+            // Merge imageAspectRatio and images
+            cat.imageAspectRatio = pwaCat.imageAspectRatio || '1:1';
+            if (pwaCat.image?.url) {
+              cat.image = { url: pwaCat.image.url };
+            }
+
+            // Merge productOrder and position from catalog (source of truth)
+            if (pwaCat.productOrder?.length) {
+              cat.productOrder = pwaCat.productOrder;
+            }
+            if (pwaCat.position != null) {
+              cat.sortOrder = pwaCat.position;
+            }
+
+            // Use catalog parentId to establish hierarchy (source of truth)
+            if (pwaCat.parentId) {
+              const parentCatalog = catalogById.get(pwaCat.parentId);
+              if (parentCatalog) {
+                const parentShopifyGid = parentCatalog.platformIds?.shopifyCategoryId;
+                if (parentShopifyGid) {
+                  // Find the matching Shopify category for the parent
+                  const parentCat = cats.find(c => c.gid === parentShopifyGid);
+                  if (parentCat) {
+                    cat.parentGid = parentShopifyGid;
+                    cat.parentHandle = parentCat.handle;
+                    console.log(`🔗 Catalog hierarchy: ${cat.handle} → parent ${parentCat.handle}`);
+                  }
+                }
+              }
+            } else {
+              // Root category in catalog — clear any Shopify parent
+              cat.parentGid = null;
+              cat.parentHandle = null;
+            }
+          });
+
+          // Rebuild hierarchy after catalog merge (parent relationships may have changed)
+          cats.forEach(cat => {
+            const ancestors = [];
+            let current = cat;
+            let depth = 0;
+            while ((current.parentHandle || current.parentGid) && depth < 10) {
+              const parent = categoryMap.get(current.parentHandle) || categoryMapByGid.get(current.parentGid);
+              if (parent) {
+                ancestors.unshift(parent);
+                current = parent;
+              } else break;
+              depth++;
+            }
+            cat.ancestors = ancestors;
+            cat.level = ancestors.length + 1;
+            cat.isLeaf = !cats.some(c => c.parentHandle === cat.handle || c.parentGid === cat.gid);
+            if (cat.level === 1) {
+              cat.rootCategory = cat;
+              cat.subcategory = null;
+              cat.container = null;
+            } else if (cat.level === 2) {
+              cat.rootCategory = ancestors[0];
+              cat.subcategory = cat;
+              cat.container = null;
+            } else if (cat.level >= 3) {
+              cat.rootCategory = ancestors[0];
+              cat.subcategory = ancestors[1] || ancestors[0];
+              cat.container = cat;
+            }
+          });
+
+          // Re-sort by catalog position
+          cats.sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999));
+
+          console.log('📦 Merged catalog category data (hierarchy, ordering, images) into categories');
+          console.log('📦 Category hierarchy after catalog merge:', cats.map(c => `${c.handle} (L${c.level}, parent: ${c.parentHandle || 'none'})`));
+        }
+      } catch (pwaErr) {
+        console.warn('Could not fetch catalog categories:', pwaErr);
+      }
+
       setCategories(cats);
     } catch (err) {
       console.warn('Could not fetch product categories:', err);
@@ -477,152 +670,6 @@ export const ShopifyProvider = ({ children }) => {
   };
 
   /**
-   * Restore existing cart from localStorage or create new one
-   */
-  const restoreOrCreateCheckout = async () => {
-    try {
-      const savedCheckoutId = localStorage.getItem('shopifyCheckoutId');
-
-      if (savedCheckoutId) {
-        // Try to restore existing cart using Cart API
-        try {
-          console.log('🛒 Attempting to restore cart:', savedCheckoutId);
-
-          // Use Cart API to fetch cart status
-          const query = `
-            query getCart($cartId: ID!) {
-              cart(id: $cartId) {
-                id
-                checkoutUrl
-                createdAt
-                updatedAt
-                lines(first: 100) {
-                  edges {
-                    node {
-                      id
-                      quantity
-                      attributes {
-                        key
-                        value
-                      }
-                      merchandise {
-                        ... on ProductVariant {
-                          id
-                          title
-                          price {
-                            amount
-                            currencyCode
-                          }
-                          image {
-                            url
-                            altText
-                          }
-                          product {
-                            id
-                            title
-                            handle
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                cost {
-                  subtotalAmount {
-                    amount
-                    currencyCode
-                  }
-                  totalAmount {
-                    amount
-                    currencyCode
-                  }
-                }
-              }
-            }
-          `;
-
-          const response = await fetch(STOREFRONT_API_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Shopify-Storefront-Access-Token': STOREFRONT_ACCESS_TOKEN
-            },
-            body: JSON.stringify({ query, variables: { cartId: savedCheckoutId } })
-          });
-
-          const { data, errors } = await response.json();
-
-          if (errors || !data?.cart) {
-            console.log('⚠️ Cart not found or expired, clearing state and creating new one');
-            clearCheckoutState();
-            await createCheckout();
-            return;
-          }
-
-          const cart = data.cart;
-
-          // Check if cart has items
-          if (!cart.lines?.edges?.length) {
-            console.log('⚠️ Cart is empty (checkout completed?), clearing state and creating new one');
-            clearCheckoutState();
-            await createCheckout();
-            return;
-          }
-
-          // Cart is valid with items - restore it
-          const restoredCheckout = {
-            id: cart.id,
-            webUrl: cart.checkoutUrl,
-            subtotalPrice: cart.cost?.subtotalAmount,
-            totalPrice: cart.cost?.totalAmount,
-            currencyCode: cart.cost?.totalAmount?.currencyCode,
-            lineItems: cart.lines.edges.map(edge => ({
-              id: edge.node.id,
-              title: edge.node.merchandise?.product?.title || edge.node.merchandise?.title,
-              quantity: edge.node.quantity,
-              customAttributes: edge.node.attributes || [],
-              variant: edge.node.merchandise ? {
-                id: edge.node.merchandise.id,
-                title: edge.node.merchandise.title,
-                price: edge.node.merchandise.price?.amount,
-                image: edge.node.merchandise.image ? {
-                  src: edge.node.merchandise.image.url,
-                  altText: edge.node.merchandise.image.altText
-                } : null,
-                product: edge.node.merchandise.product
-              } : null
-            }))
-          };
-
-          console.log('✅ Restored existing cart:', savedCheckoutId, `(${restoredCheckout.lineItems.length} items)`);
-          setCheckout(restoredCheckout);
-          return;
-
-        } catch (err) {
-          console.log('⚠️ Could not restore cart, clearing state and creating new one:', err.message);
-          clearCheckoutState();
-        }
-      }
-
-      // Create new checkout if no valid existing one
-      await createCheckout();
-    } catch (err) {
-      console.error('Error restoring/creating checkout:', err);
-      await createCheckout(); // Fallback to creating new checkout
-    }
-  };
-
-  /**
-   * Clear checkout state (called when checkout is completed or cart is invalid)
-   */
-  const clearCheckoutState = () => {
-    console.log('🧹 Clearing checkout state');
-    localStorage.removeItem('shopifyCheckoutId');
-    sessionStorage.removeItem('addedToCart');
-    setCheckout(null);
-  };
-
-  /**
    * Fetch all products with metafields using GraphQL
    */
   const fetchProductsWithMetafields = async () => {
@@ -630,8 +677,12 @@ export const ShopifyProvider = ({ children }) => {
       setLoading(true);
 
       const query = `
-        query getAllProducts {
-          products(first: 50) {
+        query getAllProducts($cursor: String) {
+          products(first: 50, after: $cursor) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
             edges {
               node {
                 id
@@ -681,6 +732,14 @@ export const ShopifyProvider = ({ children }) => {
                               key
                               value
                             }
+                          }
+                        }
+                      }
+                      storeAvailability(first: 10) {
+                        edges {
+                          node {
+                            available
+                            location { id name }
                           }
                         }
                       }
@@ -799,27 +858,38 @@ export const ShopifyProvider = ({ children }) => {
         }
       `;
 
-      const response = await fetch(STOREFRONT_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Storefront-Access-Token': STOREFRONT_ACCESS_TOKEN
-        },
-        body: JSON.stringify({ query })
-      });
+      // Paginate through all products
+      let allEdges = [];
+      let cursor = null;
+      let hasNextPage = true;
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      while (hasNextPage) {
+        const response = await fetch(STOREFRONT_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Storefront-Access-Token': STOREFRONT_ACCESS_TOKEN
+          },
+          body: JSON.stringify({ query, variables: { cursor } })
+        });
 
-      const { data, errors } = await response.json();
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
-      if (errors) {
-        throw new Error(errors[0].message);
+        const { data, errors } = await response.json();
+
+        if (errors) {
+          throw new Error(errors[0].message);
+        }
+
+        allEdges.push(...data.products.edges);
+        hasNextPage = data.products.pageInfo.hasNextPage;
+        cursor = data.products.pageInfo.endCursor;
       }
 
       // Transform products
-      const transformedProducts = data.products.edges.map(edge => 
+      const transformedProducts = allEdges.map(edge =>
         transformProduct(edge.node)
       );
 
@@ -902,15 +972,16 @@ export const ShopifyProvider = ({ children }) => {
       };
     }
     
-    // Fallback to productType if no category metafield (backwards compatibility)
+    // Use category metafield from Shopify; fallback to productType only if it matches a known root category
     const productTypeLower = shopifyProduct.productType?.toLowerCase();
-    const category = categoryHandle || (productTypeLower === 'desserts' ? 'desserts' : 'merchandise');
-    const isMerchandise = category !== 'desserts';
+    const category = categoryHandle || productTypeLower || null;
+    const isMerchandise = category === 'merchandise';
     const isDessert = category === 'desserts';
     
-    // Debug: Log category assignment
-    if (!categoryHandle) {
-      console.log(`📦 Product "${shopifyProduct.title}" has no category metafield, using productType fallback: "${shopifyProduct.productType}" → category: "${category}"`);
+    // Debug: Log category assignment for ALL products
+    console.log(`📦 Product "${shopifyProduct.title}" → category: "${category}" (from metafield: ${categoryHandle || 'none'}, fallback: ${productTypeLower})`);
+    if (categoryData) {
+      console.log(`   Category data:`, categoryData);
     }
     
     const isBlindBox = shopifyProduct.tags.some(tag => 
@@ -949,11 +1020,15 @@ export const ShopifyProvider = ({ children }) => {
 
     // Parse inventory - Storefront API only gives total available, not by location
     // For location-specific inventory, you'd need to use the Admin API
-    const totalInventory = variant?.quantityAvailable || 0;
-    
-    // Desserts don't track inventory (made-to-order, unlimited)
-    const inventoryTracked = !isDessert && (variant?.quantityAvailable !== null);
-    const inStock = variant?.availableForSale && (isDessert || totalInventory > 0);
+    const totalInventory = variant?.quantityAvailable ?? 0;
+
+    // Determine if inventory is actually tracked:
+    // - If availableForSale=true but quantityAvailable=0, Shopify is NOT tracking inventory
+    //   (because if it were tracking, it would mark as unavailable when qty=0)
+    // - If availableForSale=false and quantityAvailable=0, Shopify IS tracking and it's out of stock
+    const isAvailableWithZeroQty = variant?.availableForSale && (variant?.quantityAvailable === 0 || variant?.quantityAvailable === null);
+    const inventoryTracked = !isDessert && !isAvailableWithZeroQty;
+    const inStock = variant?.availableForSale || isDessert;
 
     // Transform images with metadata
     const images = shopifyProduct.images.edges.map((edge, index) => {
@@ -1037,7 +1112,7 @@ export const ShopifyProvider = ({ children }) => {
       name: shopifyProduct.title,
       category: category, // Dynamic from metafield
       categoryData: categoryData, // Full category object
-      type: isMerchandise ? 'merchandise' : 'dessert',
+      type: isMerchandise ? 'merchandise' : (isDessert ? 'dessert' : (productTypeLower || 'dessert')),
       merchandiseType: isBlindBox ? 'blind_box_collectible' : null,
       price: `$${parseFloat(price).toFixed(2)}`,
       
@@ -1116,9 +1191,24 @@ export const ShopifyProvider = ({ children }) => {
           containerData: containerData,
           size: sizeData?.id || null,
           sizeData: sizeData,
-          hasVariantImage: hasVariantImageMf?.value === 'true'
+          hasVariantImage: hasVariantImageMf?.value === 'true',
+          storeAvailability: (variantNode.storeAvailability?.edges || []).map(edge => ({
+            available: edge.node.available,
+            locationId: edge.node.location.id,
+          })),
         };
       }),
+
+      // Aggregate location IDs where ANY variant is available (for filtering)
+      storeAvailableLocationIds: (() => {
+        const ids = new Set();
+        shopifyProduct.variants.edges.forEach(e => {
+          (e.node.storeAvailability?.edges || []).forEach(sa => {
+            if (sa.node.available) ids.add(sa.node.location.id);
+          });
+        });
+        return [...ids];
+      })(),
       
       // Collectible info (for blind boxes)
       collectibleInfo: isBlindBox ? {
@@ -1191,260 +1281,6 @@ export const ShopifyProvider = ({ children }) => {
     return 'individual_figurine';
   };
 
-  /**
-   * Create a new checkout session
-   */
-  const createCheckout = async () => {
-    try {
-      const newCheckout = await client.checkout.create();
-      setCheckout(newCheckout);
-
-      // Save checkout ID to localStorage
-      localStorage.setItem('shopifyCheckoutId', newCheckout.id);
-      console.log('✅ Created new checkout:', newCheckout.id);
-
-      return newCheckout;
-    } catch (err) {
-      console.error('Error creating checkout:', err);
-      throw err;
-    }
-  };
-
-  /**
-   * Add item to cart
-   * @param {string} variantId - Shopify variant ID
-   * @param {number} quantity - Quantity to add
-   * @param {Array} customAttributes - Custom attributes for the line item (e.g., modifiers)
-   */
-  const addToCart = async (variantId, quantity = 1, customAttributes = []) => {
-    console.log('🛒 addToCart called:', { variantId, quantity, customAttributes });
-    console.log('🛒 Current checkout:', checkout);
-
-    try {
-      let currentCheckout = checkout;
-      if (!currentCheckout) {
-        console.log('🛒 No checkout exists, creating new one...');
-        currentCheckout = await createCheckout();
-      }
-
-      console.log('🛒 Adding line items to cart:', currentCheckout.id);
-
-      // Use Cart API (not Checkout API) - Shopify Buy SDK v3 uses Cart API
-      const mutation = `
-        mutation cartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
-          cartLinesAdd(cartId: $cartId, lines: $lines) {
-            cart {
-              id
-              checkoutUrl
-              cost {
-                subtotalAmount {
-                  amount
-                  currencyCode
-                }
-                totalAmount {
-                  amount
-                  currencyCode
-                }
-              }
-              lines(first: 250) {
-                edges {
-                  node {
-                    id
-                    quantity
-                    attributes {
-                      key
-                      value
-                    }
-                    merchandise {
-                      ... on ProductVariant {
-                        id
-                        title
-                        price {
-                          amount
-                          currencyCode
-                        }
-                        image {
-                          url
-                          altText
-                        }
-                        product {
-                          id
-                          title
-                          handle
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            userErrors {
-              code
-              field
-              message
-            }
-          }
-        }
-      `;
-
-      const variables = {
-        cartId: currentCheckout.id,
-        lines: [{
-          merchandiseId: variantId,
-          quantity,
-          attributes: customAttributes.map(attr => ({
-            key: attr.key,
-            value: attr.value
-          }))
-        }]
-      };
-
-      console.log('🛒 GraphQL mutation variables:', JSON.stringify(variables, null, 2));
-
-      const response = await fetch(STOREFRONT_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Storefront-Access-Token': STOREFRONT_ACCESS_TOKEN
-        },
-        body: JSON.stringify({ query: mutation, variables })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const { data, errors } = await response.json();
-
-      if (errors) {
-        console.error('🛒 ❌ GraphQL errors:', errors);
-        throw new Error(errors[0]?.message || 'GraphQL error');
-      }
-
-      if (data?.cartLinesAdd?.userErrors?.length > 0) {
-        const userErrors = data.cartLinesAdd.userErrors;
-        console.error('🛒 ❌ Cart user errors:', userErrors);
-        throw new Error(userErrors[0]?.message || 'Cart error');
-      }
-
-      // Transform the GraphQL response to match the SDK's checkout format
-      const cartData = data.cartLinesAdd.cart;
-      const updatedCheckout = {
-        id: cartData.id,
-        webUrl: cartData.checkoutUrl,
-        subtotalPrice: cartData.cost?.subtotalAmount,
-        totalPrice: cartData.cost?.totalAmount,
-        currencyCode: cartData.cost?.totalAmount?.currencyCode,
-        lineItems: cartData.lines.edges.map(edge => ({
-          id: edge.node.id,
-          title: edge.node.merchandise?.product?.title || edge.node.merchandise?.title,
-          quantity: edge.node.quantity,
-          customAttributes: edge.node.attributes || [],
-          variant: edge.node.merchandise ? {
-            id: edge.node.merchandise.id,
-            title: edge.node.merchandise.title,
-            price: edge.node.merchandise.price?.amount,
-            image: edge.node.merchandise.image ? {
-              src: edge.node.merchandise.image.url,
-              altText: edge.node.merchandise.image.altText
-            } : null,
-            product: edge.node.merchandise.product
-          } : null
-        }))
-      };
-
-      console.log('🛒 ✅ Successfully added to cart!', updatedCheckout);
-      console.log('🛒 Line items with attributes:', updatedCheckout.lineItems.map(li => ({
-        title: li.title,
-        customAttributes: li.customAttributes
-      })));
-      setCheckout(updatedCheckout);
-
-      return updatedCheckout;
-    } catch (err) {
-      console.error('🛒 ❌ Error adding to cart:', err);
-      console.error('🛒 ❌ Error details:', err.message, err.stack);
-      throw err;
-    }
-  };
-
-  /**
-   * Remove item from cart
-   */
-  const removeFromCart = async (lineItemId) => {
-    try {
-      const updatedCheckout = await client.checkout.removeLineItems(
-        checkout.id,
-        [lineItemId]
-      );
-      setCheckout(updatedCheckout);
-      return updatedCheckout;
-    } catch (err) {
-      console.error('Error removing from cart:', err);
-      throw err;
-    }
-  };
-
-  /**
-   * Update item quantity in cart
-   */
-  const updateCartItem = async (lineItemId, quantity) => {
-    try {
-      const lineItemsToUpdate = [{ id: lineItemId, quantity }];
-      const updatedCheckout = await client.checkout.updateLineItems(
-        checkout.id,
-        lineItemsToUpdate
-      );
-      setCheckout(updatedCheckout);
-      return updatedCheckout;
-    } catch (err) {
-      console.error('Error updating cart:', err);
-      throw err;
-    }
-  };
-
-  /**
-   * Go to Shopify checkout via Online Store channel
-   * Uses form submission so discount apps (DealEasy, Buy X Get Y) work
-   */
-  /**
-   * Go to Shopify checkout via cart's checkoutUrl
-   * This preserves line item attributes (modifiers)
-   */
-  const goToCheckout = async () => {
-    if (!checkout?.lineItems?.length) return;
-
-    // Use the cart's checkoutUrl to preserve line item attributes
-    if (checkout.webUrl) {
-      console.log('🛒 Redirecting to checkout:', checkout.webUrl);
-      window.location.href = checkout.webUrl;
-    } else {
-      // Fallback: Build cart URL (loses attributes - not ideal)
-      console.warn('🛒 No checkoutUrl available, using fallback (attributes may be lost)');
-      const cartItems = checkout.lineItems.map(item => {
-        const variantId = item.variant.id.split('/').pop();
-        return `${variantId}:${item.quantity}`;
-      }).join(',');
-      window.location.href = `https://${SHOPIFY_DOMAIN}/cart/${cartItems}?redirect=checkout`;
-    }
-  };
-
-  /**
-   * Get cart count
-   */
-  const getCartCount = () => {
-    if (!checkout || !checkout.lineItems) return 0;
-    return checkout.lineItems.reduce((total, item) => total + item.quantity, 0);
-  };
-
-  /**
-   * Get cart total
-   */
-  const getCartTotal = () => {
-    if (!checkout) return '$0.00';
-    return `$${checkout.totalPrice}`;
-  };
-
   // Filter out test-item tagged products unless test mode is enabled
   const filteredProducts = testModeEnabled
     ? products
@@ -1454,6 +1290,144 @@ export const ShopifyProvider = ({ children }) => {
         );
         return !hasTestTag;
       });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CATEGORY HIERARCHY HELPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get a category by its handle or GID
+   */
+  const getCategoryByHandle = useCallback((handle) => {
+    return categories.find(c => c.handle === handle || c.gid === handle);
+  }, [categories]);
+
+  /**
+   * Get all categories at a specific level (1 = root, 2 = subcategory, 3 = container)
+   */
+  const getCategoriesByLevel = useCallback((level) => {
+    return categories.filter(c => c.level === level);
+  }, [categories]);
+
+  /**
+   * Get children of a category
+   */
+  const getCategoryChildren = useCallback((parentHandle) => {
+    return categories.filter(c => c.parentHandle === parentHandle);
+  }, [categories]);
+
+  /**
+   * Get leaf categories (categories with no children - these are what products are assigned to)
+   */
+  const getLeafCategories = useCallback(() => {
+    return categories.filter(c => c.isLeaf);
+  }, [categories]);
+
+  /**
+   * Get the full hierarchy path for a category (from root to category)
+   */
+  const getCategoryPath = useCallback((categoryHandle) => {
+    const category = getCategoryByHandle(categoryHandle);
+    if (!category) return [];
+    return [...(category.ancestors || []), category];
+  }, [getCategoryByHandle]);
+
+  /**
+   * Get level 2 categories (subcategories) under a root category
+   */
+  const getSubcategories = useCallback((rootCategoryHandle) => {
+    return categories.filter(c =>
+      c.level === 2 &&
+      c.rootCategory?.handle === rootCategoryHandle
+    );
+  }, [categories]);
+
+  /**
+   * Get level 3 categories (containers) under a subcategory
+   */
+  const getContainerCategories = useCallback((subcategoryHandle) => {
+    return categories.filter(c =>
+      c.level === 3 &&
+      c.subcategory?.handle === subcategoryHandle
+    );
+  }, [categories]);
+
+  /**
+   * Get hierarchy info for a product based on its category
+   * Returns: { rootCategory, subcategory, container, categoryPath }
+   */
+  const getProductHierarchy = useCallback((product) => {
+    if (!product?.category) {
+      console.log(`🔍 getProductHierarchy: Product "${product?.name}" has no category`);
+      return null;
+    }
+
+    const category = categories.find(c =>
+      c.handle === product.category ||
+      c.gid === product.category ||
+      c.handle === product.categoryData?.handle
+    );
+
+    if (!category) {
+      console.log(`🔍 getProductHierarchy: Product "${product.name}" category "${product.category}" NOT FOUND in categories. Available: ${categories.map(c => c.handle).join(', ')}`);
+      return null;
+    }
+
+    console.log(`🔍 getProductHierarchy: Product "${product.name}" → category "${category.handle}" (L${category.level}), subcategory: ${category.subcategory?.handle || 'none'}, container: ${category.container?.handle || 'none'}`);
+
+    return {
+      category,
+      rootCategory: category.rootCategory,
+      subcategory: category.subcategory,
+      container: category.container,
+      categoryPath: [...(category.ancestors || []), category],
+      level: category.level
+    };
+  }, [categories]);
+
+  /**
+   * Group products by their category hierarchy for display
+   * Returns products organized by subcategory → container
+   */
+  const groupProductsByHierarchy = useCallback((productList) => {
+    const grouped = {};
+
+    productList.forEach(product => {
+      const hierarchy = getProductHierarchy(product);
+      if (!hierarchy) {
+        // Fallback for products without hierarchy
+        const key = 'uncategorized|uncategorized';
+        if (!grouped[key]) {
+          grouped[key] = {
+            subcategory: null,
+            subcategoryTitle: 'Other',
+            container: null,
+            containerTitle: 'Other',
+            products: []
+          };
+        }
+        grouped[key].products.push(product);
+        return;
+      }
+
+      const subcategoryHandle = hierarchy.subcategory?.handle || hierarchy.rootCategory?.handle || 'other';
+      const containerHandle = hierarchy.container?.handle || 'default';
+      const key = `${subcategoryHandle}|${containerHandle}`;
+
+      if (!grouped[key]) {
+        grouped[key] = {
+          subcategory: hierarchy.subcategory || hierarchy.rootCategory,
+          subcategoryTitle: hierarchy.subcategory?.title || hierarchy.rootCategory?.title || 'Other',
+          container: hierarchy.container,
+          containerTitle: hierarchy.container?.title || null,
+          products: []
+        };
+      }
+      grouped[key].products.push(product);
+    });
+
+    return Object.values(grouped);
+  }, [getProductHierarchy]);
 
   const value = {
     // Products (filtered based on test mode)
@@ -1466,25 +1440,26 @@ export const ShopifyProvider = ({ children }) => {
     // Test mode
     testModeEnabled,
 
-    // Categories (top-level)
+    // Categories (with hierarchy)
     categories,
 
-    // Subcategories
+    // Category hierarchy helpers
+    getCategoryByHandle,
+    getCategoriesByLevel,
+    getCategoryChildren,
+    getLeafCategories,
+    getCategoryPath,
+    getSubcategories,
+    getContainerCategories,
+    getProductHierarchy,
+    groupProductsByHierarchy,
+
+    // Legacy subcategories (for backward compatibility)
     dessertSubcategories,
     merchandiseSubcategories,
 
-    // Cart
-    checkout,
-    addToCart,
-    removeFromCart,
-    updateCartItem,
-    goToCheckout,
-    getCartCount,
-    getCartTotal,
-    clearCheckoutState,
-
-    // Client (for advanced usage)
-    client
+    // Store availability (product catalog data includes storeAvailability)
+    storeLocations: [],
   };
 
   return (

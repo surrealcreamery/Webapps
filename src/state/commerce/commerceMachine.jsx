@@ -26,6 +26,10 @@ const initialContext = {
     showCartBanner: false, // Is cart summary banner visible
     showCartDrawer: false, // Is cart drawer open
     
+    // Card grid state - Which category and product detail
+    feedIndex: 0, // Index into feedItems (determines active category)
+    feedActive: false, // Whether product detail page is open
+
     // Scroll Position - Persist scroll
     scrollPosition: 0,
     
@@ -123,6 +127,18 @@ export const commerceMachine = setup({
             showCartDrawer: false
         })),
         
+        // Set feed index (active category)
+        setFeedIndex: assign(({ context, event }) => ({
+            ...context,
+            feedIndex: event.index,
+        })),
+
+        // Set feed active (product detail open/closed)
+        setFeedActive: assign(({ context, event }) => ({
+            ...context,
+            feedActive: event.active,
+        })),
+
         // Save scroll position
         saveScrollPosition: assign(({ context, event }) => {
             if (event.type !== 'SET_SCROLL_POSITION') return context;
@@ -260,6 +276,12 @@ export const commerceMachine = setup({
         RESET: {
             target: '.browsing',
             actions: 'resetContext'
+        },
+        SET_FEED_INDEX: {
+            actions: 'setFeedIndex'
+        },
+        SET_FEED_ACTIVE: {
+            actions: 'setFeedActive'
         }
     }
 });

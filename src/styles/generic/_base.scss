@@ -4,10 +4,12 @@
 
 html {
 	font-size: var(--fz-html);
+	overscroll-behavior: none;
 }
 
 body {
 	min-width: 320px;
+	overscroll-behavior: none;
 	min-height: 100svh;
 	font-family: var(--ff-base);
 	font-weight: var(--fw-base);

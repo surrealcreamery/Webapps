@@ -1,11 +1,13 @@
 /**
  * Square Modifiers Service
  *
- * Fetches product modifiers from Square via AWS Lambda.
- * Includes caching to reduce API calls.
+ * Fetches product modifiers from published catalog (fast CDN) with
+ * fallback to Square Lambda API.
  */
 
-// Lambda API endpoint
+import { getModifiersForProduct, getProductBySku } from './catalogService';
+
+// Lambda API endpoint (fallback)
 const SQUARE_MODIFIERS_API = 'https://2vrm44dxvudlprxwooup65hmna0xueao.lambda-url.us-east-1.on.aws';
 
 // Cache modifiers to avoid repeated API calls
@@ -14,6 +16,7 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Fetch modifiers for a product by SKU
+ * Uses published catalog first (fast), falls back to Lambda API
  * @param {string} sku - Product SKU
  * @returns {Promise<object>} - Modifier data
  */
@@ -31,31 +34,79 @@ export const fetchModifiersBySku = async (sku) => {
   }
 
   try {
-    console.log(`[SquareModifiers] Fetching modifiers for SKU: ${sku}`);
+    // Try catalog first (fast CDN)
+    const catalogModifiers = await getModifiersForProduct(sku);
+    if (catalogModifiers && catalogModifiers.length > 0) {
+      const product = await getProductBySku(sku);
 
-    const response = await fetch(`${SQUARE_MODIFIERS_API}?sku=${encodeURIComponent(sku)}`);
+      // Transform catalog format to match expected API format
+      const maxOverrides = product?.modifierMaxSelections || {};
+      const data = {
+        hasModifiers: true,
+        sku: sku,
+        productId: product?.platformIds?.square || null,
+        variationId: product?.variants?.[0]?.platformIds?.square || null,
+        totalModifierSelections: product?.totalModifierSelections || null,
+        totalModifierCategoryIds: product?.totalModifierCategoryIds || [],
+        modifierCategories: catalogModifiers.map(m => {
+          const maxOverride = maxOverrides[m.modifierId];
+          return {
+            id: m.modifierId,
+            name: m.name,
+            selectionType: maxOverride > 1 ? 'MULTIPLE' : (m.selectionType || 'SINGLE'),
+            required: m.required,
+            minSelections: m.minSelections,
+            maxSelections: maxOverride || m.maxSelections,
+            modifiers: (m.options || []).map(opt => ({
+              id: opt.optionId,
+              name: opt.name,
+              price: opt.price || 0,
+              image: opt.image,
+            })),
+          };
+        }),
+      };
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error(`[SquareModifiers] API error:`, errorData);
-      throw new Error(errorData.error || `HTTP ${response.status}`);
+      // Cache the result
+      modifierCache.set(sku, { data, timestamp: Date.now() });
+      console.log(`[SquareModifiers] Loaded from catalog for ${sku}:`, data);
+      return data;
     }
-
-    const data = await response.json();
-
-    // Cache the result
-    modifierCache.set(sku, {
-      data,
-      timestamp: Date.now(),
-    });
-
-    console.log(`[SquareModifiers] Fetched modifiers for ${sku}:`, data);
-    return data;
-
-  } catch (error) {
-    console.error(`[SquareModifiers] Failed to fetch modifiers for SKU ${sku}:`, error);
-    throw error;
+  } catch (catalogError) {
+    console.error(`[SquareModifiers] Catalog fetch failed:`, catalogError.message);
+    throw catalogError;
   }
+
+  // No modifiers found in catalog
+  return { hasModifiers: false, sku, modifierCategories: [] };
+
+  // // Fallback to Lambda API (commented out for testing)
+  // try {
+  //   console.log(`[SquareModifiers] Fetching modifiers from API for SKU: ${sku}`);
+  //
+  //   const response = await fetch(`${SQUARE_MODIFIERS_API}?sku=${encodeURIComponent(sku)}`);
+  //
+  //   if (!response.ok) {
+  //     const errorData = await response.json().catch(() => ({}));
+  //     console.error(`[SquareModifiers] API error:`, errorData);
+  //     throw new Error(errorData.error || `HTTP ${response.status}`);
+  //   }
+  //
+  //   const data = await response.json();
+  //
+  //   // Cache the result
+  //   modifierCache.set(sku, {
+  //     data,
+  //     timestamp: Date.now(),
+  //   });
+  //
+  //   console.log(`[SquareModifiers] Fetched modifiers for ${sku}:`, data);
+  //   return data;
+  //
+  // } catch (error) {
+  //   console.error(`[SquareModifiers] Failed to fetch modifiers for SKU ${sku}:`, error);
+  //   throw error;
+  // }
 };
 
 /**

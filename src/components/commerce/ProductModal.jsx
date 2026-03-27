@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -9,7 +9,8 @@ import {
     Typography,
     useMediaQuery,
     useTheme,
-    CircularProgress
+    CircularProgress,
+    Slide
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
@@ -25,21 +26,58 @@ import { selectionsToCustomAttributes } from '@/services/squareModifiers';
 // Placeholder image
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=Product';
 
+// Slide up transition for modal (slides up on enter, down on exit)
+const SlideUpTransition = React.forwardRef(function Transition(props, ref) {
+    return (
+        <Slide
+            direction="up"
+            ref={ref}
+            {...props}
+            easing={{
+                enter: 'cubic-bezier(0.4, 0, 0.2, 1)',
+                exit: 'cubic-bezier(0.4, 0, 0.2, 1)'
+            }}
+        />
+    );
+});
+
 export const ProductModal = ({
     open,
     onClose,
     onAddToCart,
     product,
     children,
-    discount = null
+    discount = null,
+    preSelectedModifier = null,
+    storeLocations = [],
 }) => {
     const theme = useTheme();
-    const { addToCart, products: shopifyProducts } = useShopify();
-    
+    const { products: shopifyProducts } = useShopify();
+
     // Full screen on mobile (xs, sm), modal with overlay on md and up
     const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
     const closeButtonRef = useRef(null);
-    
+
+    // Internal open state to control animation independently
+    const [internalOpen, setInternalOpen] = useState(open);
+
+    // Sync internal state when parent opens the modal
+    useEffect(() => {
+        if (open) {
+            setInternalOpen(true);
+        }
+    }, [open]);
+
+    // Handle close with animation
+    const handleClose = useCallback(() => {
+        setInternalOpen(false); // Triggers exit animation
+    }, []);
+
+    // Called after exit animation completes
+    const handleExited = useCallback(() => {
+        onClose?.(); // Now safe to call parent's onClose
+    }, [onClose]);
+
     // Add to cart state
     const [addingToCart, setAddingToCart] = useState(false);
     
@@ -338,6 +376,25 @@ export const ProductModal = ({
     const selectedVariant = product.availableVariants?.find(v => v.id === selectedVariantId) 
         || product.variants?.find(v => v.id === selectedVariantId);
     
+    // Check if variant is available at the user's selected pickup location
+    const locationAvailability = useMemo(() => {
+        const selectedSlug = localStorage.getItem('selectedLocation');
+        if (!selectedSlug || !storeLocations?.length) return { available: true, locationName: null };
+        const store = storeLocations.find(loc => loc.id === selectedSlug);
+        if (!store?.shopifyLocationId) return { available: true, locationName: null };
+        const shopifyGid = `gid://shopify/Location/${store.shopifyLocationId}`;
+        if (selectedVariant?.storeAvailability?.length) {
+            const locEntry = selectedVariant.storeAvailability.find(sa => sa.locationId === shopifyGid);
+            if (!locEntry || !locEntry.available) return { available: false, locationName: store.name };
+        }
+        if (product?.storeAvailableLocationIds?.length) {
+            if (!product.storeAvailableLocationIds.includes(shopifyGid)) {
+                return { available: false, locationName: store.name };
+            }
+        }
+        return { available: true, locationName: store.name };
+    }, [selectedVariant?.id, product?.id, storeLocations]);
+
     // Debug
     console.log('🖼️ Modal debug:', {
         productName: product.name,
@@ -349,6 +406,7 @@ export const ProductModal = ({
         selectedVariant: selectedVariant?.title,
         hasVariantImage: selectedVariant?.hasVariantImage,
         variantImageUrl: selectedVariant?.image?.url,
+        catalogImage: selectedVariant?.catalogImage,
         fulfillmentMethods,
         allowsPickup,
         allowsDelivery,
@@ -357,33 +415,18 @@ export const ProductModal = ({
 
     // Get images based on product type
     const getProductImages = () => {
-        // For desserts: show variant image if hasVariantImage is true, otherwise show product image
-        const isDessert = product.type === 'dessert' || product.category === 'desserts';
-        
-        if (isDessert) {
-            // First priority: variant image if hasVariantImage metafield is true
-            if (selectedVariant?.hasVariantImage === true && selectedVariant?.image?.url) {
-                return [{ url: selectedVariant.image.url, alt: selectedVariant.image.alt || product.name }];
-            }
-            // Second priority: product's main image
-            if (product.imageUrl) {
-                return [{ url: product.imageUrl, alt: product.imageAlt || product.name }];
-            }
-            // Third priority: product images array
-            if (product.images?.length > 0) {
-                return [{ url: product.images[0].url, alt: product.images[0].alt || product.name }];
-            }
-            // Fallback: placeholder
-            return [{ url: PLACEHOLDER_IMAGE, alt: product.name }];
-        }
-        
-        // For non-desserts (merchandise): collect all images
         const images = [];
-        
-        if (selectedVariant?.image?.url) {
+
+        // If selected variant has a catalog image (master/PWA), show it first
+        if (selectedVariant?.catalogImage?.url) {
+            images.push({ url: selectedVariant.catalogImage.url, alt: product.name });
+        }
+        // Else if selected variant has a Shopify image, show it
+        else if (selectedVariant?.image?.url) {
             images.push({ url: selectedVariant.image.url, alt: selectedVariant.image.alt || product.name });
         }
-        
+
+        // Add product-level images (skip duplicates of variant image)
         if (product.images?.length > 0) {
             product.images.forEach(img => {
                 if (!images.some(i => i.url === img.url)) {
@@ -391,22 +434,29 @@ export const ProductModal = ({
                 }
             });
         }
-        
+
+        // Fallback to product main image
         if (images.length === 0 && product.imageUrl) {
             images.push({ url: product.imageUrl, alt: product.imageAlt || product.name });
         }
-        
+
+        // Final fallback: placeholder
         if (images.length === 0) {
             images.push({ url: PLACEHOLDER_IMAGE, alt: product.name });
         }
-        
+
         return images;
     };
 
-    // Get price to display - use selected variant's price if available
-    const displayPrice = selectedVariant 
-        ? `$${parseFloat(selectedVariant.price).toFixed(2)}`
-        : product.price;
+    // Get price to display - check location override first, then variant price
+    const displayPrice = useMemo(() => {
+        const v = selectedVariant;
+        if (!v) return product.price;
+        const slug = localStorage.getItem('selectedLocation');
+        const locPrice = slug && v.locationPrices?.[slug];
+        const price = locPrice != null ? locPrice : v.price;
+        return `$${parseFloat(price).toFixed(2)}`;
+    }, [selectedVariant, product.price]);
 
     const productName = product.name || product.title || 'Product';
 
@@ -428,11 +478,13 @@ export const ProductModal = ({
 
     return (
         <Dialog
-            open={open}
-            onClose={onClose}
+            open={internalOpen}
+            onClose={handleClose}
             fullScreen={isSmallScreen}
             maxWidth="md"
             fullWidth
+            TransitionComponent={SlideUpTransition}
+            TransitionProps={{ onExited: handleExited }}
             aria-labelledby="product-modal-title"
             aria-describedby="product-modal-description"
             PaperProps={{
@@ -443,13 +495,16 @@ export const ProductModal = ({
                     margin: isSmallScreen ? 0 : 'auto',
                     maxWidth: isSmallScreen ? '100%' : '600px',
                     overflow: 'hidden',
+                    backgroundColor: 'white',
                 },
                 role: 'dialog',
                 'aria-modal': 'true'
             }}
+            transitionDuration={{ enter: 300, exit: 300 }}
             sx={{
                 '& .MuiBackdrop-root': {
-                    backgroundColor: isSmallScreen ? 'transparent' : 'rgba(0, 0, 0, 0.5)',
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    transition: 'opacity 300ms ease-in-out',
                 }
             }}
         >
@@ -487,12 +542,13 @@ export const ProductModal = ({
                 id="product-modal-description"
             >
                 {/* Product Image Carousel */}
-                <ProductImageCarousel 
+                <ProductImageCarousel
                     key={selectedVariantId || 'default'}
                     images={getProductImages()}
                     fallbackImage={PLACEHOLDER_IMAGE}
                     productName={productName}
                     primaryAlt={selectedVariant?.image?.alt || product.imageAlt}
+                    pwa={selectedVariant?.catalogImage?.pwa || product.pwa}
                 />
 
                 {/* Product Details */}
@@ -501,7 +557,59 @@ export const ProductModal = ({
                     // Add bottom padding on mobile to account for fixed footer
                     pb: isSmallScreen ? '120px' : 3,
                 }}>
-                    {/* Product Name + Quantity Selector Row */}
+                    {/* Variant Selector - shown above title */}
+                    {product.availableVariants && product.availableVariants.length > 1 && (
+                        <Box sx={{ mb: 2 }} role="group" aria-labelledby="size-selector-heading">
+                            <Typography
+                                variant="body1"
+                                sx={{ mb: 1 }}
+                                id="size-selector-heading"
+                            >
+                                Select an option
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+                                {product.availableVariants.map((variant) => {
+                                    const isSelected = selectedVariantId === variant.id;
+                                    // Use size title from metaobject, or fall back to parsing from title
+                                    let displayTitle = variant.sizeData?.title
+                                        || variant.size
+                                        || variant.title
+                                            .replace(/Ice Cream Cake /i, '')
+                                            .replace(/ Ice Cream/i, '');
+
+                                    return (
+                                        <Button
+                                            key={variant.id}
+                                            variant={isSelected ? "contained" : "outlined"}
+                                            onClick={() => setSelectedVariantId(variant.id)}
+                                            sx={{
+                                                minWidth: '100px',
+                                                px: 2.5,
+                                                py: 1.5,
+                                                borderColor: isSelected ? 'black' : 'grey.400',
+                                                backgroundColor: isSelected ? 'black' : 'transparent',
+                                                color: isSelected ? 'white' : 'text.primary',
+                                                '&:hover': {
+                                                    borderColor: 'black',
+                                                    backgroundColor: isSelected ? 'grey.800' : 'grey.100'
+                                                }
+                                            }}
+                                        >
+                                            <Box sx={{ textAlign: 'center' }}>
+                                                <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                                                    {displayTitle}
+                                                </Typography>
+                                                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                                                    ${parseFloat(variant.price).toFixed(2)}
+                                                </Typography>
+                                            </Box>
+                                        </Button>
+                                    );
+                                })}
+                            </Box>
+                        </Box>
+                    )}
+
                     {/* Product Name */}
                     <Typography
                         variant="h4"
@@ -569,64 +677,12 @@ export const ProductModal = ({
                         </Button>
                     </Box>
 
-                    {/* Variant Selector (for grouped products with multiple variants) */}
-                    {product.availableVariants && product.availableVariants.length > 1 && (
-                        <Box sx={{ mb: 3 }} role="group" aria-labelledby="size-selector-heading">
-                            <Typography
-                                variant="body1"
-                                sx={{ mb: 1 }}
-                                id="size-selector-heading"
-                            >
-                                Select an option
-                            </Typography>
-                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
-                                {product.availableVariants.map((variant) => {
-                                    const isSelected = selectedVariantId === variant.id;
-                                    // Use size title from metaobject, or fall back to parsing from title
-                                    let displayTitle = variant.sizeData?.title
-                                        || variant.size
-                                        || variant.title
-                                            .replace(/Ice Cream Cake /i, '')
-                                            .replace(/ Ice Cream/i, '');
-
-                                    return (
-                                        <Button
-                                            key={variant.id}
-                                            variant={isSelected ? "contained" : "outlined"}
-                                            onClick={() => setSelectedVariantId(variant.id)}
-                                            sx={{
-                                                minWidth: '100px',
-                                                px: 2.5,
-                                                py: 1.5,
-                                                borderColor: isSelected ? 'black' : 'grey.400',
-                                                backgroundColor: isSelected ? 'black' : 'transparent',
-                                                color: isSelected ? 'white' : 'text.primary',
-                                                '&:hover': {
-                                                    borderColor: 'black',
-                                                    backgroundColor: isSelected ? 'grey.800' : 'grey.100'
-                                                }
-                                            }}
-                                        >
-                                            <Box sx={{ textAlign: 'center' }}>
-                                                <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                                                    {displayTitle}
-                                                </Typography>
-                                                <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                                                    ${parseFloat(variant.price).toFixed(2)}
-                                                </Typography>
-                                            </Box>
-                                        </Button>
-                                    );
-                                })}
-                            </Box>
-                        </Box>
-                    )}
-
                     {/* Modifier Selector (for products with Square modifiers) */}
                     {productSku && (
                         <ModifierSelector
                             ref={modifierSelectorRef}
                             sku={productSku}
+                            preSelectedModifier={preSelectedModifier}
                             onSelectionsChange={handleModifierSelectionsChange}
                             onPriceChange={setModifierPrice}
                             onValidationChange={setModifierValidation}
@@ -642,7 +698,7 @@ export const ProductModal = ({
                         {(() => {
                             const isInventoryTracked = product.inventoryTracked;
                             const isOutOfStock = isInventoryTracked && product.totalInventory === 0;
-                            
+
                             if (isOutOfStock) {
                                 return (
                                     <Typography variant="body2" color="text.secondary">
@@ -784,7 +840,7 @@ export const ProductModal = ({
                 <Button
                     ref={closeButtonRef}
                     aria-label={`Close ${productName} details`}
-                    onClick={onClose}
+                    onClick={handleClose}
                     variant="outlined"
                     sx={{
                         minWidth: 'auto',
@@ -811,12 +867,14 @@ export const ProductModal = ({
                 {(() => {
                     // Determine button state
                     const isOutOfStock = product.inventoryTracked && product.totalInventory === 0;
+                    const notAtLocation = !locationAvailability.available;
                     const showContinue = hasModifiers && !isLastModifierStep && !allModifierStepsComplete;
                     const continueDisabled = showContinue && !canContinueModifiers;
                     const addToCartDisabled = !showContinue && (
                         addingToCart ||
                         (!selectedVariantId && !product.variantId) ||
                         isOutOfStock ||
+                        notAtLocation ||
                         (hasModifiers && !allModifierStepsComplete)
                     );
 
@@ -859,6 +917,8 @@ export const ProductModal = ({
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Adding...</Typography>
                             ) : isOutOfStock ? (
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Out of Stock</Typography>
+                            ) : notAtLocation ? (
+                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Not Available at {locationAvailability.locationName}</Typography>
                             ) : showContinue ? (
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Continue</Typography>
                             ) : (

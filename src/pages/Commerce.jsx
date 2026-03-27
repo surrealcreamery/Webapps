@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useRef, useLayoutEffect, useState, useMemo, useCallback } from 'react';
-import { Box, Typography, Button, CircularProgress, Alert, Container, Grid, Card, CardMedia, CardContent, Modal, IconButton, Chip, ToggleButtonGroup, ToggleButton, useMediaQuery, useTheme } from '@mui/material';
+import { Box, Typography, Button, CircularProgress, Alert, Divider, Container, Grid, Card, CardMedia, CardContent, Modal, IconButton, Chip, ToggleButtonGroup, ToggleButton, useMediaQuery, useTheme, TextField, Stack } from '@mui/material';
 import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
 import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -8,7 +8,6 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
-import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
@@ -17,18 +16,20 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 // Import components
 import { Section } from '@/components/commerce/Section';
-import { ProductModal } from '@/components/commerce/ProductModal';
 import { CartDrawer } from '@/components/commerce/CartDrawer';
 import { useDiscounts } from '@/components/commerce/useDiscounts';
 import { BlindBoxProgressIndicator } from '@/components/commerce/BlindBoxProgressIndicator';
 import { DiscountZonePlaceholder } from '@/components/commerce/DiscountZonePlaceholder';
 import { ModifierSelector } from '@/components/commerce/ModifierSelector';
-import { fetchPublishedCatalog, sortProductsByOrder } from '@/services/catalogService';
+import { sortProductsByOrder } from '@/services/catalogService';
 import { getAccessibleTextColorForGradient, checkGradientContrast } from '@/utils/colorContrast';
 import { getPageConfig } from '@/services/pageConfigService';
 import { useCart } from '@/hooks/useCart';
 import Footer from '@/components/footer/commerce/commerceFooter';
 import { fetchInitialData as fetchEventsData } from '@/state/events/eventService';
+import { useCatalog } from '@/contexts/commerce/CatalogContext';
+import { getTextColorForBackground, getItemBackground, resolveDisplayModifiers } from '@/state/catalog/catalogUtils';
+import { useLocationAvailability } from '@/hooks/useLocationAvailability';
 
 // Placeholder image for variants without images
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=No+Image';
@@ -38,99 +39,27 @@ const CATALOG_API_URL = 'https://ou6oqgnnqjo542342x64srup4q0ofoua.lambda-url.us-
 // Module-level variable to persist scroll position across navigations
 let pendingScrollRestore = null;
 
-// Derive readable text color from a hex background color
-// Returns 'white' for dark backgrounds, '#1a1a2e' for light backgrounds
-const getTextColorForBackground = (bgHex) => {
-    if (!bgHex || !bgHex.startsWith('#')) return 'white';
-    const hex = bgHex.replace('#', '');
-    const r = parseInt(hex.substring(0, 2), 16);
-    const g = parseInt(hex.substring(2, 4), 16);
-    const b = parseInt(hex.substring(4, 6), 16);
-    // Relative luminance (sRGB)
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    return luminance > 0.5 ? '#1a1a2e' : 'white';
-};
 
-// Compute CSS gradient/background from item's color data
-const getItemBackground = (item) => {
-    const bgColor = item?.backgroundColor || '#1a1a2e';
-    const gradientDir = item?.gradientDirection;
-    const startColor = item?.gradientStartColor || bgColor;
-    const endColor = item?.gradientEndColor || bgColor;
 
-    if (!gradientDir) return bgColor;
-
-    if (gradientDir.startsWith('linear:') || gradientDir.startsWith('radial:')) {
-        const parts = gradientDir.split(':');
-        const type = parts[0];
-        if (type === 'radial') {
-            const position = parts[1]?.replace('-', ' ') || 'center';
-            return `radial-gradient(circle at ${position}, ${startColor} 0%, ${endColor} 100%)`;
-        }
-        const startPos = parts[1] || 'top-left';
-        const endPos = parts[2] || 'bottom-right';
-        const posToCoord = {
-            'top-left': { x: 0, y: 0 }, 'top': { x: 1, y: 0 }, 'top-right': { x: 2, y: 0 },
-            'left': { x: 0, y: 1 }, 'center': { x: 1, y: 1 }, 'right': { x: 2, y: 1 },
-            'bottom-left': { x: 0, y: 2 }, 'bottom': { x: 1, y: 2 }, 'bottom-right': { x: 2, y: 2 },
-        };
-        const start = posToCoord[startPos] || posToCoord['top-left'];
-        const end = posToCoord[endPos] || posToCoord['bottom-right'];
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-        const angle = Math.round(Math.atan2(dx, -dy) * (180 / Math.PI) + 360) % 360;
-        return `linear-gradient(${angle}deg, ${startColor} 0%, ${endColor} 100%)`;
-    }
-
-    const legacyAngles = {
-        'to-bottom-right': '135deg', 'to-bottom-left': '225deg', 'to-bottom': '180deg',
-        'to-right': '90deg', 'to-top-right': '45deg', 'to-top-left': '315deg',
-        'to-top': '0deg', 'to-left': '270deg',
-    };
-    const angle = legacyAngles[gradientDir];
-    return angle ? `linear-gradient(${angle}, ${startColor} 0%, ${endColor} 100%)` : bgColor;
-};
-
-// Check if a variant is available at the user's selected pickup location.
-// Returns { available, locationName } — available=true means either no location selected
-// or the variant's storeAvailability includes that location.
-const useLocationAvailability = (variant, product, storeLocations) => {
-    return useMemo(() => {
-        const selectedSlug = localStorage.getItem('selectedLocation');
-        if (!selectedSlug || !storeLocations?.length) return { available: true, locationName: null };
-        const store = storeLocations.find(loc => loc.id === selectedSlug);
-        if (!store?.shopifyLocationId) return { available: true, locationName: null };
-        const shopifyGid = `gid://shopify/Location/${store.shopifyLocationId}`;
-
-        // Check variant-level storeAvailability first
-        if (variant?.storeAvailability?.length) {
-            const locEntry = variant.storeAvailability.find(sa => sa.locationId === shopifyGid);
-            if (locEntry && !locEntry.available) return { available: false, locationName: store.name };
-            if (!locEntry) return { available: false, locationName: store.name };
-        }
-        // Fallback: check product-level storeAvailableLocationIds
-        if (product?.storeAvailableLocationIds?.length) {
-            if (!product.storeAvailableLocationIds.includes(shopifyGid)) {
-                return { available: false, locationName: store.name };
-            }
-        }
-        return { available: true, locationName: store.name };
-    }, [variant?.id, product?.id, storeLocations]);
-};
 
 // Mobile product card grid - category index view
 const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOptionTap, collapsingFeedIndex }) => {
-    const makeYourOwn = items.filter(item => item.isMYO);
-    const regular = items.filter(item => !item.isMYO);
 
     const renderCard = (item, isFullWidth) => {
         const itemFeedIndex = feedItems.findIndex(f => f.id === item.id);
         const product = item.product || item;
-        const price = product.variants?.[0]?.price
-            ? `$${parseFloat(product.variants[0].price).toFixed(2)}`
-            : product.price
-                ? `$${parseFloat(product.price).toFixed(2)}`
-                : '';
+        const variants = product.variants?.filter(v => v.price) || [];
+        let price = '';
+        if (variants.length > 1) {
+            const prices = variants.map(v => parseFloat(v.price)).sort((a, b) => a - b);
+            price = prices[0] === prices[prices.length - 1]
+                ? `$${prices[0].toFixed(2)}`
+                : `$${prices[0].toFixed(2)} - $${prices[prices.length - 1].toFixed(2)}`;
+        } else if (variants.length === 1) {
+            price = `$${parseFloat(variants[0].price).toFixed(2)}`;
+        } else if (product.price) {
+            price = `$${parseFloat(product.price).toFixed(2)}`;
+        }
         const bgColor = item.backgroundColor || '#1a1a2e';
         const bgGradient = getItemBackground(item);
         const textColor = item.textColor || getTextColorForBackground(item.backgroundColor);
@@ -233,7 +162,7 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                         {price && (
                             <Typography
                                 sx={{
-                                    fontSize: isFullWidth ? '1.4rem' : '1.2rem',
+                                    fontSize: '1.6rem',
                                     fontWeight: 600,
                                     color: textColor,
                                     opacity: 0.8,
@@ -248,178 +177,213 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
         );
     };
 
-    return (
-        <Box sx={{ px: 2, pb: 6 }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 2 }}>
-                {/* Make Your Own - same card style, uses onProductTap like regular cards */}
-                {makeYourOwn.map(item => {
-                    const itemFeedIndex = feedItems.findIndex(f => f.id === item.id);
-                    const product = item.product || item;
-                    const price = product.variants?.[0]?.price
-                        ? `$${parseFloat(product.variants[0].price).toFixed(2)}`
-                        : product.price
-                            ? `$${parseFloat(product.price).toFixed(2)}`
-                            : '';
-                    const bgColor = item.backgroundColor || '#1a1a2e';
-                    const bgGradient = getItemBackground(item);
-                    const txtColor = item.textColor || getTextColorForBackground(item.backgroundColor);
-                    return (
+    const renderMYOCard = (item) => {
+        const itemFeedIndex = feedItems.findIndex(f => f.id === item.id);
+        const product = item.product || item;
+        const myoVariants = product.variants?.filter(v => v.price) || [];
+        let price = '';
+        if (myoVariants.length > 1) {
+            const prices = myoVariants.map(v => parseFloat(v.price)).sort((a, b) => a - b);
+            price = prices[0] === prices[prices.length - 1]
+                ? `$${prices[0].toFixed(2)}`
+                : `$${prices[0].toFixed(2)} - $${prices[prices.length - 1].toFixed(2)}`;
+        } else if (myoVariants.length === 1) {
+            price = `$${parseFloat(myoVariants[0].price).toFixed(2)}`;
+        } else if (product.price) {
+            price = `$${parseFloat(product.price).toFixed(2)}`;
+        }
+        const bgColor = item.backgroundColor || '#1a1a2e';
+        const bgGradient = getItemBackground(item);
+        const txtColor = item.textColor || getTextColorForBackground(item.backgroundColor);
+        return (
+            <Box
+                key={item.id}
+                data-feed-index={itemFeedIndex}
+                onClick={(e) => {
+                    const cardEl = e.currentTarget.querySelector('[data-card]');
+                    const rect = cardEl ? cardEl.getBoundingClientRect() : e.currentTarget.getBoundingClientRect();
+                    const imgEl = e.currentTarget.querySelector('[data-product-img]');
+                    const imgRect = imgEl ? imgEl.getBoundingClientRect() : null;
+                    const imgAR = imgEl ? imgEl.naturalWidth / imgEl.naturalHeight : 1;
+                    onProductTap?.(itemFeedIndex, { rect, bgColor, bgGradient, imgRect, imgSrc: item.image, imgAR });
+                }}
+                sx={{
+                    cursor: 'pointer',
+                    transition: 'transform 0.2s',
+                    '&:active': { transform: 'scale(0.96)' },
+                }}
+            >
+                <Box
+                    data-card
+                    sx={{
+                        position: 'relative',
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                        bgcolor: 'white',
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                    }}
+                >
+                    <Box sx={{ position: 'relative', paddingTop: '100%' }}>
                         <Box
-                            key={item.id}
-                            data-feed-index={itemFeedIndex}
-                            onClick={(e) => {
-                                const cardEl = e.currentTarget.querySelector('[data-card]');
-                                const rect = cardEl ? cardEl.getBoundingClientRect() : e.currentTarget.getBoundingClientRect();
-                                const imgEl = e.currentTarget.querySelector('[data-product-img]');
-                                const imgRect = imgEl ? imgEl.getBoundingClientRect() : null;
-                                const imgAR = imgEl ? imgEl.naturalWidth / imgEl.naturalHeight : 1;
-                                onProductTap?.(itemFeedIndex, { rect, bgColor, bgGradient, imgRect, imgSrc: item.image, imgAR });
-                            }}
                             sx={{
-                                cursor: 'pointer',
-                                transition: 'transform 0.2s',
-                                '&:active': { transform: 'scale(0.96)' },
+                                position: 'absolute',
+                                left: 0, right: 0, bottom: 0,
+                                height: '50%',
+                                bgcolor: bgColor,
+                                borderRadius: '16px 16px 0 0',
                             }}
-                        >
+                        />
+                        {(item.image || product.imageUrl) && (
                             <Box
-                                data-card
                                 sx={{
-                                    position: 'relative',
-                                    borderRadius: 3,
-                                    overflow: 'hidden',
-                                    bgcolor: 'white',
-                                    height: '100%',
+                                    position: 'absolute',
+                                    top: '3%', left: '2%', right: '2%', bottom: '3%',
                                     display: 'flex',
-                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: collapsingFeedIndex === itemFeedIndex ? 0 : 1,
                                 }}
                             >
-                                {/* Image area - square like other cards */}
-                                <Box sx={{ position: 'relative', paddingTop: '100%' }}>
-                                    <Box
-                                        sx={{
-                                            position: 'absolute',
-                                            left: 0, right: 0, bottom: 0,
-                                            height: '50%',
-                                            bgcolor: bgColor,
-                                            borderRadius: '16px 16px 0 0',
-                                        }}
-                                    />
-                                    {(item.image || product.imageUrl) && (
-                                        <Box
-                                            sx={{
-                                                position: 'absolute',
-                                                top: '3%', left: '2%', right: '2%', bottom: '3%',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                opacity: collapsingFeedIndex === itemFeedIndex ? 0 : 1,
-                                            }}
-                                        >
-                                            <img
-                                                data-product-img
-                                                src={item.image || product.imageUrl}
-                                                srcSet={item.pwa ? `${item.pwa.sm} 480w, ${item.pwa.md} 960w, ${item.pwa.lg} 1440w` : undefined}
-                                                sizes={item.pwa ? "50vw" : undefined}
-                                                alt={item.title || product.name}
-                                                style={{
-                                                    width: '100%',
-                                                    height: '100%',
-                                                    objectFit: 'cover',
-                                                }}
-                                            />
-                                        </Box>
-                                    )}
-                                </Box>
-                                {/* Text area */}
-                                <Box
+                                <img
+                                    data-product-img
+                                    src={item.image || product.imageUrl}
+                                    srcSet={item.pwa ? `${item.pwa.sm} 480w, ${item.pwa.md} 960w, ${item.pwa.lg} 1440w` : undefined}
+                                    sizes={item.pwa ? "50vw" : undefined}
+                                    alt={item.title || product.name}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                    }}
+                                />
+                            </Box>
+                        )}
+                    </Box>
+                    <Box
+                        sx={{
+                            bgcolor: bgColor,
+                            p: 1.5,
+                            pt: 0.5,
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}
+                    >
+                        <Typography sx={{
+                            color: txtColor,
+                            fontWeight: 700,
+                            fontSize: '1.6rem',
+                            textAlign: 'center',
+                            lineHeight: 1.2,
+                            mb: 0.5,
+                        }}>
+                            {item.title || product.name}
+                        </Typography>
+                        {price && (
+                            <Typography sx={{
+                                color: txtColor,
+                                opacity: 0.8,
+                                fontSize: '1.6rem',
+                                mb: 1,
+                            }}>
+                                Starting from {price}
+                            </Typography>
+                        )}
+                        <Box sx={{
+                            border: `2px solid ${txtColor}`,
+                            color: txtColor,
+                            fontWeight: 700,
+                            fontSize: '1.3rem',
+                            px: 2,
+                            py: 0.5,
+                            borderRadius: 2,
+                        }}>
+                            Make Your Own
+                        </Box>
+                    </Box>
+                </Box>
+            </Box>
+        );
+    };
+
+    // Group items by sub-subcategory (Level 3) for sectioned display
+    const hasSubSubcategories = items.some(item => item.subSubcategoryId);
+
+    // Build ordered groups: preserve feed order, group by sub-subcategory
+    const groups = useMemo(() => {
+        if (!hasSubSubcategories) return null;
+        const ordered = [];
+        const seen = new Set();
+        for (const item of items) {
+            const key = item.subSubcategoryId || '_ungrouped';
+            if (!seen.has(key)) {
+                seen.add(key);
+                ordered.push({
+                    id: key,
+                    name: item.subSubcategoryName || null,
+                    items: [],
+                });
+            }
+            ordered.find(g => g.id === key).items.push(item);
+        }
+        return ordered;
+    }, [items, hasSubSubcategories]);
+
+    return (
+        <Box sx={{ px: 2, pb: 6 }}>
+            {groups ? (
+                // Render products grouped by sub-subcategory with text headers
+                groups.map((group, groupIdx) => {
+                    const myoItems = group.items.filter(item => item.isMYO);
+                    const regularItems = group.items.filter(item => !item.isMYO);
+                    return (
+                        <Box key={group.id} sx={{ mb: 3 }}>
+                            {group.name && (
+                                <Typography
                                     sx={{
-                                        bgcolor: bgColor,
-                                        p: 1.5,
-                                        pt: 0.5,
-                                        flex: 1,
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
+                                        fontSize: '1.8rem',
+                                        fontWeight: 700,
+                                        color: 'text.primary',
+                                        mb: 1.5,
+                                        mt: groupIdx > 0 ? 2 : 0,
                                     }}
                                 >
-                                    <Typography sx={{
-                                        color: txtColor,
-                                        fontWeight: 700,
-                                        fontSize: '1.6rem',
-                                        textAlign: 'center',
-                                        lineHeight: 1.2,
-                                        mb: 0.5,
-                                    }}>
-                                        {item.title || product.name}
-                                    </Typography>
-                                    {price && (
-                                        <Typography sx={{
-                                            color: txtColor,
-                                            opacity: 0.8,
-                                            fontSize: '1.2rem',
-                                            mb: 1,
-                                        }}>
-                                            Starting from {price}
-                                        </Typography>
-                                    )}
-                                    <Box sx={{
-                                        border: `2px solid ${txtColor}`,
-                                        color: txtColor,
-                                        fontWeight: 700,
-                                        fontSize: '1.3rem',
-                                        px: 2,
-                                        py: 0.5,
-                                        borderRadius: 2,
-                                    }}>
-                                        Make Your Own
-                                    </Box>
-                                </Box>
+                                    {group.name}
+                                </Typography>
+                            )}
+                            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 2 }}>
+                                {myoItems.map(item => renderMYOCard(item))}
+                                {regularItems.map(item => renderCard(item, false))}
                             </Box>
                         </Box>
                     );
-                })}
-                {/* Product cards */}
-                {regular.map(item => renderCard(item, false))}
-            </Box>
+                })
+            ) : (
+                // No sub-subcategories - flat grid
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 2 }}>
+                    {items.filter(item => item.isMYO).map(item => renderMYOCard(item))}
+                    {items.filter(item => !item.isMYO).map(item => renderCard(item, false))}
+                </Box>
+            )}
         </Box>
     );
 };
 
-// Resolve display modifiers from catalog data (modifier/option IDs → full details)
-const resolveDisplayModifiers = (displayModifiers = [], allModifiers = []) => {
-    if (!displayModifiers.length || !allModifiers.length) return [];
-    const modMap = new Map(allModifiers.map(m => [m.modifierId, m]));
-    return displayModifiers.map(dm => {
-        const mod = modMap.get(dm.modifierId);
-        if (!mod) return null;
-        const opts = (mod.options || [])
-            .filter(o => dm.selectedOptionIds?.includes(o.optionId))
-            .sort((a, b) => (a.position || 0) - (b.position || 0));
-        return opts.length ? {
-            modifierId: dm.modifierId,
-            name: mod.name,
-            options: opts.map(o => ({ optionId: o.optionId, name: o.name, price: o.price, image: o.image })),
-        } : null;
-    }).filter(Boolean);
-};
 
 // Product detail page - image hero (top 1/3) + scrollable info card (bottom 2/3)
 const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, storeLocations = [] }) => {
     const product = item?.product || item;
-    const catalogVariants = item?.catalogVariants || [];
-    // Sort Shopify variants to match catalog (Surreal Admin) order by SKU
-    const variants = useMemo(() => {
-        const shopifyVariants = product?.variants || [];
-        if (!catalogVariants.length) return shopifyVariants;
-        const skuOrder = catalogVariants.map(cv => cv.sku?.toUpperCase());
-        return [...shopifyVariants].sort((a, b) => {
-            const aIdx = skuOrder.indexOf(a.sku?.toUpperCase());
-            const bIdx = skuOrder.indexOf(b.sku?.toUpperCase());
-            return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
-        });
-    }, [product?.variants, catalogVariants]);
-    const defaultVariantId = variants.find(v => v.availableForSale !== false)?.id || variants[0]?.id || product?.variantId;
+    // Variants are already catalog-first (catalog order, names, prices, Shopify GIDs attached)
+    const variants = product?.variants || [];
+    const isMYOProduct = item?.isMYO || false;
+    const hasMultipleVariants = variants.length > 1;
+    const defaultVariantId = (isMYOProduct && hasMultipleVariants)
+        ? null  // MYO with multiple variants: don't auto-select, user picks first
+        : (variants.find(v => v.availableForSale !== false)?.id || variants[0]?.id || product?.variantId);
     const [selectedVariantId, setSelectedVariantId] = useState(defaultVariantId);
     // Reset selection when product changes
     useEffect(() => {
@@ -428,6 +392,102 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
     const [quantity, setQuantity] = useState(1);
     const [addingToCart, setAddingToCart] = useState(false);
     const [contentVisible, setContentVisible] = useState(false);
+
+    // Collectibles: thumbnail gallery state
+    const isCollectible = item?.isCollectible || product?.category?.toLowerCase() === 'merchandise' || product?.productType?.toLowerCase() === 'merchandise';
+    const allProductImages = product?.images?.length ? product.images : (item?.catalogImages || []);
+    const catalogImageStyles = item?.catalogImageStyles || [];
+    const [selectedThumbnailIndex, setSelectedThumbnailIndex] = useState(null);
+    const [imageExpanded, setImageExpanded] = useState(false);
+
+    // Collectibles: scroll-driven card expansion (card expands upward as user scrolls)
+    const [cardExpansion, setCardExpansion] = useState(0);
+    const cardExpansionRef = useRef(0);
+    const contentScrollRef = useRef(null);
+    const touchYRef = useRef(null);
+    const rafRef = useRef(null);
+    const normalHeroVh = isCollectible ? 30 : 38;
+    const minHeroVh = 15;
+    const maxCardExpansion = (isCollectible && !isMYOProduct) ? window.innerHeight * (normalHeroVh - minHeroVh) / 100 : 0;
+
+    // Batched expansion update (1 setState per animation frame)
+    const updateExpansion = useCallback((value) => {
+        cardExpansionRef.current = value;
+        if (!rafRef.current) {
+            rafRef.current = requestAnimationFrame(() => {
+                rafRef.current = null;
+                setCardExpansion(cardExpansionRef.current);
+            });
+        }
+    }, []);
+
+    // Touch/wheel listeners for scroll-driven card expansion
+    useEffect(() => {
+        if (!maxCardExpansion || imageExpanded) return;
+        const el = contentScrollRef.current;
+        if (!el) return;
+
+        const onTouchStart = (e) => {
+            touchYRef.current = e.touches[0].clientY;
+        };
+
+        const onTouchMove = (e) => {
+            if (touchYRef.current == null) return;
+            const touchY = e.touches[0].clientY;
+            const deltaY = touchYRef.current - touchY; // positive = finger up = scroll down
+            touchYRef.current = touchY;
+            const scrollTop = el.scrollTop;
+            const expansion = cardExpansionRef.current;
+
+            if (deltaY > 0 && expansion < maxCardExpansion) {
+                // Scrolling down, card not fully expanded: expand card instead
+                e.preventDefault();
+                updateExpansion(Math.min(expansion + deltaY, maxCardExpansion));
+            } else if (deltaY < 0 && scrollTop <= 0 && expansion > 0) {
+                // Scrolling up, at top, card expanded: collapse card
+                e.preventDefault();
+                updateExpansion(Math.max(expansion + deltaY, 0));
+            }
+        };
+
+        const onTouchEnd = () => {
+            touchYRef.current = null;
+        };
+
+        const onWheel = (e) => {
+            const scrollTop = el.scrollTop;
+            const expansion = cardExpansionRef.current;
+
+            if (e.deltaY > 0 && expansion < maxCardExpansion) {
+                e.preventDefault();
+                updateExpansion(Math.min(expansion + e.deltaY, maxCardExpansion));
+            } else if (e.deltaY < 0 && scrollTop <= 0 && expansion > 0) {
+                e.preventDefault();
+                updateExpansion(Math.max(expansion + e.deltaY, 0));
+            }
+        };
+
+        el.addEventListener('touchstart', onTouchStart, { passive: true });
+        el.addEventListener('touchmove', onTouchMove, { passive: false });
+        el.addEventListener('touchend', onTouchEnd, { passive: true });
+        el.addEventListener('wheel', onWheel, { passive: false });
+
+        return () => {
+            el.removeEventListener('touchstart', onTouchStart);
+            el.removeEventListener('touchmove', onTouchMove);
+            el.removeEventListener('touchend', onTouchEnd);
+            el.removeEventListener('wheel', onWheel);
+            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        };
+    }, [maxCardExpansion, imageExpanded, updateExpansion]);
+
+    // Reset scroll expansion when image tap-expand toggles
+    useEffect(() => {
+        if (imageExpanded) {
+            cardExpansionRef.current = 0;
+            setCardExpansion(0);
+        }
+    }, [imageExpanded]);
 
     // Wide/landscape layout: side-by-side image + info card
     const theme = useTheme();
@@ -441,21 +501,107 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
     const [canContinueModifiers, setCanContinueModifiers] = useState(false);
     const [isLastModifierStep, setIsLastModifierStep] = useState(false);
 
+    // MYO: auto-detect compact bottom bar when too narrow for price+qty+button
+    const bottomBarRef = useRef(null);
+    const [compactBar, setCompactBar] = useState(window.innerWidth < 440);
+    useEffect(() => {
+        const check = () => {
+            const el = bottomBarRef.current;
+            if (el) {
+                setCompactBar(el.contentRect ? el.contentRect.width < 380 : el.offsetWidth < 380);
+            }
+        };
+        // Re-check once content is visible (motion.div animation delay)
+        const timer = setTimeout(check, 400);
+        const observer = new ResizeObserver((entries) => {
+            setCompactBar(entries[0].contentRect.width < 380);
+        });
+        const el = bottomBarRef.current;
+        if (el) observer.observe(el);
+        return () => { clearTimeout(timer); observer.disconnect(); };
+    }, [contentVisible]);
+
+    // Fulfillment state (used by MYO ad lib and collectibles fulfillment selector)
+    const [bottomMode, setBottomMode] = useState('modifiers'); // 'modifiers' | 'fulfillment' | 'location'
+    const productFulfillmentMethods = product?.fulfillmentMethods || [];
+    const hasFulfillmentMethods = productFulfillmentMethods.length > 0;
+    const selectedLocationId = localStorage.getItem('selectedLocation');
+    const selectedLocationObj = storeLocations.find(loc => loc.id === selectedLocationId) || storeLocations[0];
+
+    // Warehouse locations for inventory display
+    const warehouseLocations = storeLocations.filter(l => l.type === 'Warehouse');
+
+    // Default fulfillment method: pick first method that has inventory
+    const defaultFulfillmentMethod = useMemo(() => {
+        if (!hasFulfillmentMethods) return 'pickup';
+        const inv = item?.inventory;
+        const localQty = inv?.trackInventory
+            ? (inv.byLocation || []).find(l => l.locationId === selectedLocationObj?.id)?.quantity || 0
+            : null;
+        const totalQty = inv?.trackInventory ? inv.totalQuantity || 0 : null;
+        // Prefer pickup for desserts, shipping for collectibles
+        if (productFulfillmentMethods.includes('pickup') && selectedLocationObj && (localQty === null || localQty > 0)) return 'pickup';
+        if (productFulfillmentMethods.includes('shipping') && (totalQty === null || totalQty > 0)) return 'shipping';
+        if (productFulfillmentMethods.includes('delivery') && selectedLocationObj && (localQty === null || localQty > 0)) return 'delivery';
+        return productFulfillmentMethods[0] || 'pickup';
+    }, [hasFulfillmentMethods, item?.inventory, productFulfillmentMethods, selectedLocationObj]);
+    const [fulfillmentMethod, setFulfillmentMethod] = useState(defaultFulfillmentMethod);
+
     // Track selected modifier images for MYO hero
-    const handleMyoSelectionsChange = useCallback((selections, categories) => {
+    const [myoModifierData, setMyoModifierData] = useState(null);
+    const [myoAllValid, setMyoAllValid] = useState(false);
+    const myoSelectionsRef = useRef({ selections: {}, categories: [] });
+    const [myoNextStep, setMyoNextStep] = useState(null);
+    const handleMyoSelectionsChange = useCallback((selections, categories, modifierData) => {
         if (!categories) return;
+        if (modifierData) setMyoModifierData(modifierData);
+        myoSelectionsRef.current = { selections, categories };
         const images = [];
         categories.forEach(cat => {
             const selectedIds = selections[cat.id] || [];
             selectedIds.forEach(modId => {
                 const mod = cat.modifiers.find(m => m.id === modId);
                 if (mod) {
-                    images.push({ id: mod.id, name: mod.name, image: mod.image || mod.imageUrl });
+                    images.push({ id: mod.id, categoryId: cat.id, name: mod.name, image: mod.image || mod.imageUrl });
                 }
             });
         });
         setMyoSelectedImages(images);
+        // Compute next step message
+        const nextEmpty = categories.find(cat => (selections[cat.id] || []).length === 0);
+        if (!nextEmpty) {
+            setMyoNextStep(null);
+        } else {
+            const linkedIds = modifierData?.totalModifierCategoryIds || [];
+            const totalLimit = modifierData?.totalModifierSelections;
+            if (linkedIds.includes(nextEmpty.id) && totalLimit) {
+                const linkedNames = categories
+                    .filter(cat => linkedIds.includes(cat.id))
+                    .map(cat => cat.name);
+                const nameList = linkedNames.length > 1
+                    ? `${linkedNames.slice(0, -1).join(', ')}, or ${linkedNames[linkedNames.length - 1]}`
+                    : linkedNames[0];
+                const linkedCount = linkedIds.reduce((sum, id) => sum + (selections[id] || []).length, 0);
+                const remaining = totalLimit - linkedCount;
+                if (remaining <= 0) {
+                    setMyoNextStep(<>Add to Cart to Continue</>);
+                } else if (linkedCount > 0) {
+                    setMyoNextStep(<>Select up to <strong>{remaining}</strong> more from {nameList}</>);
+                } else {
+                    setMyoNextStep(<>Select up to <strong>{totalLimit}</strong> from {nameList}</>);
+                }
+            } else {
+                setMyoNextStep(`Select ${nextEmpty.name}`);
+            }
+        }
     }, []);
+
+    // Show "Select your size" when variant not yet picked (first step for multi-variant MYO)
+    useEffect(() => {
+        if (hasMultipleVariants && !selectedVariantId) {
+            setMyoNextStep('Select your size');
+        }
+    }, [hasMultipleVariants, selectedVariantId]);
 
     // Fade in content after card has started sliding up
     useEffect(() => {
@@ -471,15 +617,47 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
             : '';
     // Use master inventory if available, fall back to Shopify's availableForSale
     const { available: availableAtLocation, locationName } = useLocationAvailability(selectedVariant, product, storeLocations);
-    const isAvailable = (item?.inventory?.trackInventory
-        ? item.inventory.inStock
-        : selectedVariant?.availableForSale !== false) && availableAtLocation;
+    // For products with shipping fulfillment: available if any location has stock (not just selected store)
+    const isAvailable = hasFulfillmentMethods
+        ? (fulfillmentMethod === 'shipping'
+            ? (item?.inventory?.trackInventory ? item.inventory.totalQuantity > 0 : true)
+            : availableAtLocation && (item?.inventory?.trackInventory ? item.inventory.inStock : selectedVariant?.availableForSale !== false))
+        : (item?.inventory?.trackInventory
+            ? item.inventory.inStock
+            : selectedVariant?.availableForSale !== false) && availableAtLocation;
 
     const handleAddToCart = async () => {
         if (!selectedVariantId || addingToCart) return;
+
+        // Check for unmet required modifier selections
+        if (isMYO && !myoAllValid) {
+            modifierSelectorRef.current?.highlightRequired();
+            return;
+        }
+
         setAddingToCart(true);
         try {
-            await onAddToCart?.(product.id, selectedVariantId, quantity);
+            // Build customAttributes from MYO modifier selections
+            const customAttributes = [];
+            if (isMYO) {
+                const { selections, categories } = myoSelectionsRef.current;
+                categories.forEach(cat => {
+                    const selectedIds = selections[cat.id] || [];
+                    const names = selectedIds.map(id => {
+                        const mod = cat.modifiers.find(m => m.id === id);
+                        return mod?.name || id;
+                    });
+                    if (names.length > 0) {
+                        customAttributes.push({ key: cat.name, value: names.join(', ') });
+                    }
+                });
+            }
+            // Pass fulfillment method (used by checkout Lambda to configure draft order)
+            if (hasFulfillmentMethods && fulfillmentMethod) {
+                customAttributes.push({ key: '_fulfillment', value: fulfillmentMethod });
+            }
+            const result = await onAddToCart?.(product, selectedVariant, quantity, customAttributes);
+            if (result?.skipCartOpen) return; // delivery flow handles its own UI
             onClose?.();
             setTimeout(() => onOpenCart?.(), 400);
         } catch (error) {
@@ -489,23 +667,67 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
         }
     };
 
-    const backgroundStyle = getItemBackground(item);
+    // Collectibles: resolve per-image styles from catalog when a thumbnail is selected
+    // Each catalog image can have its own backgroundColor, textColor, gradient
+    const selectedCatalogImage = selectedThumbnailIndex != null
+        ? catalogImageStyles[selectedThumbnailIndex] || null
+        : null;
 
-    // Match variant image to catalog image by shared filename hash
+    // Build effective item with per-image overrides
+    // Collectibles default: white background, black text, no gradient
+    // When a thumbnail is selected, use ONLY that image's values (don't inherit from first image)
+    const activeImageStyles = selectedCatalogImage || (selectedThumbnailIndex == null ? item : null);
+    const collectibleItem = isCollectible
+        ? {
+            ...item,
+            backgroundColor: activeImageStyles?.backgroundColor || '#ffffff',
+            textColor: activeImageStyles?.textColor || '#000000',
+            gradientDirection: activeImageStyles?.gradientDirection || null,
+            gradientStartColor: activeImageStyles?.gradientStartColor || null,
+            gradientEndColor: activeImageStyles?.gradientEndColor || null,
+        }
+        : {
+            ...item,
+            backgroundColor: item?.backgroundColor || '#ffffff',
+            textColor: item?.textColor || '#000000',
+        };
+    const backgroundStyle = getItemBackground(collectibleItem);
+
+    // Match variant image: prefer catalog variant image, then hash-match from Shopify CDN
     const catalogImages = item?.catalogImages || [];
     let heroImage = item?.image;
-    const variantImgUrl = selectedVariant?.image?.url;
-    if (variantImgUrl && catalogImages.length > 1) {
-        // Extract unique hash from Shopify CDN filename (e.g., "c764ec92" from "surreal-nom-nom-cookie-c764ec92-shopify.webp")
-        const shopifyFilename = variantImgUrl.split('/').pop()?.split('?')[0] || '';
-        const hashMatch = shopifyFilename.match(/([a-f0-9]{8})/);
-        if (hashMatch) {
-            const hash = hashMatch[1];
-            const matched = catalogImages.find(ci => ci.url?.includes(hash));
-            if (matched) heroImage = matched.url;
+    // Catalog-first: use variant's catalogImage directly
+    if (selectedVariant?.catalogImage?.url) {
+        heroImage = selectedVariant.catalogImage.url;
+    } else {
+        const variantImgUrl = selectedVariant?.image?.url;
+        if (variantImgUrl && catalogImages.length > 1) {
+            const shopifyFilename = variantImgUrl.split('/').pop()?.split('?')[0] || '';
+            const hashMatch = shopifyFilename.match(/([a-f0-9]{8})/);
+            if (hashMatch) {
+                const hash = hashMatch[1];
+                const matched = catalogImages.find(ci => ci.url?.includes(hash));
+                if (matched) heroImage = matched.url;
+            }
         }
     }
-    const heroTextColor = item?.textColor || getTextColorForBackground(item?.backgroundColor);
+    // Collectibles: override hero with selected thumbnail image
+    if (selectedThumbnailIndex != null && allProductImages[selectedThumbnailIndex]) {
+        const img = allProductImages[selectedThumbnailIndex];
+        heroImage = typeof img === 'string' ? img : img.url;
+    }
+    const showThumbnails = isCollectible && allProductImages.length > 1 && !isWide;
+    const reserveThumbnailSpace = showThumbnails; // Only reserve space when thumbnails will actually show
+    const heroHeightNormal = reserveThumbnailSpace ? '30dvh' : '38dvh';
+    const heroHeightExpanded = reserveThumbnailSpace ? 'calc(100dvh - 200px - 8dvh)' : 'calc(100dvh - 200px)';
+    const heroHeight = (imageExpanded && isCollectible && !isWide)
+        ? heroHeightExpanded
+        : cardExpansion > 0
+            ? `calc(${heroHeightNormal} - ${cardExpansion}px)`
+            : heroHeightNormal;
+    const thumbnailStripHeight = '8dvh';
+
+    const heroTextColor = collectibleItem?.textColor || getTextColorForBackground(collectibleItem?.backgroundColor);
 
     return (
         <>
@@ -518,10 +740,10 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         sx={{
                             position: 'fixed',
                             top: 0, left: 0, right: 0, bottom: 0,
-                            zIndex: 4,
+                            zIndex: 101,
                             background: isWide
-                                ? `linear-gradient(to right, transparent 50%, ${item?.gradientEndColor || item?.backgroundColor || '#1a1a2e'} 50%)`
-                                : (item?.gradientEndColor || item?.backgroundColor || '#1a1a2e'),
+                                ? `linear-gradient(to right, transparent 50%, ${collectibleItem?.gradientEndColor || collectibleItem?.backgroundColor || '#1a1a2e'} 50%)`
+                                : (collectibleItem?.gradientEndColor || collectibleItem?.backgroundColor || '#1a1a2e'),
                             overscrollBehavior: 'none',
                             touchAction: 'none',
                         }}
@@ -532,7 +754,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             sx={{
                                 position: 'fixed',
                                 top: 0, left: 0, width: '50%', bottom: 0,
-                                zIndex: 3,
+                                zIndex: 102,
                                 background: backgroundStyle,
                                 overscrollBehavior: 'none',
                                 touchAction: 'none',
@@ -540,98 +762,398 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         />
                     )}
 
-                    {/* Top section - gradient background + product image */}
+                    {/* MYO: Left panel with selections list (wide/desktop only) */}
+                    {isWide && isMYO && (
+                        <Box
+                            sx={{
+                                position: 'fixed',
+                                top: 0, left: 0, width: '50%', bottom: 0,
+                                zIndex: 104,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                px: 4,
+                                pt: 10,
+                                pb: 4,
+                                overscrollBehavior: 'none',
+                            }}
+                        >
+                            {/* Fulfillment ad lib */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                                <Typography
+                                    onClick={() => setBottomMode(bottomMode === 'fulfillment' ? 'modifiers' : 'fulfillment')}
+                                    sx={{
+                                        fontSize: '1.6rem',
+                                        fontWeight: 600,
+                                        color: heroTextColor,
+                                        textDecoration: 'underline',
+                                        textDecorationStyle: 'dotted',
+                                        textUnderlineOffset: '3px',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {fulfillmentMethod === 'pickup' ? 'Pickup' : 'Delivery'}
+                                </Typography>
+                                <Typography sx={{ fontSize: '1.6rem', color: heroTextColor, opacity: 0.7 }}>
+                                    from
+                                </Typography>
+                                <Typography
+                                    onClick={() => setBottomMode(bottomMode === 'location' ? 'modifiers' : 'location')}
+                                    sx={{
+                                        fontSize: '1.6rem',
+                                        fontWeight: 600,
+                                        color: heroTextColor,
+                                        textDecoration: 'underline',
+                                        textDecorationStyle: 'dotted',
+                                        textUnderlineOffset: '3px',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {selectedLocationObj?.name || 'Select Location'}
+                                </Typography>
+                            </Box>
+
+                            {/* Product title */}
+                            <Typography sx={{ fontSize: '2rem', fontWeight: 700, color: heroTextColor, mb: 0.5 }}>
+                                {item?.title || product?.name}
+                            </Typography>
+
+                            {/* Selected variant label for MYO multi-variant */}
+                            {isMYO && hasMultipleVariants && selectedVariantId && (
+                                <Typography sx={{ fontSize: '1.4rem', color: heroTextColor, opacity: 0.7, mb: 0.5 }}>
+                                    {variants.find(v => v.id === selectedVariantId)?.name || variants.find(v => v.id === selectedVariantId)?.catalogName || ''} · {displayPrice}
+                                </Typography>
+                            )}
+                            {/* Variant toggle (hide for MYO multi-variant — shown in content area) */}
+                            {variants.length > 1 && !(isMYO && hasMultipleVariants) && (
+                                <Box sx={{ display: 'flex', mb: 1 }}>
+                                    <ToggleButtonGroup
+                                        value={selectedVariantId}
+                                        exclusive
+                                        onChange={(_, val) => { if (val) setSelectedVariantId(val); }}
+                                        sx={{
+                                            borderRadius: 2,
+                                            overflow: 'hidden',
+                                            border: '1.5px solid',
+                                            borderColor: `${heroTextColor}60`,
+                                            '& .MuiToggleButtonGroup-grouped': {
+                                                border: 'none',
+                                                borderRight: '1px solid',
+                                                borderColor: `${heroTextColor}30`,
+                                                '&:last-of-type': { borderRight: 'none' },
+                                            },
+                                        }}
+                                    >
+                                        {variants.map((variant) => (
+                                            <ToggleButton
+                                                key={variant.id}
+                                                value={variant.id}
+                                                sx={{
+                                                    textTransform: 'none',
+                                                    minHeight: 0,
+                                                    lineHeight: 1.2,
+                                                    px: 1.5,
+                                                    py: '4px',
+                                                    fontSize: '1.4rem',
+                                                    whiteSpace: 'nowrap',
+                                                    color: heroTextColor,
+                                                    '&.Mui-selected': {
+                                                        bgcolor: heroTextColor,
+                                                        color: getTextColorForBackground(heroTextColor),
+                                                        '&:hover': { bgcolor: heroTextColor },
+                                                    },
+                                                    '&:hover': { bgcolor: `${heroTextColor}20` },
+                                                }}
+                                            >
+                                                {variant.name || variant.catalogName || variant.title || `Option ${variants.indexOf(variant) + 1}`}
+                                            </ToggleButton>
+                                        ))}
+                                    </ToggleButtonGroup>
+                                </Box>
+                            )}
+
+                            {myoNextStep && (
+                                <Typography sx={{ fontSize: '1.4rem', color: heroTextColor, opacity: 0.7, mb: 1 }}>
+                                    {myoNextStep}
+                                </Typography>
+                            )}
+                            <Divider sx={{ borderColor: `${heroTextColor}30`, mb: 2 }} />
+                            <Box sx={{ flex: 1, overflowY: 'auto' }}>
+                                {myoSelectedImages.length > 0 ? (
+                                    myoSelectedImages.map((sel) => {
+                                        const cat = myoSelectionsRef.current.categories?.find(c => c.id === sel.categoryId);
+                                        return (
+                                            <Box
+                                                key={sel.id}
+                                                sx={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    py: 1,
+                                                    borderBottom: '1px solid',
+                                                    borderColor: `${heroTextColor}15`,
+                                                }}
+                                            >
+                                                <Box sx={{
+                                                    width: 40, height: 40,
+                                                    borderRadius: '50%',
+                                                    overflow: 'hidden',
+                                                    flexShrink: 0,
+                                                    bgcolor: `${heroTextColor}10`,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    border: '2px solid',
+                                                    borderColor: `${heroTextColor}30`,
+                                                    mr: 1.5,
+                                                }}>
+                                                    {sel.image ? (
+                                                        <img src={sel.image} alt={sel.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    ) : (
+                                                        <Typography sx={{ fontSize: '1.4rem', color: heroTextColor }}>{sel.name.charAt(0).toUpperCase()}</Typography>
+                                                    )}
+                                                </Box>
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography sx={{ fontSize: '1.6rem', fontWeight: 500, color: heroTextColor }}>
+                                                        {sel.name}
+                                                    </Typography>
+                                                    {cat && (
+                                                        <Typography sx={{ fontSize: '1.2rem', color: heroTextColor, opacity: 0.5 }}>
+                                                            {cat.name}
+                                                        </Typography>
+                                                    )}
+                                                </Box>
+                                                <IconButton
+                                                    onClick={() => modifierSelectorRef.current?.removeSelection(sel.categoryId, sel.id)}
+                                                    sx={{
+                                                        color: heroTextColor,
+                                                        opacity: 0.5,
+                                                        p: 0.5,
+                                                        '&:hover': { opacity: 1, bgcolor: `${heroTextColor}15` },
+                                                    }}
+                                                >
+                                                    <CloseIcon sx={{ fontSize: 18 }} />
+                                                </IconButton>
+                                            </Box>
+                                        );
+                                    })
+                                ) : (
+                                    <Typography sx={{ fontSize: '1.4rem', color: heroTextColor, opacity: 0.5, mt: 2 }}>
+                                        Your selections will appear here
+                                    </Typography>
+                                )}
+                            </Box>
+                        </Box>
+                    )}
+
+                    {/* Top section - gradient background + product image (hidden for MYO — uses full card instead) */}
                     <Box
+                        onClick={isCollectible && !isWide && !isMYO ? () => setImageExpanded(prev => !prev) : undefined}
                         sx={{
-                            display: 'flex',
+                            display: isMYO ? 'none' : 'flex',
                             position: 'fixed',
                             top: 0, left: 0,
                             right: isWide ? 'auto' : 0,
                             width: isWide ? '50%' : '100%',
-                            height: isWide ? '100dvh' : '38dvh',
-                            zIndex: 5,
+                            height: isWide ? '100dvh' : heroHeight,
+                            zIndex: 103,
                             background: isWide ? 'transparent' : backgroundStyle,
                             alignItems: 'center',
                             justifyContent: 'center',
                             overflow: 'hidden',
                             overscrollBehavior: 'none',
                             touchAction: 'none',
+                            transition: cardExpansion > 0 ? 'none' : 'height 0.35s cubic-bezier(0.22, 1, 0.36, 1)',
+                            cursor: isCollectible && !isWide ? 'pointer' : undefined,
                         }}
                     >
                         {isMYO ? (
                             <Box sx={{
                                 display: 'flex',
                                 flexDirection: 'column',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 1,
-                                px: 2,
-                                maxWidth: '90%',
+                                width: '100%',
+                                height: '100%',
+                                pt: 2,
+                                overflow: 'hidden',
                             }}>
-                                {/* Title in gradient area */}
+                                {/* Fulfillment ad lib */}
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, px: 2, mb: 1 }}>
+                                    <Typography
+                                        onClick={() => setBottomMode(bottomMode === 'fulfillment' ? 'modifiers' : 'fulfillment')}
+                                        sx={{
+                                            fontSize: '1.6rem',
+                                            fontWeight: 600,
+                                            color: heroTextColor,
+                                            textDecoration: 'underline',
+                                            textDecorationStyle: 'dotted',
+                                            textUnderlineOffset: '3px',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {fulfillmentMethod === 'pickup' ? 'Pickup' : 'Delivery'}
+                                    </Typography>
+                                    <Typography sx={{ fontSize: '1.6rem', color: heroTextColor }}>
+                                        from
+                                    </Typography>
+                                    <Typography
+                                        onClick={() => setBottomMode(bottomMode === 'location' ? 'modifiers' : 'location')}
+                                        sx={{
+                                            fontSize: '1.6rem',
+                                            fontWeight: 600,
+                                            color: heroTextColor,
+                                            textDecoration: 'underline',
+                                            textDecorationStyle: 'dotted',
+                                            textUnderlineOffset: '3px',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {selectedLocationObj?.name || 'Select Location'}
+                                    </Typography>
+                                </Box>
+
+                                {/* Variant toggle group */}
+                                {variants.length > 1 && (
+                                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                                        <ToggleButtonGroup
+                                            value={selectedVariantId}
+                                            exclusive
+                                            onChange={(_, val) => { if (val) setSelectedVariantId(val); }}
+                                            sx={{
+                                                borderRadius: 2,
+                                                overflow: 'hidden',
+                                                border: `1.5px solid ${heroTextColor}`,
+                                                '& .MuiToggleButtonGroup-grouped': {
+                                                    border: 'none',
+                                                    borderRight: `1px solid ${heroTextColor}40`,
+                                                    '&:last-of-type': { borderRight: 'none' },
+                                                },
+                                            }}
+                                        >
+                                            {variants.map((variant) => (
+                                                <ToggleButton
+                                                    key={variant.id}
+                                                    value={variant.id}
+                                                    sx={{
+                                                        textTransform: 'none',
+                                                        minHeight: 0,
+                                                        lineHeight: 1.2,
+                                                        px: 1.5,
+                                                        py: '4px',
+                                                        fontSize: '1.6rem',
+                                                        whiteSpace: 'nowrap',
+                                                        color: heroTextColor,
+                                                        '&.Mui-selected': {
+                                                            bgcolor: heroTextColor,
+                                                            color: getTextColorForBackground(heroTextColor),
+                                                            '&:hover': { bgcolor: heroTextColor },
+                                                        },
+                                                        '&:hover': { bgcolor: `${heroTextColor}20` },
+                                                    }}
+                                                >
+                                                    {variant.name || variant.catalogName || variant.title || `Option ${variants.indexOf(variant) + 1}`}
+                                                </ToggleButton>
+                                            ))}
+                                        </ToggleButtonGroup>
+                                    </Box>
+                                )}
+
+                                {/* Product title */}
                                 <Typography sx={{
-                                    color: item?.textColor || getTextColorForBackground(item?.backgroundColor),
-                                    fontSize: '2.2rem',
+                                    fontSize: '2rem',
                                     fontWeight: 700,
                                     textAlign: 'center',
-                                    textShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                    mb: myoSelectedImages.length > 0 ? 1 : 0,
+                                    color: heroTextColor,
+                                    mb: 0.5,
                                 }}>
                                     {item?.title || product?.name}
                                 </Typography>
 
-                                {/* Selected modifier images */}
-                                {myoSelectedImages.length > 0 && (
-                                    <Box sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: 1,
+                                {/* Next step indicator */}
+                                {myoNextStep && (
+                                    <Typography sx={{
+                                        textAlign: 'center',
+                                        fontSize: '1.4rem',
+                                        color: heroTextColor,
+                                        opacity: 0.8,
+                                        mb: 1,
                                     }}>
-                                        {myoSelectedImages.map((sel, idx) => (
-                                            <React.Fragment key={sel.id}>
-                                                {idx > 0 && (
-                                                    <Typography sx={{
-                                                        color: item?.textColor || getTextColorForBackground(item?.backgroundColor),
-                                                        fontSize: '2rem',
-                                                        fontWeight: 700,
-                                                        opacity: 0.8,
-                                                        flexShrink: 0,
-                                                    }}>+</Typography>
-                                                )}
-                                                <Box sx={{
-                                                    flexShrink: 1,
-                                                    minWidth: 0,
-                                                    display: 'flex',
-                                                    flexDirection: 'column',
-                                                    alignItems: 'center',
-                                                }}>
-                                                    {sel.image && (
-                                                        <img
-                                                            src={sel.image}
-                                                            alt={sel.name}
-                                                            style={{
-                                                                width: '100%',
-                                                                maxWidth: myoSelectedImages.length === 1 ? '200px' : '120px',
-                                                                aspectRatio: '1',
-                                                                objectFit: 'cover',
-                                                                borderRadius: 12,
-                                                            }}
-                                                        />
-                                                    )}
-                                                    <Typography sx={{
-                                                        color: item?.textColor || getTextColorForBackground(item?.backgroundColor),
-                                                        fontSize: '1.2rem',
-                                                        fontWeight: 600,
-                                                        textAlign: 'center',
-                                                        mt: 0.5,
-                                                        textShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                                                    }}>{sel.name}</Typography>
-                                                </Box>
-                                            </React.Fragment>
-                                        ))}
-                                    </Box>
+                                        {myoNextStep}
+                                    </Typography>
                                 )}
+
+                                {/* Scrollable selections list */}
+                                <Box sx={{
+                                    flex: 1,
+                                    overflowY: 'auto',
+                                    px: 1,
+                                    WebkitOverflowScrolling: 'touch',
+                                }}>
+                                    {myoSelectedImages.length > 0 ? (
+                                        myoSelectedImages.map((sel) => (
+                                            <Box
+                                                key={sel.id}
+                                                sx={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    px: 2,
+                                                    py: 0.75,
+                                                }}
+                                            >
+                                                {/* Circular icon */}
+                                                <Box sx={{
+                                                    width: 40, height: 40,
+                                                    borderRadius: '50%',
+                                                    overflow: 'hidden',
+                                                    flexShrink: 0,
+                                                    bgcolor: '#f5f0e6',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    border: '2px solid',
+                                                    borderColor: `${heroTextColor}40`,
+                                                }}>
+                                                    {sel.image ? (
+                                                        <img src={sel.image} alt={sel.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    ) : (
+                                                        <Typography sx={{ fontSize: '1.4rem', color: heroTextColor }}>{sel.name.charAt(0).toUpperCase()}</Typography>
+                                                    )}
+                                                </Box>
+                                                {/* Name */}
+                                                <Typography sx={{
+                                                    flex: 1,
+                                                    ml: 1.5,
+                                                    fontSize: '1.6rem',
+                                                    fontWeight: 500,
+                                                    color: heroTextColor,
+                                                }}>
+                                                    {sel.name}
+                                                </Typography>
+                                                {/* Remove button */}
+                                                <IconButton
+                                                    onClick={() => modifierSelectorRef.current?.removeSelection(sel.categoryId, sel.id)}
+                                                    sx={{
+                                                        color: heroTextColor,
+                                                        opacity: 0.7,
+                                                        p: 0.5,
+                                                        '&:hover': { opacity: 1, bgcolor: `${heroTextColor}20` },
+                                                    }}
+                                                >
+                                                    <CloseIcon sx={{ fontSize: 18 }} />
+                                                </IconButton>
+                                            </Box>
+                                        ))
+                                    ) : (
+                                        <Box sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            height: '100%',
+                                            opacity: 0.6,
+                                        }}>
+                                            <Typography sx={{ color: heroTextColor, fontSize: '1.4rem', textAlign: 'center' }}>
+                                                Select options below to build your order
+                                            </Typography>
+                                        </Box>
+                                    )}
+                                </Box>
                             </Box>
                         ) : (
                             <Box sx={{
@@ -693,7 +1215,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                                     },
                                                 }}
                                             >
-                                                {variant.title || variant.name || `Option ${variants.indexOf(variant) + 1}`}
+                                                {variant.name || variant.catalogName || variant.title || `Option ${variants.indexOf(variant) + 1}`}
                                             </ToggleButton>
                                         ))}
                                     </ToggleButtonGroup>
@@ -722,8 +1244,63 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         )}
             </Box>
 
+                    {/* Collectibles: horizontal thumbnail strip below hero image */}
+                    {reserveThumbnailSpace && (
+                        <Box
+                            sx={{
+                                position: 'fixed',
+                                top: heroHeight,
+                                left: 0,
+                                right: 0,
+                                height: thumbnailStripHeight,
+                                zIndex: 104,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                px: 2,
+                                overflowX: 'auto',
+                                WebkitOverflowScrolling: 'touch',
+                                '&::-webkit-scrollbar': { display: 'none' },
+                                scrollbarWidth: 'none',
+                                transition: cardExpansion > 0 ? 'none' : 'top 0.35s cubic-bezier(0.22, 1, 0.36, 1)',
+                                bgcolor: collectibleItem?.backgroundColor || '#ffffff',
+                            }}
+                        >
+                            {allProductImages.map((img, idx) => {
+                                const imgUrl = typeof img === 'string' ? img : img.url;
+                                const isActive = selectedThumbnailIndex != null
+                                    ? idx === selectedThumbnailIndex
+                                    : idx === 0;
+                                return (
+                                    <Box
+                                        key={idx}
+                                        onClick={() => setSelectedThumbnailIndex(idx)}
+                                        sx={{
+                                            flexShrink: 0,
+                                            width: 52,
+                                            height: 52,
+                                            borderRadius: 1,
+                                            overflow: 'hidden',
+                                            cursor: 'pointer',
+                                            border: isActive ? `2px solid ${heroTextColor}` : '2px solid transparent',
+                                            opacity: isActive ? 1 : 0.6,
+                                            transition: 'all 0.2s',
+                                            '&:hover': { opacity: 1 },
+                                        }}
+                                    >
+                                        <img
+                                            src={imgUrl}
+                                            alt=""
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                    </Box>
+                                );
+                            })}
+                        </Box>
+                    )}
+
                     {/* Variant toggle group (wide only — fixed, centered on full page) */}
-                    {isWide && !isMYO && variants.length > 1 && (
+                    {isWide && variants.length > 1 && (
                         <ToggleButtonGroup
                             value={selectedVariantId}
                             exclusive
@@ -732,7 +1309,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                 position: 'fixed',
                                 top: 16,
                                 left: '50%',
-                                zIndex: 65,
+                                zIndex: 115,
                                 opacity: contentVisible ? 1 : 0,
                                 transform: contentVisible ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(-15px)',
                                 transition: 'opacity 0.4s ease 0.15s, transform 0.4s ease 0.15s',
@@ -771,7 +1348,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                         },
                                     }}
                                 >
-                                    {variant.title || variant.name || `Option ${variants.indexOf(variant) + 1}`}
+                                    {variant.name || variant.catalogName || variant.title || `Option ${variants.indexOf(variant) + 1}`}
                                 </ToggleButton>
                             ))}
                         </ToggleButtonGroup>
@@ -789,46 +1366,188 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                 transition={{ duration: closing ? 0.3 : 0.4, ease: [0.22, 1, 0.36, 1] }}
                 style={{
                     position: 'fixed',
-                    top: isWide ? 56 : '38dvh',
-                    left: isWide ? 'calc(50% + 24px)' : 12,
-                    right: isWide ? 24 : 12,
+                    top: isWide ? 56 : (isMYO ? 0 : (reserveThumbnailSpace ? `calc(${heroHeight} + ${thumbnailStripHeight})` : heroHeight)),
+                    left: isWide ? 'calc(50% + 24px)' : (isMYO ? 0 : 12),
+                    right: isWide ? 24 : (isMYO ? 0 : 12),
                     bottom: isWide ? 24 : 0,
                     backgroundColor: 'white',
-                    borderRadius: isWide ? 24 : '24px 24px 0 0',
-                    boxShadow: isWide ? '0 8px 32px rgba(0,0,0,0.12)' : 'none',
-                    zIndex: 60,
+                    borderRadius: isWide ? 24 : (isMYO ? 0 : '24px 24px 0 0'),
+                    boxShadow: isWide
+                        ? '0 8px 32px rgba(0,0,0,0.12)'
+                        : (isCollectible && (!collectibleItem?.backgroundColor || collectibleItem.backgroundColor === '#ffffff' || collectibleItem.backgroundColor === '#fff'))
+                            ? '0 -4px 16px rgba(0,0,0,0.15)'
+                            : 'none',
+                    zIndex: 110,
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
                     overscrollBehavior: 'none',
+                    transition: (isCollectible && !isWide && cardExpansion === 0) ? 'top 0.35s cubic-bezier(0.22, 1, 0.36, 1)' : undefined,
                 }}
             >
-                {/* Drag handle indicator */}
-                <Box sx={{ display: isWide ? 'none' : 'flex', justifyContent: 'center', pt: 1.5, pb: 1 }}>
-                    <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: 'grey.300' }} />
-                </Box>
+                {/* Drag handle indicator (hidden for MYO and when image expanded) */}
+                {!isMYO && !imageExpanded && (
+                    <Box sx={{ display: isWide ? 'none' : 'flex', justifyContent: 'center', pt: 1.5, pb: 1 }}>
+                        <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: 'grey.300' }} />
+                    </Box>
+                )}
 
-                {/* Scrollable content - fades in as card slides up */}
-                <Box
-                    sx={{
-                        flex: 1,
-                        overflowY: 'auto',
+                {/* MYO: Fixed header — ad lib + product name + variant toggle + counter (mobile only when wide) */}
+                {isMYO && !isWide && (
+                    <Box sx={{
+                        flexShrink: 0,
                         px: 3,
-                        pt: isWide ? 3 : 0,
-                        pb: 2,
+                        pt: 2,
+                        pb: 1.5,
+                        borderBottom: '1px solid',
+                        borderColor: 'grey.200',
                         opacity: (contentVisible && !closing) ? 1 : 0,
-                        transform: (contentVisible && !closing) ? 'translateY(0)' : 'translateY(20px)',
-                        transition: 'opacity 0.35s ease, transform 0.35s ease',
+                        transition: 'opacity 0.35s ease',
+                    }}>
+                        {/* Fulfillment ad lib */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, mb: 1 }}>
+                            <Typography
+                                onClick={() => setBottomMode(bottomMode === 'fulfillment' ? 'modifiers' : 'fulfillment')}
+                                sx={{
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    textDecoration: 'underline',
+                                    textDecorationStyle: 'dotted',
+                                    textUnderlineOffset: '3px',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                {fulfillmentMethod === 'pickup' ? 'Pickup' : 'Delivery'}
+                            </Typography>
+                            <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
+                                from
+                            </Typography>
+                            <Typography
+                                onClick={() => setBottomMode(bottomMode === 'location' ? 'modifiers' : 'location')}
+                                sx={{
+                                    fontSize: '1.6rem',
+                                    fontWeight: 600,
+                                    textDecoration: 'underline',
+                                    textDecorationStyle: 'dotted',
+                                    textUnderlineOffset: '3px',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                {selectedLocationObj?.name || 'Select Location'}
+                            </Typography>
+                        </Box>
+                        {/* Product title */}
+                        <Typography sx={{ fontSize: '1.8rem', fontWeight: 700, textAlign: 'center', lineHeight: 1.2 }}>
+                            {item?.title || product?.name}
+                        </Typography>
+                        {/* Selected modifier icons */}
+                        {myoSelectedImages.length > 0 && (
+                            <>
+                                <Divider sx={{ my: 1 }} />
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                                    {myoSelectedImages.map((sel, idx) => (
+                                        <React.Fragment key={sel.id}>
+                                            {idx > 0 && (
+                                                <Typography sx={{ fontSize: '1.2rem', color: 'text.disabled', fontWeight: 500, lineHeight: 1 }}>+</Typography>
+                                            )}
+                                            <Box sx={{
+                                                width: 32, height: 32,
+                                                borderRadius: '50%',
+                                                overflow: 'hidden',
+                                                flexShrink: 0,
+                                                bgcolor: 'grey.100',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                border: '1.5px solid',
+                                                borderColor: 'grey.300',
+                                            }}>
+                                                {sel.image ? (
+                                                    <img src={sel.image} alt={sel.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                ) : (
+                                                    <Typography sx={{ fontSize: '1.1rem', fontWeight: 600, color: 'text.secondary' }}>{sel.name.charAt(0)}</Typography>
+                                                )}
+                                            </Box>
+                                        </React.Fragment>
+                                    ))}
+                                </Box>
+                            </>
+                        )}
+                        {/* Variant toggle (only in header for non-MYO or single variant) */}
+                        {variants.length > 1 && !(isMYO && hasMultipleVariants) && (
+                            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                                <ToggleButtonGroup
+                                    value={selectedVariantId}
+                                    exclusive
+                                    onChange={(_, val) => { if (val) setSelectedVariantId(val); }}
+                                    sx={{
+                                        borderRadius: 2,
+                                        overflow: 'hidden',
+                                        border: '1.5px solid',
+                                        borderColor: 'grey.400',
+                                        '& .MuiToggleButtonGroup-grouped': {
+                                            border: 'none',
+                                            borderRight: '1px solid',
+                                            borderColor: 'grey.300',
+                                            '&:last-of-type': { borderRight: 'none' },
+                                        },
+                                    }}
+                                >
+                                    {variants.map((variant) => (
+                                        <ToggleButton
+                                            key={variant.id}
+                                            value={variant.id}
+                                            sx={{
+                                                textTransform: 'none',
+                                                minHeight: 0,
+                                                lineHeight: 1.2,
+                                                px: 1.5,
+                                                py: '4px',
+                                                fontSize: '1.4rem',
+                                                whiteSpace: 'nowrap',
+                                                '&.Mui-selected': {
+                                                    bgcolor: 'black',
+                                                    color: 'white',
+                                                    '&:hover': { bgcolor: 'black' },
+                                                },
+                                            }}
+                                        >
+                                            {variant.name || variant.catalogName || variant.title || `Option ${variants.indexOf(variant) + 1}`}
+                                        </ToggleButton>
+                                    ))}
+                                </ToggleButtonGroup>
+                            </Box>
+                        )}
+                        {/* Next step indicator */}
+                        {myoNextStep && (
+                            <Typography sx={{ textAlign: 'center', fontSize: '1.4rem', color: 'text.secondary', mt: 0.5 }}>
+                                {myoNextStep}
+                            </Typography>
+                        )}
+                    </Box>
+                )}
+
+                {/* Scrollable content (hidden when image expanded on collectibles) */}
+                <Box
+                    ref={contentScrollRef}
+                    sx={{
+                        flex: imageExpanded ? 0 : 1,
+                        overflowY: imageExpanded ? 'hidden' : 'auto',
+                        px: 3,
+                        pt: isWide ? 3 : (isMYO ? 0 : 0),
+                        pb: isMYO ? 0 : 2,
+                        opacity: (contentVisible && !closing && !imageExpanded) ? 1 : 0,
+                        maxHeight: imageExpanded ? 0 : undefined,
+                        transform: (contentVisible && !closing && !imageExpanded) ? 'translateY(0)' : 'translateY(20px)',
+                        transition: 'opacity 0.3s ease, transform 0.3s ease',
                     }}
                 >
                     {/* Product name + price */}
-                    {(!isMYO || isLastModifierStep) && (
+                    {!isMYO && (
                         <>
-                            {!isMYO && (
-                                <Typography sx={{ fontSize: '1.8rem', fontWeight: 700, lineHeight: 1.2, mb: 0.5 }}>
-                                    {item?.title || product?.name}
-                                </Typography>
-                            )}
+                            <Typography sx={{ fontSize: '1.8rem', fontWeight: 700, lineHeight: 1.2, mb: 0.5 }}>
+                                {item?.title || product?.name}
+                            </Typography>
                             <Typography sx={{ fontSize: '1.6rem', fontWeight: 500, color: 'grey.600', mb: 1.5 }}>
                                 {displayPrice}
                             </Typography>
@@ -845,29 +1564,225 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                     <AddIcon />
                                 </IconButton>
                             </Box>
+
+                            {/* Fulfillment method selector (any product with fulfillment methods) */}
+                            {hasFulfillmentMethods && item?.inventory && (() => {
+                                const inv = item.inventory;
+
+                                // Check inventory for each fulfillment method
+                                const localQty = inv.trackInventory
+                                    ? (inv.byLocation || []).find(l => l.locationId === selectedLocationObj?.id)?.quantity || 0
+                                    : null; // null = not tracked = available
+                                // Shipping: available if ANY location has inventory (not just warehouse)
+                                const totalQty = inv.trackInventory ? inv.totalQuantity || 0 : null;
+
+                                const pickupAvailable = productFulfillmentMethods.includes('pickup') && selectedLocationObj && (localQty === null || localQty > 0);
+                                const deliveryAvailable = productFulfillmentMethods.includes('delivery') && selectedLocationObj && (localQty === null || localQty > 0);
+                                const shippingAvailable = productFulfillmentMethods.includes('shipping') && (totalQty === null || totalQty > 0);
+                                const availableMethods = [
+                                    ...(pickupAvailable ? ['pickup'] : []),
+                                    ...(deliveryAvailable ? ['delivery'] : []),
+                                    ...(shippingAvailable ? ['shipping'] : []),
+                                ];
+
+                                const allMethods = [
+                                    productFulfillmentMethods.includes('pickup') && { key: 'pickup', available: pickupAvailable, icon: '🏪', label: 'Pickup', sub: selectedLocationObj?.name || 'Select store' },
+                                    productFulfillmentMethods.includes('delivery') && { key: 'delivery', available: deliveryAvailable, icon: '🛵', label: 'Delivery', sub: 'Local area' },
+                                    productFulfillmentMethods.includes('shipping') && { key: 'shipping', available: shippingAvailable, icon: '📦', label: 'Ship', sub: 'To your door' },
+                                ].filter(Boolean);
+
+                                if (availableMethods.length === 0) {
+                                    return (
+                                        <Box sx={{ mb: 2 }}>
+                                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: 'error.main' }}>
+                                                Sold Out
+                                            </Typography>
+                                        </Box>
+                                    );
+                                }
+
+                                return (
+                                    <Box sx={{ mb: 2 }}>
+                                        <Typography sx={{ fontSize: '1.2rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
+                                            How would you like it?
+                                        </Typography>
+                                        <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                                            {allMethods.map(({ key, available, icon, label, sub }) => {
+                                                const selected = fulfillmentMethod === key;
+                                                return (
+                                                    <Box
+                                                        key={key}
+                                                        onClick={() => available && setFulfillmentMethod(key)}
+                                                        sx={{
+                                                            flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                                            py: 1.5, px: 1, borderRadius: 2, border: '2px solid',
+                                                            borderColor: !available ? 'grey.200' : selected ? 'black' : 'grey.300',
+                                                            bgcolor: !available ? 'grey.50' : selected ? 'grey.50' : 'white',
+                                                            opacity: available ? 1 : 0.45,
+                                                            cursor: available ? 'pointer' : 'default',
+                                                            transition: 'all 0.2s',
+                                                        }}
+                                                    >
+                                                        <Typography sx={{ fontSize: '1.8rem', mb: 0.25 }}>{icon}</Typography>
+                                                        <Typography sx={{ fontSize: '1.3rem', fontWeight: 600, lineHeight: 1.2, textAlign: 'center' }}>{label}</Typography>
+                                                        <Typography sx={{ fontSize: '1.1rem', color: 'text.secondary', lineHeight: 1.2, textAlign: 'center' }}>
+                                                            {available ? sub : 'Unavailable'}
+                                                        </Typography>
+                                                    </Box>
+                                                );
+                                            })}
+                                        </Box>
+                                    </Box>
+                                );
+                            })()}
                         </>
                     )}
-
-                    {/* MYO: Interactive modifier selector from Square API */}
-                    {isMYO && productSku && (
+                    {/* MYO: Variant selection (shown first for multi-variant, before modifiers) */}
+                    {isMYO && hasMultipleVariants && !selectedVariantId && bottomMode === 'modifiers' && (
+                        <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, textAlign: 'center', mb: 1 }}>
+                                Select Your Size
+                            </Typography>
+                            {variants.map((variant) => {
+                                const _locSlug = localStorage.getItem('selectedLocation');
+                                const _locP = _locSlug && variant.locationPrices?.[_locSlug];
+                                const variantPrice = parseFloat(_locP != null ? _locP : (variant.price?.amount || variant.price || 0));
+                                const isUnavailable = variant.availableForSale === false;
+                                return (
+                                    <Box
+                                        key={variant.id}
+                                        onClick={() => !isUnavailable && setSelectedVariantId(variant.id)}
+                                        sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            p: 2,
+                                            borderRadius: 3,
+                                            border: '2px solid',
+                                            borderColor: 'grey.300',
+                                            bgcolor: 'white',
+                                            cursor: isUnavailable ? 'default' : 'pointer',
+                                            opacity: isUnavailable ? 0.5 : 1,
+                                            transition: 'all 0.15s',
+                                            '&:hover': !isUnavailable ? { borderColor: 'black', bgcolor: 'grey.50' } : {},
+                                        }}
+                                    >
+                                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>
+                                            {variant.name || variant.catalogName || variant.title}
+                                        </Typography>
+                                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 500, color: isUnavailable ? 'text.disabled' : 'text.primary' }}>
+                                            {isUnavailable ? 'Sold Out' : `$${variantPrice.toFixed(2)}`}
+                                        </Typography>
+                                    </Box>
+                                );
+                            })}
+                        </Box>
+                    )}
+                    {/* MYO: Modifier selection (shown after variant is picked for multi-variant) */}
+                    {isMYO && productSku && bottomMode === 'modifiers' && (!hasMultipleVariants || selectedVariantId) && (
                         <ModifierSelector
                             ref={modifierSelectorRef}
                             sku={productSku}
-                            autoAdvance
+                            layout="grid"
                             onSelectionsChange={handleMyoSelectionsChange}
                             onPriceChange={() => {}}
                             onValidationChange={() => {}}
-                            onAllStepsComplete={() => {}}
+                            onAllStepsComplete={setMyoAllValid}
                             onCanContinueChange={setCanContinueModifiers}
                             onIsLastStepChange={setIsLastModifierStep}
                         />
+                    )}
+                    {isMYO && bottomMode === 'fulfillment' && (
+                        <Box sx={{ py: 2 }}>
+                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 2 }}>
+                                Pickup or Delivery
+                            </Typography>
+                            <Box sx={{ display: 'flex', gap: 2 }}>
+                                {['pickup', 'delivery'].map((method) => (
+                                    <Box
+                                        key={method}
+                                        onClick={() => {
+                                            setFulfillmentMethod(method);
+                                            setBottomMode('modifiers');
+                                        }}
+                                        sx={{
+                                            flex: 1,
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderRadius: 3,
+                                            border: '2px solid',
+                                            borderColor: fulfillmentMethod === method ? 'black' : 'grey.300',
+                                            bgcolor: fulfillmentMethod === method ? 'grey.50' : 'white',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            py: 4,
+                                        }}
+                                    >
+                                        <Typography sx={{ fontSize: '2rem', fontWeight: 700 }}>
+                                            {method === 'pickup' ? 'Pickup' : 'Delivery'}
+                                        </Typography>
+                                        <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', mt: 1, textAlign: 'center', px: 2 }}>
+                                            {method === 'pickup'
+                                                ? `Ready at ${selectedLocationObj?.name || 'store'}`
+                                                : 'Delivered to your door'}
+                                        </Typography>
+                                    </Box>
+                                ))}
+                            </Box>
+                        </Box>
+                    )}
+                    {isMYO && bottomMode === 'location' && (
+                        <Box sx={{ py: 2 }}>
+                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 2 }}>
+                                Select Location
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                                {storeLocations.map((location) => (
+                                    <Box
+                                        key={location.id}
+                                        onClick={() => {
+                                            localStorage.setItem('selectedLocation', location.id);
+                                            window.dispatchEvent(new CustomEvent('locationChanged'));
+                                            setBottomMode('modifiers');
+                                        }}
+                                        sx={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            borderRadius: 3,
+                                            border: '2px solid',
+                                            borderColor: location.id === selectedLocationId ? 'black' : 'grey.300',
+                                            bgcolor: location.id === selectedLocationId ? 'grey.50' : 'white',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            py: 3,
+                                            px: 3,
+                                        }}
+                                    >
+                                        <Typography sx={{ fontSize: '1.8rem', fontWeight: 700 }}>
+                                            {location.name}
+                                        </Typography>
+                                        <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', mt: 0.5, textAlign: 'center' }}>
+                                            {location.address}
+                                        </Typography>
+                                        {location.phone && (
+                                            <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', mt: 0.5 }}>
+                                                {location.phone}
+                                            </Typography>
+                                        )}
+                                    </Box>
+                                ))}
+                            </Box>
+                        </Box>
                     )}
 
                     {/* Display Modifiers - flat 3-column grid (non-MYO products only) */}
                     {!isMYO && item?.displayModifiers?.length > 0 && (
                         <Box sx={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))',
                             gap: 1.5,
                             mb: 3,
                         }}>
@@ -879,6 +1794,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             display: 'flex',
                                             flexDirection: 'column',
                                             alignItems: 'center',
+                                            overflow: 'hidden',
                                         }}
                                     >
                                         {opt.image && (
@@ -900,6 +1816,9 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             textAlign: 'center',
                                             color: 'grey.700',
                                             lineHeight: 1.2,
+                                            width: '100%',
+                                            wordBreak: 'break-word',
+                                            hyphens: 'auto',
                                         }}>
                                             {opt.name}
                                         </Typography>
@@ -909,8 +1828,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         </Box>
                     )}
 
-                    {/* Description */}
-                    {product?.description && (
+                    {/* Description (hidden during MYO modifier flow — shown on intro screen instead) */}
+                    {product?.description && !isMYO && (
                         <Typography sx={{ fontSize: '1.6rem', color: 'grey.600', lineHeight: 1.6, mb: 3 }}>
                             {product.description}
                         </Typography>
@@ -919,8 +1838,48 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 
                 </Box>
 
+                {/* Collapsed card summary (visible when image expanded) */}
+                {imageExpanded && !isMYO && (
+                    <Box sx={{ px: 3, pt: 2, pb: 1 }}>
+                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.2 }}>
+                            {item?.title || product?.name}
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.5 }}>
+                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 500, color: 'grey.600' }}>
+                                {displayPrice}
+                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 2 }}>
+                                <IconButton onClick={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1} size="small" sx={{ p: 0.5 }}>
+                                    <RemoveIcon sx={{ fontSize: 18 }} />
+                                </IconButton>
+                                <Typography sx={{ px: 0.5, fontWeight: 600, fontSize: '1.4rem', minWidth: 20, textAlign: 'center' }}>
+                                    {quantity}
+                                </Typography>
+                                <IconButton onClick={() => setQuantity(q => q + 1)} size="small" sx={{ p: 0.5 }}>
+                                    <AddIcon sx={{ fontSize: 18 }} />
+                                </IconButton>
+                            </Box>
+                        </Box>
+                        <Typography
+                            onClick={() => setImageExpanded(false)}
+                            sx={{
+                                fontSize: '1.4rem',
+                                fontWeight: 600,
+                                color: 'black',
+                                cursor: 'pointer',
+                                textDecoration: 'underline',
+                                textUnderlineOffset: '2px',
+                                mt: 0.5,
+                            }}
+                        >
+                            See more
+                        </Typography>
+                    </Box>
+                )}
+
                 {/* Sticky bottom bar - close + add to cart */}
-                <Box sx={{
+                <Box ref={bottomBarRef} sx={{
+                    mt: 'auto',
                     display: 'flex',
                     alignItems: 'stretch',
                     gap: 1.5,
@@ -944,33 +1903,35 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         <CloseIcon />
                     </IconButton>
 
-                    {/* MYO: Add to Cart only when on review step */}
+                    {/* MYO: Add to Cart · $price */}
                     {isMYO && productSku ? (
-                        isLastModifierStep && (
-                            <Button
-                                variant="contained"
-                                fullWidth
-                                onClick={handleAddToCart}
-                                disabled={addingToCart || !isAvailable}
-                                sx={{
-                                    py: 1.5,
-                                    fontSize: '1.6rem',
-                                    fontWeight: 600,
-                                    textTransform: 'none',
-                                    borderRadius: 3,
-                                    bgcolor: isAvailable ? 'black' : 'grey.400',
-                                    '&:hover': { bgcolor: isAvailable ? 'grey.800' : 'grey.400' },
-                                }}
-                            >
-                                {addingToCart ? (
-                                    <CircularProgress size={24} color="inherit" />
-                                ) : isAvailable ? (
-                                    'Add to Cart'
-                                ) : (
-                                    'Out of Stock'
-                                )}
-                            </Button>
-                        )
+                        <Button
+                            variant="contained"
+                            fullWidth
+                            onClick={handleAddToCart}
+                            disabled={addingToCart || !isAvailable || !selectedVariantId || !myoAllValid}
+                            sx={{
+                                py: 1.5,
+                                fontSize: '1.6rem',
+                                fontWeight: 600,
+                                textTransform: 'none',
+                                borderRadius: 3,
+                                whiteSpace: 'nowrap',
+                                bgcolor: isAvailable ? 'black' : 'grey.400',
+                                '&:hover': { bgcolor: isAvailable ? 'grey.800' : 'grey.400' },
+                                '&.Mui-disabled': { bgcolor: 'grey.300', color: 'grey.500' },
+                            }}
+                        >
+                            {addingToCart ? (
+                                <CircularProgress size={24} color="inherit" />
+                            ) : !isAvailable ? (
+                                'Out of Stock'
+                            ) : (!selectedVariantId || !myoAllValid) ? (
+                                'Add to Cart'
+                            ) : (
+                                `Add to Cart \u00B7 ${displayPrice}`
+                            )}
+                        </Button>
                     ) : (
                         <Button
                             variant="contained"
@@ -1000,6 +1961,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                     )}
                 </Box>
             </motion.div>
+
         </>
     );
 };
@@ -1009,17 +1971,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 // Values are now pulled dynamically from discounts.json
 // ===========================================
 
-// Reward thresholds configuration
-// Free gift thresholds are now pulled dynamically from useDiscounts hook
-// Free shipping threshold is kept here (could also be moved to Shopify metafields)
-const REWARDS_CONFIG = {
-    freeShipping: {
-        threshold: 75,
-        icon: 'shipping',
-        title: 'Free Shipping',
-        unlockedMessage: 'Free shipping unlocked!'
-    }
-};
+// To re-enable the free shipping reward, see /docs/free-shipping-reward.md
 
 // Error boundary to catch render errors and display them
 class CommerceErrorBoundary extends React.Component {
@@ -1063,15 +2015,21 @@ function CommerceInner() {
     const feedIndexRef = useRef(0);
 
     // State for card grid + vertical feed
-    const [feedIndex, setFeedIndex] = useState(() => commerceState?.context?.feedIndex ?? 0);
+    // On fresh page load at /product/*, don't restore feed state (URL was set via pushState for SEO)
+    const isProductUrl = window.location.pathname.startsWith('/product/');
+    const [feedIndex, setFeedIndex] = useState(() => isProductUrl ? 0 : (commerceState?.context?.feedIndex ?? 0));
     feedIndexRef.current = feedIndex;
-    const [feedActive, setFeedActive] = useState(() => commerceState?.context?.feedActive ?? false);
+    const [feedActive, setFeedActive] = useState(() => isProductUrl ? false : (commerceState?.context?.feedActive ?? false));
     const [expandTransition, setExpandTransition] = useState(null); // { rect, bgStyle, imgRect, imgSrc }
     const [collapseTransition, setCollapseTransition] = useState(null); // reverse animation
     const [closingDetail, setClosingDetail] = useState(false); // triggers card slide-down before collapse
     const closeTimeoutRef = useRef(null); // track close timeout for cancellation
     const lastCardTransitionRef = useRef(null); // remember card position for reverse
     const feedScrollPositionRef = useRef(0); // remember scroll position when entering product detail
+    const originPathRef = useRef(
+        // If direct-loading a product URL, don't store it as origin — will be resolved from product category
+        window.location.pathname.startsWith('/product/') ? null : (window.location.pathname || '/desserts')
+    ); // remember category path to restore on close
 
     // Sync feedIndex and feedActive to xState for persistence
     useEffect(() => {
@@ -1086,6 +2044,9 @@ function CommerceInner() {
     const closeProductDetail = useCallback(() => {
         const current = feedItemsRef.current?.[feedIndexRef.current];
         const cardData = lastCardTransitionRef.current;
+
+        // Restore URL back to originating category (replaceState to avoid React Router re-render)
+        window.history.replaceState(null, '', originPathRef.current);
 
         // Restore full header immediately so the grid renders with correct layout
         // (prevents layout shift at end of animation)
@@ -1127,6 +2088,8 @@ function CommerceInner() {
                         }
                     }
 
+                    const closingIsCollectible = current?.isCollectible || product?.category?.toLowerCase() === 'merchandise' || product?.productType?.toLowerCase() === 'merchandise';
+                    const closingImageCount = current?.catalogImages?.length || product?.images?.length || 0;
                     setCollapseTransition({
                         targetRect,
                         targetImgRect,
@@ -1136,6 +2099,8 @@ function CommerceInner() {
                         title: current?.title || product?.name || '',
                         price,
                         textColor: current?.textColor || getTextColorForBackground(current?.backgroundColor),
+                        isCollectible: closingIsCollectible,
+                        hasThumbnails: closingIsCollectible && closingImageCount > 1,
                     });
                 });
             });
@@ -1176,7 +2141,7 @@ function CommerceInner() {
             sessionStorage.removeItem('selectedRewards');
         }
     }, [localCart.cart.length]);
-    
+
     // Debug: Log order discounts
     useEffect(() => {
         console.log('📊 Order discounts:', orderDiscounts);
@@ -1197,34 +2162,47 @@ function CommerceInner() {
     const navigate = useNavigate();
     const location = useLocation();
     const { productId } = useParams();
-    
+
+    // On fresh load at /product/*, open the product directly
+
+    // Close dessert product detail if user presses browser back button
+    useEffect(() => {
+        const handlePopState = () => {
+            if (feedActive && !window.location.pathname.startsWith('/product/')) {
+                setActiveTextColor('black');
+                setIsProductDetail(false);
+                setOnCloseProductDetail(null);
+                setClosingDetail(false);
+                setFeedActive(false);
+                setCollapseTransition(null);
+                lastCardTransitionRef.current = null;
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [feedActive]);
+
     // Blind box selector modal state
     const [showBlindBoxSelector, setShowBlindBoxSelector] = useState(false);
 
-    // Catalog for product ordering
-    const [catalog, setCatalog] = useState(null);
+    // Catalog engine (shared state machine)
+    const {
+        catalog,
+        subcategories: CATALOG_DESSERT_SUBCATEGORIES,
+        collectiblesSubcategories: CATALOG_COLLECTIBLES_SUBCATEGORIES,
+        shopifyGidLookup,
+        mergedProductOrder: getMergedProductOrder,
+        locationFilteredProducts,
+        storeLocations,
+        selectedLocation: selectedLocationForFilter,
+        isReady: catalogReady,
+    } = useCatalog();
 
     // Page configuration from API
     const [pageConfig, setPageConfig] = useState(null);
 
     // Events data for event carousel
     const [events, setEvents] = useState([]);
-
-    // Locations data for filtering events by selected location
-    const [storeLocations, setStoreLocations] = useState([]);
-
-    // Fetch published catalog for product ordering
-    useEffect(() => {
-        fetchPublishedCatalog().then(setCatalog);
-    }, []);
-
-    // Fetch store locations
-    useEffect(() => {
-        fetch('https://data.surrealcreamery.com/locations.json')
-            .then(res => res.json())
-            .then(data => { if (Array.isArray(data)) setStoreLocations(data); })
-            .catch(() => {});
-    }, []);
 
     // Fetch events for event carousel
     useEffect(() => {
@@ -1246,21 +2224,6 @@ function CommerceInner() {
         });
     }, []);
 
-    // Get merged productOrder from ALL categories in catalog
-    const getMergedProductOrder = useMemo(() => {
-        if (!catalog?.categories) return [];
-        const allOrdered = [];
-        for (const category of catalog.categories) {
-            if (category.productOrder?.length) {
-                for (const sku of category.productOrder) {
-                    if (!allOrdered.includes(sku)) {
-                        allOrdered.push(sku);
-                    }
-                }
-            }
-        }
-        return allOrdered;
-    }, [catalog]);
 
     // Get section config from page config by type
     const getSectionConfig = useCallback((sectionType) => {
@@ -1332,7 +2295,7 @@ function CommerceInner() {
     const ctaConfig = useMemo(() => getSectionConfig('cta-buttons') || {
         buttons: [
             { label: 'Desserts', link: '/desserts', style: 'filled' },
-            { label: 'Merchandise', link: '/merchandise', style: 'outlined' },
+            { label: 'Collectibles', link: '/collectibles', style: 'outlined' },
         ],
     }, [getSectionConfig]);
 
@@ -1369,30 +2332,6 @@ function CommerceInner() {
         return filtered.length > 0 ? filtered : events;
     }, [events, storeLocations]);
 
-    // Filter products by selected location's Shopify availability
-    const [selectedLocationForFilter, setSelectedLocationForFilter] = useState(
-        () => localStorage.getItem('selectedLocation')
-    );
-
-    useEffect(() => {
-        const handler = (e) => setSelectedLocationForFilter(e.detail.locationId);
-        window.addEventListener('locationChanged', handler);
-        return () => window.removeEventListener('locationChanged', handler);
-    }, []);
-
-    const locationFilteredProducts = useMemo(() => {
-        if (!selectedLocationForFilter || storeLocations.length === 0) return shopifyProducts;
-        const store = storeLocations.find(loc => loc.id === selectedLocationForFilter);
-        if (!store?.shopifyLocationId) return shopifyProducts;
-        const shopifyGid = `gid://shopify/Location/${store.shopifyLocationId}`;
-        const filtered = shopifyProducts.filter(product =>
-            !product.storeAvailableLocationIds?.length ||
-            product.storeAvailableLocationIds.includes(shopifyGid)
-        );
-        console.log(`📍 Location filter: selected=${selectedLocationForFilter} shopifyGid=${shopifyGid} ${filtered.length}/${shopifyProducts.length} products`, shopifyProducts[0]?.storeAvailableLocationIds);
-        return filtered;
-    }, [shopifyProducts, storeLocations, selectedLocationForFilter]);
-
     // Determine what to show based on route
     const currentPath = location.pathname;
     const isHomepage = currentPath === '/';
@@ -1400,7 +2339,9 @@ function CommerceInner() {
     // Dynamic category detection from API
     // Extract category handle from path (e.g., "/desserts" -> "desserts")
     const pathCategory = currentPath.startsWith('/') ? currentPath.slice(1).split('/')[0] : '';
-    const currentCategory = categories?.find(c => c.handle === pathCategory || c.id === pathCategory);
+    const PATH_ALIASES = { collectibles: 'merchandise' };
+    const resolvedPath = PATH_ALIASES[pathCategory] || pathCategory;
+    const currentCategory = categories?.find(c => c.handle === resolvedPath || c.id === resolvedPath);
     const isCategoryPage = !!currentCategory;
 
     // Legacy aliases for backward compatibility
@@ -1412,6 +2353,13 @@ function CommerceInner() {
     
     // Determine the current view key for page transitions
     const viewKey = isHomepage ? 'homepage' : isDesserts ? 'desserts' : isMerchandise ? 'merchandise' : 'other';
+
+    // Track the last category path so close-product always returns to the right place
+    useEffect(() => {
+        if (isCategoryPage && currentPath !== '/') {
+            originPathRef.current = currentPath;
+        }
+    }, [currentPath, isCategoryPage]);
 
     // Scroll to top when navigating to category pages (delayed to allow exit animation)
     useEffect(() => {
@@ -1473,7 +2421,17 @@ function CommerceInner() {
             return 1;
         }
     });
+    const [addedModifiers, setAddedModifiers] = useState(() => {
+        try {
+            const saved = sessionStorage.getItem('addedToCart');
+            return saved ? JSON.parse(saved).modifiers || [] : [];
+        } catch (e) {
+            return [];
+        }
+    });
     
+    // (Delivery check moved to /delivery-check page)
+
     // Refs for tracking navigation intent
     const prevPathRef = useRef(currentPath);
     const intentionalCrossSell = useRef(false); // Track intentional cross-sell navigation
@@ -1512,6 +2470,7 @@ function CommerceInner() {
                 setAddedProduct(null);
                 setAddedVariant(null);
                 setAddedQuantity(1);
+            setAddedModifiers([]);
                 sessionStorage.removeItem('addedToCart');
             }
         }
@@ -1532,6 +2491,7 @@ function CommerceInner() {
                         setAddedProduct(parsed.product);
                         setAddedVariant(parsed.variant);
                         setAddedQuantity(parsed.quantity);
+                        setAddedModifiers(parsed.modifiers || []);
                     }
                 } catch (e) {
                     console.error('Error restoring from bfcache:', e);
@@ -1551,6 +2511,7 @@ function CommerceInner() {
             setAddedProduct(null);
             setAddedVariant(null);
             setAddedQuantity(1);
+            setAddedModifiers([]);
         };
         
         window.addEventListener('clearAddedToCart', handleClearAddedToCart);
@@ -1566,7 +2527,8 @@ function CommerceInner() {
                 show: true,
                 product: addedProduct,
                 variant: addedVariant,
-                quantity: addedQuantity
+                quantity: addedQuantity,
+                modifiers: addedModifiers
             }));
             hasPersistedOnce.current = true;
         } else if (hasPersistedOnce.current) {
@@ -1624,7 +2586,6 @@ function CommerceInner() {
         });
     }, [showAddedToCart, addedProduct, isHomepage, isDesserts, isMerchandise, productId]);
     
-    const isInternalNavigation = useRef(false);
     const returnPath = useRef(null); // Track where to return when closing modal (null = direct visit)
     const savedScrollPosition = useRef(0); // Track scroll position to restore when closing modal
     const selectedVariantInfo = useRef(null); // Track selected variant info for modal
@@ -1648,54 +2609,45 @@ function CommerceInner() {
     
     // Scroll is handled by useLayoutEffect above - no visible animation
     
-    // Handle product URL
+    // Clear stale modal state when navigating to product URLs (all products use full pages now)
     useEffect(() => {
-        if (productId) {
-            const navigationType = performance.getEntriesByType('navigation')[0]?.type;
-            const isRefresh = navigationType === 'reload';
-            
-            if (isInternalNavigation.current) {
-                sendToCommerce({ type: 'VIEW_PRODUCT', productId });
-                isInternalNavigation.current = false;
-            } else if (!isRefresh) {
-                sendToCommerce({ type: 'VIEW_PRODUCT', productId });
-            }
+        if (productId && showProductModal) {
+            sendToCommerce({ type: 'CLOSE_PRODUCT' });
         }
-    }, [productId, sendToCommerce]);
-    
-    // Handle closing product modal
-    const handleCloseProductModal = () => {
-        sendToCommerce({ type: 'CLOSE_PRODUCT' });
-        
-        // Navigate back to where the user came from
+    }, [productId, showProductModal, sendToCommerce]);
+
+    // Handle closing product page — navigate back to where the user came from
+    const handleCloseProduct = () => {
         if (productId) {
             // Set pending scroll restore BEFORE navigation
             pendingScrollRestore = savedScrollPosition.current;
-            
-            // Skip the scroll-to-top effect when returning from modal
+
+            // Skip the scroll-to-top effect when returning from product
             skipScrollToTop.current = true;
-            
-            // Mark that we're returning from modal (don't clear AddedToCart state)
+
+            // Mark that we're returning from product (don't clear AddedToCart state)
             if (showAddedToCart) {
                 returningFromProductModal.current = true;
                 returningFromAddToCart.current = true;
             }
-            
-            // If returnPath is null (direct URL visit), determine from product category
+
+            // If returnPath is null (direct URL visit or reset after add-to-cart), determine fallback
             if (!returnPath.current) {
-                const product = shopifyProducts.find(p => p.id === productId);
-                const productCategory = product?.category;
-                
-                // Navigate to the product's category page
-                if (productCategory) {
-                    navigate(`/${productCategory}`, { replace: true });
+                // Try originPathRef first (set when opening from feed)
+                const origin = originPathRef.current;
+                if (origin && origin !== '/' && !origin.startsWith('/product/')) {
+                    navigate(origin, { replace: true });
                 } else {
-                    navigate('/', { replace: true });
+                    const product = shopifyProducts.find(p => p.id === productId);
+                    const productCategory = product?.category;
+                    const HANDLE_TO_PATH = { merchandise: 'collectibles' };
+                    const categoryPath = HANDLE_TO_PATH[productCategory] || productCategory;
+                    navigate(`/${categoryPath || 'desserts'}`, { replace: true });
                 }
             } else {
                 navigate(returnPath.current, { replace: true });
             }
-            
+
             // Reset refs for next product view
             returnPath.current = null;
             savedScrollPosition.current = 0;
@@ -1746,26 +2698,46 @@ function CommerceInner() {
         console.log('📦 Available products:', shopifyProducts.length);
         console.log('🔍 Looking up product:', lookupId);
         
-        isInternalNavigation.current = true;
-        sendToCommerce({ type: 'VIEW_PRODUCT', productId: lookupId });
         navigate(`/product/${lookupId}`, { replace: false });
     };
     
     // Handle add to cart
-    const handleAddToCart = async (productId, variantId, quantity = 1, customAttributes = []) => {
-        console.log('🛒 handleAddToCart called:', { productId, variantId, quantity, customAttributes });
+    const handleAddToCart = async (productOrId, variantOrId, quantity = 1, customAttributes = []) => {
+        console.log('🛒 handleAddToCart called:', { productOrId, variantOrId, quantity, customAttributes });
         try {
-            // Find the product and variant info
-            const product = shopifyProducts.find(p => p.id === productId);
-            const variant = product?.variants?.find(v => v.id === variantId) || product?.variants?.[0];
+            // Support both calling conventions:
+            // 1) Catalog-first: (productObj, variantObj, quantity)
+            // 2) Legacy: (productId, variantId, quantity, customAttributes)
+            let product, variant;
+            if (typeof productOrId === 'object' && productOrId !== null) {
+                product = productOrId;
+                variant = variantOrId;
+            } else {
+                product = shopifyProducts.find(p => p.id === productOrId);
+                variant = product?.variants?.find(v => v.id === variantOrId) || product?.variants?.[0];
+            }
+
+            // Extract fulfillment method before filtering internal attributes
+            const fulfillmentAttr = (customAttributes || []).find(a => a.key === '_fulfillment');
+            const fulfillmentMethod = fulfillmentAttr?.value || null;
 
             // Add to local cart
             const modifiers = (customAttributes || [])
                 .filter(a => !a.key?.startsWith('_'))
                 .map(a => ({ key: a.key, value: a.value, price: 0 }));
-            localCart.addToCart(product, variant, quantity, modifiers);
+
+            // If delivery: navigate to delivery check page
+            if (fulfillmentMethod === 'delivery') {
+                const selectedLocationSlug = localStorage.getItem('selectedLocation') || '';
+                navigate('/delivery-check', {
+                    state: { product, variant, quantity, modifiers, pickupLocation: selectedLocationSlug },
+                });
+                return { skipCartOpen: true };
+            }
+
+            localCart.addToCart(product, variant, quantity, modifiers, { fulfillmentMethod });
             console.log('✅ Added to local cart');
-            
+
             // Close the modal via state machine and reset product detail mode
             sendToCommerce({ type: 'CLOSE_PRODUCT' });
             sendToCommerce({ type: 'SET_FEED_ACTIVE', active: false });
@@ -1777,6 +2749,7 @@ function CommerceInner() {
             setAddedProduct(product);
             setAddedVariant(variant);
             setAddedQuantity(quantity);
+            setAddedModifiers(modifiers);
             setShowAddedToCart(true);
             
             // Save to sessionStorage BEFORE navigate (useEffect won't run if component unmounts)
@@ -1784,7 +2757,8 @@ function CommerceInner() {
                 show: true,
                 product,
                 variant,
-                quantity
+                quantity,
+                modifiers
             }));
 
             // Mark that we're navigating programmatically (don't clear AddedToCart state)
@@ -1792,14 +2766,16 @@ function CommerceInner() {
             returningFromAddToCart.current = true;
 
             // Navigate away from /product/xyz URL so browser back works correctly
-            // Use the product's category to determine where to go
-            const productCategory = product?.category;
-            if (productCategory) {
-                navigate(`/${productCategory}`, { replace: true });
+            // Use returnPath, originPath, or product's category to determine where to go
+            const origin = returnPath.current || originPathRef.current;
+            if (origin && origin !== '/' && !origin.startsWith('/product/')) {
+                navigate(origin, { replace: true });
             } else {
-                navigate('/', { replace: true });
+                const HANDLE_TO_PATH = { merchandise: 'collectibles' };
+                const categoryPath = HANDLE_TO_PATH[product?.category] || product?.category;
+                navigate(`/${categoryPath || 'desserts'}`, { replace: true });
             }
-            
+
             // Scroll to top to show the added to cart view
             window.scrollTo(0, 0);
             
@@ -1901,20 +2877,11 @@ function CommerceInner() {
     const applicableDiscounts = getApplicableDiscounts();
     const activeFreeGift = applicableDiscounts.find(d => d.trigger?.type === 'minCartTotal');
     
-    const shippingProgress = useMemo(() => {
-        const threshold = REWARDS_CONFIG.freeShipping.threshold;
-        const progress = Math.min((cartTotal / threshold) * 100, 100);
-        const remaining = Math.max(threshold - cartTotal, 0);
-        const unlocked = cartTotal >= threshold;
-        return { progress, remaining, unlocked, threshold };
-    }, [cartTotal]);
-    
     // Find active order discount (e.g., "10% off orders over $20")
     const activeOrderDiscount = orderDiscounts?.find(d => d.isActive && d.threshold <= (activeFreeGift?.trigger?.amount || 20));
-    
+
     const giftProgress = useMemo(() => {
-        // Use dynamic threshold from discounts JSON, fallback to shipping threshold if no gift discount
-        const threshold = activeFreeGift?.trigger?.amount || activeOrderDiscount?.threshold || REWARDS_CONFIG.freeShipping.threshold;
+        const threshold = activeFreeGift?.trigger?.amount || activeOrderDiscount?.threshold || 50;
         const progress = Math.min((cartTotal / threshold) * 100, 100);
         const remaining = Math.max(threshold - cartTotal, 0);
         const unlocked = cartTotal >= threshold;
@@ -1998,10 +2965,23 @@ function CommerceInner() {
             setAddedProduct(null);
             setAddedVariant(null);
             setAddedQuantity(1);
+            setAddedModifiers([]);
             sessionStorage.removeItem('addedToCart');
         }
     }, [showAddedToCart, isBlindBoxAdded, blindBoxesInCart]);
-    
+
+    // Clear AddedToCart view when cart becomes empty
+    useEffect(() => {
+        if (showAddedToCart && localCart.cart.length === 0) {
+            setShowAddedToCart(false);
+            setAddedProduct(null);
+            setAddedVariant(null);
+            setAddedQuantity(1);
+            setAddedModifiers([]);
+            sessionStorage.removeItem('addedToCart');
+        }
+    }, [showAddedToCart, localCart.cart.length]);
+
     // Handle adding a blind box from the selector modal
     const handleAddBlindBoxFromSelector = async (product) => {
         try {
@@ -2018,6 +2998,7 @@ function CommerceInner() {
             setAddedProduct(product);
             setAddedVariant(product.variants?.[0] || null);
             setAddedQuantity(1);
+            setAddedModifiers([]);
         } catch (error) {
             console.error('Error adding blind box:', error);
         }
@@ -2035,6 +3016,7 @@ function CommerceInner() {
             setAddedProduct(product);
             setAddedVariant(variant);
             setAddedQuantity(1);
+            setAddedModifiers([]);
             
             // Save to sessionStorage
             sessionStorage.setItem('addedToCart', JSON.stringify({
@@ -2048,27 +3030,30 @@ function CommerceInner() {
             intentionalCrossSell.current = true;
             
             // Navigate to base path to show the AddedToCart view
-            navigate('/');
+            navigate('/desserts');
         }
     };
     
     // Get recommendations for added to cart view
     const getAddedToCartRecommendations = () => {
         if (!addedProduct) return [];
-        
+
         // Priority 1: Cross-sell collection products
         const crosssell = addedProduct.crosssellProducts || [];
         if (crosssell.length > 0) {
             console.log('✅ Using crosssellProducts:', crosssell);
             return crosssell.slice(0, 4);
         }
-        
-        // Fallback: Same category products
-        const fallback = shopifyProducts.filter(p => 
-            p.category === addedProduct.category && 
+
+        // Fallback: Other products from the same root category (desserts or collectibles)
+        const addedCategory = addedProduct.category;
+        const isCollectible = addedCategory === 'merchandise' || addedCategory === 'collectibles';
+        const rootCategories = isCollectible ? ['merchandise', 'collectibles'] : ['desserts'];
+        const fallback = shopifyProducts.filter(p =>
+            rootCategories.includes(p.category) &&
             p.id !== addedProduct.id
-        ).slice(0, 4);
-        console.log('📦 Using same category products:', fallback);
+        );
+        console.log('📦 Using root category products:', fallback.length);
         return fallback;
     };
     
@@ -2083,14 +3068,44 @@ function CommerceInner() {
         const exploded = [];
         products.forEach(product => {
             if (product.variants && product.variants.length > 0) {
+                // Build catalog-first variants
+                const productName = (product.name || product.title || '').toLowerCase();
+                const catalogProduct = catalog?.products?.find(cp => cp.name?.toLowerCase() === productName);
+
+                const _locSlug = localStorage.getItem('selectedLocation');
+                const catalogFirstVariants = (catalogProduct?.variants || []).map(cv => {
+                    const skuUpper = cv.sku?.toUpperCase();
+                    const gidFallback = skuUpper ? shopifyGidLookup[skuUpper] : null;
+                    const _locPrice = _locSlug && cv.locationPrices?.[_locSlug];
+                    return {
+                        sku: cv.sku,
+                        name: cv.name,
+                        price: cv.price,
+                        compareAtPrice: cv.compareAtPrice,
+                        locationPrices: cv.locationPrices || null,
+                        shopifyVariantGid: cv.platformIds?.shopify || gidFallback?.variantGid || null,
+                        id: cv.platformIds?.shopify || gidFallback?.variantGid || cv.sku,
+                        availableForSale: cv.inventory?.inStock !== false,
+                        inventory: cv.inventory || {},
+                        // Keep Shopify variant metafields for grouping
+                        ...(product.variants.find(sv => sv.sku?.toUpperCase() === cv.sku?.toUpperCase()) || {}),
+                        // Override price/name with catalog values; use location price if available
+                        catalogName: cv.name,
+                        ...(_locPrice != null ? { price: _locPrice } : { price: cv.price }),
+                    };
+                });
+
+                // Fall back to original Shopify variants if no catalog match
+                const enrichedVars = catalogFirstVariants.length > 0 ? catalogFirstVariants : product.variants;
+
                 // Group variants by subcategory first, then by container
                 const variantsBySubcatContainer = {};
-                
-                product.variants.forEach(variant => {
+
+                enrichedVars.forEach(variant => {
                     const subcat = variant.subcategory || 'other';
                     const container = variant.container || 'other';
                     const key = `${subcat}|${container}`;
-                    
+
                     if (!variantsBySubcatContainer[key]) {
                         variantsBySubcatContainer[key] = {
                             subcategory: subcat,
@@ -2102,79 +3117,62 @@ function CommerceInner() {
                     }
                     variantsBySubcatContainer[key].variants.push(variant);
                 });
-                
+
                 // Create one card per subcategory-container group
                 Object.values(variantsBySubcatContainer).forEach(group => {
                     const { subcategory, container, subcategoryData, containerData, variants } = group;
-                    
-                    // Destructure to exclude original variants array
+
                     const { variants: _allVariants, ...productWithoutVariants } = product;
-                    
+                    const catalogImageUrl = catalogProduct?.masterImage?.url || null;
+
                     if (variants.length === 1) {
-                        // Single variant (single size) - show container name
                         const variant = variants[0];
-                        const sizeTitle = variant.sizeData?.title || variant.size || '';
+                        const sizeTitle = variant.name || variant.sizeData?.title || variant.size || '';
                         const containerTitle = containerData?.title || container;
-                        
-                        // Image: only show if hasVariantImage === true
-                        const variantImage = (variant.hasVariantImage === true && variant.image?.url)
-                            ? variant.image.url 
-                            : PLACEHOLDER_IMAGE;
-                        
+
+                        const variantImage = variant.catalogImage?.url
+                            || (variant.hasVariantImage === true && variant.image?.url ? variant.image.url : null)
+                            || catalogImageUrl || PLACEHOLDER_IMAGE;
+
                         exploded.push({
                             ...productWithoutVariants,
                             id: `${product.id}-${subcategory}-${container}`,
                             variantId: variant.id,
-                            name: product.name,
-                            price: `$${parseFloat(variant.price).toFixed(2)}`,
+                            name: catalogProduct?.name || product.name,
+                            price: (() => { const _s = localStorage.getItem('selectedLocation'); const _lp = _s && variant.locationPrices?.[_s]; return `$${parseFloat(_lp != null ? _lp : variant.price).toFixed(2)}`; })(),
                             originalProductId: product.id,
-                            variantTitle: variant.title,
+                            variantTitle: variant.name || variant.title,
                             subcategory: subcategory,
                             subcategoryData: subcategoryData,
                             container: container,
                             containerData: containerData,
                             imageUrl: variantImage,
-                            imageAlt: variant.image?.alt || product.name,
-                            variantOptions: containerTitle, // e.g., "Cup", "Mason Jar"
-                            sizeOptions: sizeTitle ? [sizeTitle] : null, // Single size
+                            imageAlt: product.name,
+                            variantOptions: containerTitle,
+                            sizeOptions: sizeTitle ? [sizeTitle] : null,
                             variants: null,
-                            availableVariants: [variant] // For modal
+                            availableVariants: [variant]
                         });
                     } else {
-                        // Multiple variants (multiple sizes) - show container with size selector
                         const prices = variants.map(v => parseFloat(v.price)).sort((a, b) => a - b);
                         const minPrice = prices[0];
                         const maxPrice = prices[prices.length - 1];
-                        const priceDisplay = minPrice === maxPrice 
+                        const priceDisplay = minPrice === maxPrice
                             ? `$${minPrice.toFixed(2)}`
                             : `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
-                        
-                        // Get size names for display
-                        const sizeNames = variants.map(v => v.sizeData?.title || v.size || v.title);
+
+                        const sizeNames = variants.map(v => v.name || v.catalogName || v.sizeData?.title || v.size || v.title);
                         const sizeDescription = sizeNames.join(' | ');
                         const containerTitle = containerData?.title || container;
-                        
-                        // Find variants with hasVariantImage === true
-                        const variantsWithImages = variants.filter(v => 
-                            v.hasVariantImage === true && v.image?.url
-                        );
-                        
-                        let imageUrl = PLACEHOLDER_IMAGE;
-                        let imageAlt = product.name;
-                        
-                        if (variantsWithImages.length > 0) {
-                            // Sort by price descending and use most expensive with image
-                            const sortedByPrice = [...variantsWithImages].sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
-                            imageUrl = sortedByPrice[0].image.url;
-                            imageAlt = sortedByPrice[0].image.alt || product.name;
-                        }
-                        
+
+                        let imageUrl = catalogImageUrl || PLACEHOLDER_IMAGE;
+
                         exploded.push({
                             ...productWithoutVariants,
                             id: `${product.id}-${subcategory}-${container}`,
-                            variantId: variants[0].id, // Default to first variant
-                            variants: variants, // All size variants for this container
-                            name: product.name,
+                            variantId: variants[0].id,
+                            variants: variants,
+                            name: catalogProduct?.name || product.name,
                             price: priceDisplay,
                             originalProductId: product.id,
                             variantTitle: null,
@@ -2183,10 +3181,10 @@ function CommerceInner() {
                             container: container,
                             containerData: containerData,
                             imageUrl: imageUrl,
-                            imageAlt: imageAlt,
-                            variantOptions: containerTitle, // e.g., "Cup", "Mason Jar"
-                            sizeOptions: sizeDescription, // e.g., "Kids | Regular"
-                            availableVariants: variants // For modal size selector
+                            imageAlt: product.name,
+                            variantOptions: containerTitle,
+                            sizeOptions: sizeDescription,
+                            availableVariants: variants
                         });
                     }
                 });
@@ -2226,87 +3224,99 @@ function CommerceInner() {
                 console.log(`🌳 Product "${product.name}" → category: ${product.category}, subcategory: ${subcategory}, container: ${container}`);
             }
 
-            // Look up catalog image + PWA variants for responsive images
+            // Look up catalog product + PWA variants for responsive images
             const productName = (product.name || product.title || '').toLowerCase();
             const catalogProduct = catalog?.products?.find(cp => cp.name?.toLowerCase() === productName);
             const catalogPwa = catalogProduct?.masterImage?.pwa || null;
             const catalogImageUrl = catalogProduct?.masterImage?.url || null;
 
-            // For products with size variants, group them together
-            const sizeVariants = product.variants?.filter(v => v.sizeData || v.size) || [];
-            const hasMultipleSizes = sizeVariants.length > 1;
+            // Build catalog-first variants with Shopify GIDs attached
+            const catalogFirstVariants = (catalogProduct?.variants || []).map(cv => {
+                const skuUpper = cv.sku?.toUpperCase();
+                const gidFallback = skuUpper ? shopifyGidLookup[skuUpper] : null;
+                return {
+                    sku: cv.sku,
+                    name: cv.name,
+                    price: cv.price,
+                    compareAtPrice: cv.compareAtPrice,
+                    optionValues: cv.optionValues,
+                    isDefault: cv.isDefault,
+                    catalogImage: cv.catalogImage,
+                    shopifyVariantGid: cv.platformIds?.shopify || gidFallback?.variantGid || null,
+                    id: cv.platformIds?.shopify || gidFallback?.variantGid || cv.sku,
+                    availableForSale: cv.inventory?.inStock !== false,
+                    inventory: cv.inventory || {},
+                };
+            });
+
+            // Fall back to Shopify-enriched variants if no catalog product found
+            const productVariants = catalogFirstVariants.length > 0
+                ? catalogFirstVariants
+                : (product.variants || []);
+
+            const hasMultipleSizes = productVariants.length > 1;
 
             if (hasMultipleSizes) {
                 // Multiple size variants - show as one card with size selector
-                const prices = sizeVariants.map(v => parseFloat(v.price)).sort((a, b) => a - b);
+                const prices = productVariants.map(v => parseFloat(v.price)).sort((a, b) => a - b);
                 const minPrice = prices[0];
                 const maxPrice = prices[prices.length - 1];
                 const priceDisplay = minPrice === maxPrice
                     ? `$${minPrice.toFixed(2)}`
                     : `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
 
-                const sizeNames = sizeVariants.map(v => v.sizeData?.title || v.size || v.title);
+                const sizeNames = productVariants.map(v => v.name || v.catalogName || v.sizeData?.title || v.size || v.title);
                 const sizeDescription = sizeNames.join(' | ');
 
-                // Find best image (prefer most expensive variant with image)
-                const variantsWithImages = sizeVariants.filter(v =>
-                    v.hasVariantImage === true && v.image?.url
-                );
                 let imageUrl = catalogImageUrl || product.imageUrl || PLACEHOLDER_IMAGE;
                 let imageAlt = product.name;
-                let useVariantImage = false;
-                if (variantsWithImages.length > 0) {
-                    const sortedByPrice = [...variantsWithImages].sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
-                    imageUrl = sortedByPrice[0].image.url;
-                    imageAlt = sortedByPrice[0].image.alt || product.name;
-                    useVariantImage = true;
-                }
 
                 exploded.push({
                     ...product,
                     id: `${product.id}-${subcategory}-${container}`,
-                    variantId: sizeVariants[0].id,
-                    variants: sizeVariants,
+                    variantId: productVariants[0].id,
+                    variants: productVariants,
+                    name: catalogProduct?.name || product.name,
                     price: priceDisplay,
                     originalProductId: product.id,
+                    shopifyId: catalogProduct?.platformIds?.shopify || shopifyGidLookup[productVariants[0]?.sku?.toUpperCase()]?.productGid || null,
                     subcategory: subcategory,
                     subcategoryData: subcategoryData,
                     container: container,
                     containerData: containerData,
                     imageUrl: imageUrl,
                     imageAlt: imageAlt,
-                    pwa: useVariantImage ? null : catalogPwa,
+                    pwa: catalogPwa,
                     variantOptions: containerData?.title || null,
                     sizeOptions: sizeDescription,
-                    availableVariants: sizeVariants
+                    availableVariants: productVariants
                 });
             } else {
                 // Single variant or no size variants - show as single card
-                const variant = product.variants?.[0] || {};
-                const sizeTitle = variant.sizeData?.title || variant.size || '';
+                const variant = productVariants[0] || {};
+                const sizeTitle = variant.name || variant.sizeData?.title || variant.size || '';
 
-                const hasVariantSpecificImage = variant.hasVariantImage === true && variant.image?.url;
-                const variantImage = hasVariantSpecificImage
-                    ? variant.image.url
-                    : (catalogImageUrl || product.imageUrl || PLACEHOLDER_IMAGE);
+                const variantImage = variant.catalogImage?.url || catalogImageUrl || product.imageUrl || PLACEHOLDER_IMAGE;
 
                 exploded.push({
                     ...product,
                     id: `${product.id}-${subcategory}-${container}`,
                     variantId: variant.id || product.id,
-                    price: variant.price ? `$${parseFloat(variant.price).toFixed(2)}` : product.price,
+                    name: catalogProduct?.name || product.name,
+                    price: (() => { const _s = localStorage.getItem('selectedLocation'); const _lp = _s && variant.locationPrices?.[_s]; const _p = _lp != null ? _lp : variant.price; return _p ? `$${parseFloat(_p).toFixed(2)}` : product.price; })(),
                     originalProductId: product.id,
+                    shopifyId: catalogProduct?.platformIds?.shopify || shopifyGidLookup[variant.sku?.toUpperCase()]?.productGid || null,
                     subcategory: subcategory,
                     subcategoryData: subcategoryData,
                     container: container,
                     containerData: containerData,
                     imageUrl: variantImage,
-                    imageAlt: variant.image?.alt || product.name,
-                    pwa: hasVariantSpecificImage ? null : catalogPwa,
+                    imageAlt: product.name,
+                    pwa: variant.catalogImage?.url ? null : catalogPwa,
                     variantOptions: containerData?.title || null,
                     sizeOptions: sizeTitle ? [sizeTitle] : null,
                     variants: null,
-                    availableVariants: product.variants?.length ? [variant] : null
+                    availableVariants: productVariants.length ? [variant] : null
                 });
             }
         });
@@ -2324,17 +3334,137 @@ function CommerceInner() {
     };
 
     /**
+     * Build Shopify product GID → catalog category mappings.
+     * Catalog is the source of truth for product-to-category assignments.
+     * Works entirely from catalog data (no Shopify category mapping needed).
+     */
+    const { catalogProductLookup, catalogCategoryById, catalogProductOrder } = useMemo(() => {
+        const productLookup = new Map();  // Shopify GID → catalog product
+        const categoryById = new Map();   // catalog category ID → catalog category
+        const orderMap = new Map();       // Shopify GID → order index
+
+        if (!catalog?.categories?.length || !catalog?.products?.length) {
+            return { catalogProductLookup: productLookup, catalogCategoryById: categoryById, catalogProductOrder: orderMap };
+        }
+
+        // Index catalog categories by ID
+        catalog.categories.forEach(cat => categoryById.set(cat.id, cat));
+
+        // Index catalog products by Shopify GID
+        catalog.products.forEach(prod => {
+            const shopifyGid = prod.platformIds?.shopify;
+            if (shopifyGid) productLookup.set(shopifyGid, prod);
+        });
+
+        // Build productOrder index: catalog SKU → order index per category
+        const skuOrderIndex = new Map();
+        catalog.categories.forEach(cat => {
+            if (cat.productOrder?.length) {
+                cat.productOrder.forEach((sku, idx) => {
+                    skuOrderIndex.set(sku.toUpperCase(), idx);
+                });
+            }
+        });
+
+        // Map Shopify GID → order index using catalog product SKU
+        catalog.products.forEach(prod => {
+            const shopifyGid = prod.platformIds?.shopify;
+            if (!shopifyGid) return;
+            const orderIdx = skuOrderIndex.get((prod.sku || '').toUpperCase());
+            if (orderIdx != null) orderMap.set(shopifyGid, orderIdx);
+        });
+
+        console.log('📦 Built catalog lookups:', productLookup.size, 'products,', categoryById.size, 'categories');
+        return { catalogProductLookup: productLookup, catalogCategoryById: categoryById, catalogProductOrder: orderMap };
+    }, [catalog]);
+
+    /**
+     * Get catalog root category ID for a Shopify product.
+     * Traces the product's catalog categoryIds up to the root via parentId.
+     */
+    const getCatalogRootId = useCallback((shopifyProduct) => {
+        const catalogProd = catalogProductLookup.get(shopifyProduct.shopifyId);
+        if (!catalogProd?.categoryIds?.length) return null;
+
+        // Trace first categoryId up to root
+        let current = catalogCategoryById.get(catalogProd.categoryIds[0]);
+        while (current?.parentId) {
+            const parent = catalogCategoryById.get(current.parentId);
+            if (parent) current = parent;
+            else break;
+        }
+        return current?.id || null;
+    }, [catalogProductLookup, catalogCategoryById]);
+
+    /**
+     * Check if a Shopify product belongs to a catalog category (or any descendant of it).
+     */
+    const productBelongsToCatalogCategory = useCallback((shopifyProduct, catalogCategoryId) => {
+        const catalogProd = catalogProductLookup.get(shopifyProduct.shopifyId);
+        if (!catalogProd?.categoryIds?.length) return false;
+
+        // Check if any of the product's categoryIds is the target or a descendant of it
+        return catalogProd.categoryIds.some(catId => {
+            let current = catalogCategoryById.get(catId);
+            while (current) {
+                if (current.id === catalogCategoryId) return true;
+                current = current.parentId ? catalogCategoryById.get(current.parentId) : null;
+            }
+            return false;
+        });
+    }, [catalogProductLookup, catalogCategoryById]);
+
+    /**
+     * Map Shopify root category handle → catalog root category ID.
+     * Matches by name (case-insensitive) with known aliases.
+     */
+    const shopifyHandleToCatalogRootId = useMemo(() => {
+        const map = new Map();
+        if (!catalog?.categories?.length) return map;
+
+        // Name aliases: Shopify handle → catalog name
+        const HANDLE_TO_NAME = {
+            merchandise: 'collectibles',
+            desserts: 'desserts',
+            beverages: 'beverages',
+        };
+
+        const rootCats = catalog.categories.filter(c => !c.parentId);
+        for (const [handle, targetName] of Object.entries(HANDLE_TO_NAME)) {
+            const root = rootCats.find(c => c.name.toLowerCase() === targetName);
+            if (root) map.set(handle, root.id);
+        }
+
+        console.log('📦 Shopify handle → catalog root:', Object.fromEntries(map));
+        return map;
+    }, [catalog]);
+
+    /**
      * Build subcategory definitions from CATEGORY HIERARCHY
      * Uses Level 2 categories under a root category
      * Extracts unique container sizes from product variants
      */
     const buildSubcategoriesFromHierarchy = (rootCategoryHandle) => {
         const subcats = getSubcategories(rootCategoryHandle);
-        console.log('🔍 Subcategories for', rootCategoryHandle, ':', subcats.map(s => s.handle));
+        const catalogRootId = shopifyHandleToCatalogRootId.get(rootCategoryHandle);
+        console.log('🔍 Subcategories for', rootCategoryHandle, ':', subcats.map(s => s.handle), '| catalogRootId:', catalogRootId);
 
         return subcats.map(subcat => {
-            // Filter products for this subcategory
+            // Find catalog category matching this Shopify subcategory (by name + correct root)
+            // Must match by both name AND root to disambiguate (e.g., two "tokidoki" categories)
+            const catalogSubcat = catalogRootId && catalog?.categories?.find(c =>
+                c.name?.toLowerCase() === subcat.title?.toLowerCase() &&
+                c.parentId === catalogRootId
+            );
+            const catalogSubcatId = catalogSubcat?.id;
+
+            // Filter products for this subcategory using catalog categoryIds (source of truth)
             const subcatProducts = shopifyProducts.filter(p => {
+                // Primary: check if product belongs to this catalog subcategory
+                if (catalogSubcatId && p.shopifyId && catalogProductLookup.size > 0) {
+                    return productBelongsToCatalogCategory(p, catalogSubcatId);
+                }
+                // Fallback for products not in catalog
                 const hierarchy = getProductHierarchy(p);
                 return hierarchy?.subcategory?.handle === subcat.handle;
             });
@@ -2382,6 +3512,8 @@ function CommerceInner() {
                     gradientDirection,
                     gradientStartColor,
                     gradientEndColor,
+                    catalogImageStyles: catalogProduct?.images || [],
+                    isMYO: (product.name || '').toLowerCase().includes('make your own'),
                 };
             });
             console.log('🔍 Products for', subcat.handle, ':', productItems.map(p => p.title));
@@ -2394,8 +3526,13 @@ function CommerceInner() {
                 imageAspectRatio: subcat.imageAspectRatio || '1:1',
                 containers: productItems, // Individual products with catalog images
                 products: subcatProducts, // Products in this subcategory
-                // Filter products by their category hierarchy
+                productOrder: subcat.productOrder || [], // Per-subcategory ordering from catalog
+                catalogCategoryId: catalogSubcatId, // Catalog category ID for this subcategory
+                // Filter products using catalog as source of truth
                 filter: (p) => {
+                    if (catalogSubcatId && p.shopifyId && catalogProductLookup.size > 0) {
+                        return productBelongsToCatalogCategory(p, catalogSubcatId);
+                    }
                     const hierarchy = getProductHierarchy(p);
                     return hierarchy?.subcategory?.handle === subcat.handle;
                 }
@@ -2417,7 +3554,12 @@ function CommerceInner() {
     // Must recalculate when catalog loads to get S3 master images
     const HIERARCHY_DESSERT_SUBCATEGORIES = useMemo(() => {
         return buildSubcategoriesFromHierarchy('desserts');
-    }, [catalog, shopifyProducts, categories]);
+    }, [catalog, shopifyProducts, categories, catalogProductLookup, shopifyHandleToCatalogRootId]);
+
+    // Use hierarchy-based subcategories for Merchandise (Level 2 under 'merchandise')
+    const HIERARCHY_MERCHANDISE_SUBCATEGORIES = useMemo(() => {
+        return buildSubcategoriesFromHierarchy('merchandise');
+    }, [catalog, shopifyProducts, categories, catalogProductLookup, shopifyHandleToCatalogRootId]);
 
     // Toggle to use hierarchy-based grouping
     // Set to FALSE to use variant metafield-based grouping (dessert.subcategory on each variant)
@@ -2438,139 +3580,6 @@ function CommerceInner() {
     // END: Hierarchy-based grouping
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Build subcategories from CATALOG CATEGORIES
-     * Uses product categoryIds from the master catalog (admin)
-     */
-    const buildSubcategoriesFromCatalog = () => {
-        if (!catalog?.categories?.length || !catalog?.products?.length) return [];
-
-        // Find the "Desserts" root category
-        const dessertsRoot = catalog.categories.find(c =>
-            c.slug === 'desserts' || c.name?.toLowerCase() === 'desserts'
-        );
-        if (!dessertsRoot) {
-            console.log('📦 [Catalog] No Desserts root category found');
-            return [];
-        }
-
-        // Get all subcategories under Desserts (where parentId = dessertsRoot.id)
-        const subcategories = catalog.categories
-            .filter(c => c.parentId === dessertsRoot.id)
-            .sort((a, b) => (a.position || 0) - (b.position || 0));
-
-        console.log('📦 [Catalog] Found subcategories:', subcategories.map(s => s.name));
-
-        // Build a set of all descendant category IDs for each subcategory
-        const getDescendantIds = (parentId) => {
-            const ids = new Set([parentId]);
-            const findChildren = (pid) => {
-                catalog.categories.filter(c => c.parentId === pid).forEach(child => {
-                    ids.add(child.id);
-                    findChildren(child.id);
-                });
-            };
-            findChildren(parentId);
-            return ids;
-        };
-
-        return subcategories.map(subcat => {
-            // Find catalog products in this category OR any descendant category
-            const subcatIds = getDescendantIds(subcat.id);
-            const catalogProductsInCategory = catalog.products.filter(p =>
-                p.categoryIds?.some(catId => subcatIds.has(catId))
-            );
-
-            // Sort by productOrder if available
-            // If this category has no productOrder but has children, build a merged order
-            // from children sorted by their position
-            let productOrder = subcat.productOrder || [];
-            if (productOrder.length === 0) {
-                const childCategories = catalog.categories
-                    .filter(c => c.parentId === subcat.id)
-                    .sort((a, b) => (a.position || 0) - (b.position || 0));
-                productOrder = childCategories.flatMap(child => child.productOrder || []);
-            }
-            const sortedCatalogProducts = productOrder.length > 0
-                ? sortProductsByOrder(catalogProductsInCategory, productOrder, catalog.products)
-                : catalogProductsInCategory;
-
-            // Build containers by matching with Shopify products
-            const containers = sortedCatalogProducts.map(catalogProduct => {
-                // Find matching Shopify product by name or SKU
-                const shopifyProduct = shopifyProducts.find(sp => {
-                    // Match by name
-                    if (sp.name?.toLowerCase() === catalogProduct.name?.toLowerCase()) return true;
-                    // Match by SKU
-                    const catalogSku = catalogProduct.sku?.toUpperCase();
-                    if (catalogSku && sp.variants?.some(v => v.sku?.toUpperCase() === catalogSku)) return true;
-                    return false;
-                });
-
-                if (!shopifyProduct) {
-                    console.log('📦 [Catalog] No Shopify match for:', catalogProduct.name);
-                    return null;
-                }
-
-                // Get image and colors from catalog masterImage
-                const masterImage = catalogProduct.masterImage;
-                const firstImage = catalogProduct.images?.[0];
-                const s3Image = masterImage?.url || firstImage?.url || null;
-                const backgroundColor = masterImage?.backgroundColor || firstImage?.backgroundColor || null;
-                const textColor = masterImage?.textColor || firstImage?.textColor || null;
-                const gradientDirection = masterImage?.gradientDirection || firstImage?.gradientDirection || null;
-                const gradientStartColor = masterImage?.gradientStartColor || firstImage?.gradientStartColor || null;
-                const gradientEndColor = masterImage?.gradientEndColor || firstImage?.gradientEndColor || null;
-
-                return {
-                    id: `${shopifyProduct.id}-${subcat.id}`,
-                    title: shopifyProduct.name,
-                    product: shopifyProduct,
-                    image: s3Image,
-                    catalogImages: (catalogProduct.images || []).sort((a, b) => (a.order || 0) - (b.order || 0)),
-                    pwa: masterImage?.pwa || null,
-                    backgroundColor,
-                    textColor,
-                    gradientDirection,
-                    gradientStartColor,
-                    gradientEndColor,
-                    variantId: shopifyProduct.variants?.[0]?.id,
-                    variants: shopifyProduct.variants,
-                    catalogVariants: catalogProduct.variants || [],
-                    displayModifiers: resolveDisplayModifiers(catalogProduct.displayModifiers, catalog.modifiers),
-                    isMYO: (catalogProduct.name || '').toLowerCase().includes('make your own'),
-                    // Master inventory: aggregate across all catalog variants
-                    inventory: (() => {
-                        const variants = catalogProduct.variants || [];
-                        const anyTracked = variants.some(v => v.inventory?.trackInventory);
-                        const totalQty = variants.reduce((sum, v) => sum + (v.inventory?.totalQuantity || 0), 0);
-                        return {
-                            trackInventory: anyTracked,
-                            totalQuantity: totalQty,
-                            inStock: !anyTracked || totalQty > 0,
-                        };
-                    })(),
-                };
-            }).filter(Boolean); // Remove nulls (no Shopify match)
-
-            console.log('📦 [Catalog] Products for', subcat.name, ':', containers.map(c => c.title));
-
-            return {
-                id: subcat.id,
-                title: subcat.name,
-                description: subcat.description || '',
-                image: subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.name)}`,
-                containers: containers,
-                products: containers.map(c => c.product),
-                filter: (p) => {
-                    const catalogProd = catalog.products?.find(cp =>
-                        cp.name?.toLowerCase() === p.name?.toLowerCase()
-                    );
-                    return catalogProd?.categoryIds?.some(catId => subcatIds.has(catId));
-                }
-            };
-        }).filter(subcat => subcat.containers.length > 0);
-    };
 
     /**
      * Build subcategories from VARIANT METAFIELDS
@@ -2629,6 +3638,7 @@ function CommerceInner() {
                         gradientEndColor,
                         variantId: firstVariant?.id,
                         variants: matchingVariants,
+                        isMYO: (product.name || '').toLowerCase().includes('make your own'),
                     });
                 }
             });
@@ -2652,11 +3662,6 @@ function CommerceInner() {
         return buildSubcategoriesFromVariants();
     }, [dessertSubcategories, shopifyProducts, catalog]);
 
-    // Build catalog-based subcategories (memoized) - uses product categoryIds from admin
-    const CATALOG_DESSERT_SUBCATEGORIES = useMemo(() => {
-        return buildSubcategoriesFromCatalog();
-    }, [catalog, shopifyProducts]);
-
     // Subcategory definitions for Desserts
     // Priority: 1) Catalog categories (admin), 2) Hierarchy, 3) Variant metafields
     const DESSERT_SUBCATEGORIES = CATALOG_DESSERT_SUBCATEGORIES.length > 0
@@ -2671,12 +3676,32 @@ function CommerceInner() {
         '| Categories:', DESSERT_SUBCATEGORIES.map(s => s.title)
     );
 
+    // Subcategory definitions for Merchandise/Collectibles
+    // Priority: 1) Catalog categories (same approach as desserts), 2) Hierarchy fallback, 3) Shopify metaobjects
+    const MERCHANDISE_SUBCATEGORIES = (CATALOG_COLLECTIBLES_SUBCATEGORIES || []).length > 0
+        ? CATALOG_COLLECTIBLES_SUBCATEGORIES
+        : HIERARCHY_MERCHANDISE_SUBCATEGORIES.length > 0
+            ? HIERARCHY_MERCHANDISE_SUBCATEGORIES
+            : merchandiseSubcategories?.length > 0
+                ? merchandiseSubcategories.map(subcat => ({
+                    id: subcat.id,
+                    title: subcat.title,
+                    description: subcat.description || '',
+                    image: subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.title)}`,
+                    filter: (p) => p.merchandiseSubcategory === subcat.id
+                }))
+                : [];
 
-    // Flatten subcategories into a single feed: divider slides + product slides
-    const feedItems = useMemo(() => {
+    console.log('📦 Using collectibles source:',
+        (CATALOG_COLLECTIBLES_SUBCATEGORIES || []).length > 0 ? 'CATALOG' :
+        HIERARCHY_MERCHANDISE_SUBCATEGORIES.length > 0 ? 'HIERARCHY' : 'METAOBJECTS',
+        '| Categories:', MERCHANDISE_SUBCATEGORIES.map(s => s.title)
+    );
+
+    // Helper: build flat feed from subcategories
+    const buildFeedItems = (subcategories) => {
         const items = [];
-        DESSERT_SUBCATEGORIES.forEach((subcat, subcatIndex) => {
-            // Category divider slide
+        subcategories.forEach((subcat, subcatIndex) => {
             items.push({
                 type: 'divider',
                 id: `divider-${subcat.id}`,
@@ -2685,7 +3710,6 @@ function CommerceInner() {
                 title: subcat.title,
                 image: subcat.image,
             });
-            // Product slides
             (subcat.containers || []).forEach(container => {
                 items.push({
                     type: 'product',
@@ -2697,8 +3721,102 @@ function CommerceInner() {
             });
         });
         return items;
-    }, [DESSERT_SUBCATEGORIES]);
+    };
+
+    // Active subcategories for card grid (desserts or merchandise)
+    // MERCHANDISE_SUBCATEGORIES from hierarchy already includes containers
+    // Merchandise defaults: white background, black text (instead of dark blue)
+    const merchandiseWithDefaults = MERCHANDISE_SUBCATEGORIES.map(subcat => ({
+        ...subcat,
+        containers: (subcat.containers || []).map(c => ({
+            ...c,
+            isCollectible: true,
+            backgroundColor: c.backgroundColor || '#ffffff',
+            textColor: c.textColor || '#000000',
+        })),
+    }));
+    const baseFeedSubcategories = isDesserts ? DESSERT_SUBCATEGORIES
+        : isMerchandise ? merchandiseWithDefaults
+        : [];
+
+    // Prepend "You Might Also Like" category when showing added-to-cart
+    const activeFeedSubcategories = useMemo(() => {
+        if (!showAddedToCart || !addedProduct) return baseFeedSubcategories;
+        const recs = getAddedToCartRecommendations();
+        if (recs.length === 0) return baseFeedSubcategories;
+        const recsSubcat = {
+            id: 'you-might-also-like',
+            title: 'You Might Also Like',
+            description: '',
+            image: null,
+            containers: recs.map(p => {
+                const productName = p.name?.toLowerCase();
+                const firstVariant = p.variants?.[0];
+                const variantSku = firstVariant?.sku?.toUpperCase();
+                let catalogProduct = catalog?.products?.find(cp => {
+                    if (variantSku && cp.sku?.toUpperCase() === variantSku) return true;
+                    if (variantSku && cp.variants?.some(v => v.sku?.toUpperCase() === variantSku)) return true;
+                    return false;
+                });
+                if (!catalogProduct && productName) {
+                    catalogProduct = catalog?.products?.find(cp => cp.name?.toLowerCase() === productName);
+                }
+                const masterImg = catalogProduct?.masterImage;
+                const firstImg = catalogProduct?.images?.[0];
+                const isCollectible = p.category === 'merchandise' || p.category === 'collectibles';
+                return {
+                    id: p.id,
+                    title: p.name,
+                    product: p,
+                    image: masterImg?.url || firstImg?.url || null,
+                    pwa: masterImg?.pwa || null,
+                    backgroundColor: isCollectible ? (masterImg?.backgroundColor || '#ffffff') : (masterImg?.backgroundColor || null),
+                    textColor: isCollectible ? (masterImg?.textColor || '#000000') : (masterImg?.textColor || null),
+                    gradientDirection: masterImg?.gradientDirection || null,
+                    gradientStartColor: masterImg?.gradientStartColor || null,
+                    gradientEndColor: masterImg?.gradientEndColor || null,
+                    catalogImageStyles: catalogProduct?.images || [],
+                    isCollectible,
+                    isMYO: (p.name || '').toLowerCase().includes('make your own'),
+                };
+            }),
+        };
+        return [recsSubcat, ...baseFeedSubcategories];
+    }, [baseFeedSubcategories, showAddedToCart, addedProduct, catalog]);
+
+    // Flatten subcategories into a single feed: divider slides + product slides
+    const feedItems = buildFeedItems(activeFeedSubcategories);
     feedItemsRef.current = feedItems;
+
+    // All products from all categories — used to find products by URL on /product/:id
+    const allFeedItems = useMemo(() => {
+        const allSubcats = [...DESSERT_SUBCATEGORIES, ...merchandiseWithDefaults];
+        return buildFeedItems(allSubcats).filter(f => f.type === 'product');
+    }, [DESSERT_SUBCATEGORIES, merchandiseWithDefaults]);
+
+    // Build the product item for the full-page ProductDetailPage (any /product/:id URL)
+    // Always wait for catalog — it's the source of truth for backgrounds, inventory, fulfillment methods
+    const activeProductItem = useMemo(() => {
+        if (!productId) return null;
+        if (!catalogReady || !allFeedItems.length) return null;
+
+        let match = allFeedItems.find(
+            f => f.product?.id === productId || f.id === productId || f.id?.startsWith(productId + '-')
+        );
+        if (!match) {
+            const shopifyMatch = shopifyProducts.find(p => p.id === productId);
+            if (shopifyMatch) {
+                match = allFeedItems.find(f => f.product?.name === shopifyMatch.name);
+            }
+        }
+        if (!match) {
+            const slugify = (s) => s?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+            match = allFeedItems.find(
+                f => slugify(f.product?.name) === productId || slugify(f.title) === productId
+            );
+        }
+        return match || null;
+    }, [productId, catalogReady, allFeedItems, shopifyProducts]);
 
     // Restore product detail mode on mount if feedActive was persisted
     const hasRestoredRef = useRef(false);
@@ -2732,19 +3850,6 @@ function CommerceInner() {
         return products.filter(subcategoryDef.filter);
     };
     
-    // Subcategory definitions for Merchandise
-    // Dynamically loaded from Shopify metaobjects (no fallback defaults)
-    // Uses product-level subcategory (not variant-level like desserts)
-    const MERCHANDISE_SUBCATEGORIES = merchandiseSubcategories?.length > 0
-        ? merchandiseSubcategories.map(subcat => ({
-            id: subcat.id,
-            title: subcat.title,
-            description: subcat.description || '',
-            image: subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.title)}`,
-            filter: (p) => p.merchandiseSubcategory === subcat.id
-        }))
-        : [];
-    
     // Scroll to section helper
     const scrollToSection = (sectionId) => {
         const element = document.getElementById(`section-${sectionId}`);
@@ -2767,18 +3872,26 @@ function CommerceInner() {
         let categoryProducts;
 
         if (USE_HIERARCHY_GROUPING) {
-            // HIERARCHY MODE: Filter by root category from hierarchy
-            // Products are assigned to leaf categories, so we look UP the hierarchy to find the root
+            // HIERARCHY MODE: Filter by root category using catalog as source of truth
+            // Build set of all Shopify category handles under this root
+            const handlesUnderRoot = new Set([categoryHandle]);
+            categories.filter(c => c.rootCategory?.handle?.toLowerCase() === categoryHandle)
+                .forEach(c => handlesUnderRoot.add(c.handle));
+
+            // Get the catalog root category ID for this Shopify handle
+            const catalogRootId = shopifyHandleToCatalogRootId.get(categoryHandle);
+
             categoryProducts = locationFilteredProducts.filter(p => {
+                // Primary: catalog categoryIds (source of truth)
+                if (catalogRootId && p.shopifyId && catalogProductLookup.size > 0) {
+                    return productBelongsToCatalogCategory(p, catalogRootId);
+                }
+                // Fallback for products not in catalog
                 const hierarchy = getProductHierarchy(p);
                 if (hierarchy?.rootCategory) {
-                    // Check if product's root category matches current category
                     return hierarchy.rootCategory.handle?.toLowerCase() === categoryHandle;
                 }
-                // Fallback: direct category match or productType
-                const pCategory = p.category?.toLowerCase();
-                const pType = p.productType?.toLowerCase();
-                return pCategory === categoryHandle || pType === categoryHandle;
+                return false;
             });
             console.log(`📦 [HIERARCHY] Filtering for root category "${categoryHandle}":`, categoryProducts.length, 'products');
         } else {
@@ -2815,12 +3928,21 @@ function CommerceInner() {
             });
         }
 
-        // Group products by subcategory for section display, sorted by productOrder
+        // Group products by subcategory, sorted by catalog productOrder (via Shopify GID)
         currentSubcategories.forEach(subcat => {
             const filtered = categoryProducts.filter(subcat.filter);
-            productsBySubcategory[subcat.id] = getMergedProductOrder.length > 0
-                ? sortProductsByOrder(filtered, getMergedProductOrder, catalog?.products || [])
-                : filtered;
+            if (catalogProductOrder.size > 0) {
+                productsBySubcategory[subcat.id] = [...filtered].sort((a, b) => {
+                    const aidx = catalogProductOrder.get(a.shopifyId) ?? Infinity;
+                    const bidx = catalogProductOrder.get(b.shopifyId) ?? Infinity;
+                    if (aidx !== Infinity && bidx !== Infinity) return aidx - bidx;
+                    if (aidx !== Infinity) return -1;
+                    if (bidx !== Infinity) return 1;
+                    return (a.name || '').localeCompare(b.name || '');
+                });
+            } else {
+                productsBySubcategory[subcat.id] = filtered;
+            }
         });
 
         // Collect products that don't match any subcategory (e.g., Level 1 products)
@@ -2834,9 +3956,16 @@ function CommerceInner() {
             console.log(`📦 Products in "Other" section (no subcategory match):`, unmatchedProducts.length);
         }
 
-        // Sort by productOrder from catalog, then assign to displayProducts
-        if (getMergedProductOrder.length > 0) {
-            displayProducts = sortProductsByOrder(categoryProducts, getMergedProductOrder, catalog?.products || []);
+        // Sort by catalog productOrder (via Shopify GID)
+        if (catalogProductOrder.size > 0) {
+            displayProducts = [...categoryProducts].sort((a, b) => {
+                const aidx = catalogProductOrder.get(a.shopifyId) ?? Infinity;
+                const bidx = catalogProductOrder.get(b.shopifyId) ?? Infinity;
+                if (aidx !== Infinity && bidx !== Infinity) return aidx - bidx;
+                if (aidx !== Infinity) return -1;
+                if (bidx !== Infinity) return 1;
+                return (a.name || '').localeCompare(b.name || '');
+            });
         } else {
             displayProducts = categoryProducts;
         }
@@ -2851,6 +3980,7 @@ function CommerceInner() {
         pageDescription = null;
     }
     
+
     // Get product recommendations
     const getRecommendations = () => {
         if (!selectedProductId) return [];
@@ -2877,27 +4007,6 @@ function CommerceInner() {
         })
         : null;
     
-    // Debug logging
-    useEffect(() => {
-        const idToLog = typeof selectedProductId === 'string' 
-            ? selectedProductId 
-            : selectedProductId?.id || selectedProductId;
-            
-        console.log('🔍 Commerce state:', {
-            showProductModal,
-            selectedProductId: idToLog,
-            selectedProductIdType: typeof selectedProductId,
-            selectedProduct: selectedProduct?.name,
-            productsCount: shopifyProducts.length,
-            firstProduct: shopifyProducts[0]?.id
-        });
-        
-        if (showProductModal && selectedProductId && !selectedProduct) {
-            console.error('❌ MODAL ERROR: Product not found!');
-            console.error('Looking for ID:', idToLog);
-            console.error('Available IDs:', shopifyProducts.map(p => p.id));
-        }
-    }, [showProductModal, selectedProductId, selectedProduct, shopifyProducts]);
 
     // Update activeTextColor in context when current feed item changes (for header)
     useEffect(() => {
@@ -2916,7 +4025,7 @@ function CommerceInner() {
         setActiveTextColor(textColor);
     }, [isDesserts, feedItems, feedIndex, feedActive, setActiveTextColor]);
 
-    if (shopifyLoading) {
+    if (shopifyLoading && !shopifyProducts?.length) {
         return (
             <Box
                 sx={{
@@ -2960,9 +4069,23 @@ function CommerceInner() {
 
     return (
         <>
+            {/* Full-page product detail (ALL products — no modal) */}
+            {productId && activeProductItem && (
+                <ProductDetailPage
+                    item={activeProductItem}
+                    onAddToCart={async (product, variant, quantity, customAttributes) => {
+                        return await handleAddToCart(product, variant, quantity, customAttributes);
+                    }}
+                    onClose={handleCloseProduct}
+                    onOpenCart={() => sendToCommerce({ type: 'OPEN_CART' })}
+                    closing={false}
+                    storeLocations={storeLocations}
+                />
+            )}
+
             {/* Mobile: card grid/feed */}
             <AnimatePresence mode="wait">
-            {(isDesserts || (showProductModal && feedItems.length > 0)) && (
+            {!productId && (isDesserts || isMerchandise || feedActive) && (
                     <motion.div
                         key="card-grid-mode"
                         initial={{ opacity: 0, y: 30 }}
@@ -2970,8 +4093,37 @@ function CommerceInner() {
                         exit={{ opacity: 0, y: -15, transition: { duration: 0.3, ease: [0.22, 1, 0.36, 1] } }}
                         style={{ display: 'block', overscrollBehavior: 'none' }}
                     >
+                        {/* Added to Cart banner */}
+                        {showAddedToCart && addedProduct && (
+                            <Box sx={{ bgcolor: 'white', py: 1.5, px: 2, borderBottom: '1px solid', borderColor: 'grey.200', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1, minWidth: 0 }}>
+                                    <Box sx={{ width: 44, height: 44, flexShrink: 0, borderRadius: 1, overflow: 'hidden' }}>
+                                        {(addedVariant?.image?.url || addedProduct.imageUrl || addedProduct.images?.[0]?.url) ? (
+                                            <img src={addedVariant?.image?.url || addedProduct.imageUrl || addedProduct.images?.[0]?.url} alt={addedProduct.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        ) : (
+                                            <Box sx={{ width: '100%', height: '100%', bgcolor: 'grey.200' }} />
+                                        )}
+                                    </Box>
+                                    <Box sx={{ minWidth: 0 }}>
+                                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{addedProduct.name || addedProduct.title}</Typography>
+                                        {addedVariant?.title && addedVariant.title !== 'Default Title' && (
+                                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>{addedVariant.title} × {addedQuantity}</Typography>
+                                        )}
+                                    </Box>
+                                </Box>
+                                <Button
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={<ShoppingBagOutlinedIcon sx={{ fontSize: '1.6rem' }} />}
+                                    onClick={() => sendToCommerce({ type: 'OPEN_CART' })}
+                                    sx={{ flexShrink: 0, bgcolor: '#333', fontSize: '1.4rem', '&:hover': { bgcolor: '#000' } }}
+                                >
+                                    Bag ({localCart.getCartCount()})
+                                </Button>
+                            </Box>
+                        )}
                         {/* Category navigation - sticky above card grid */}
-                        {DESSERT_SUBCATEGORIES.length > 0 && (!feedActive || closingDetail) && (
+                        {activeFeedSubcategories.length > 0 && (!feedActive || closingDetail) && (
                             <Box
                                 sx={{
                                     display: 'flex',
@@ -2994,7 +4146,7 @@ function CommerceInner() {
                                     bgcolor: 'white',
                                 }}
                             >
-                                {DESSERT_SUBCATEGORIES.map((category, idx) => {
+                                {activeFeedSubcategories.map((category, idx) => {
                                     const isActive = feedItems[feedIndex]?.categoryIndex === idx;
                                     return (
                                         <Typography
@@ -3037,8 +4189,9 @@ function CommerceInner() {
                                 feedItems={feedItems}
                                 collapsingFeedIndex={collapseTransition ? feedIndex : undefined}
                                 onProductTap={(itemFeedIndex, cardData) => {
-                            // Save scroll position before entering product detail
+                            // Save scroll position and origin path before entering product detail
                             feedScrollPositionRef.current = window.scrollY;
+                            originPathRef.current = window.location.pathname;
                             // Cancel any in-progress close animation
                             if (closeTimeoutRef.current) {
                                 clearTimeout(closeTimeoutRef.current);
@@ -3047,8 +4200,13 @@ function CommerceInner() {
                                 setCollapseTransition(null);
                             }
                             setFeedIndex(itemFeedIndex);
-                            // Set text color and product detail mode immediately
+                            // Update URL for SEO (pushState to avoid React Router re-render)
                             const tappedItem = feedItems[itemFeedIndex];
+                            const productHandle = tappedItem?.product?.id;
+                            if (productHandle) {
+                                window.history.pushState(null, '', `/product/${productHandle}`);
+                            }
+                            // Set text color and product detail mode immediately
                             const itemTextColor = tappedItem?.textColor || getTextColorForBackground(tappedItem?.backgroundColor);
                             setActiveTextColor(itemTextColor);
                             setIsProductDetail(true);
@@ -3069,6 +4227,8 @@ function CommerceInner() {
                                     imgAR: cardData.imgAR,
                                 };
                                 // Start overlay - use gradient (matches product detail destination)
+                                const tappedIsCollectible = tappedItem?.isCollectible || tappedItem?.product?.category?.toLowerCase() === 'merchandise' || tappedItem?.product?.productType?.toLowerCase() === 'merchandise';
+                                const tappedImageCount = tappedItem?.catalogImages?.length || tappedItem?.product?.images?.length || 0;
                                 setExpandTransition({
                                     rect: cardData.rect,
                                     bgStyle: cardData.bgGradient,
@@ -3076,6 +4236,8 @@ function CommerceInner() {
                                     imgSrc: cardData.imgSrc,
                                     imgAR: cardData.imgAR,
                                     hasVariants: (tappedItem?.variants?.length || 0) > 1,
+                                    isCollectible: tappedIsCollectible,
+                                    hasThumbnails: tappedIsCollectible && tappedImageCount > 1,
                                 });
                                 // Show ProductDetailPage immediately so card slides up in parallel
                                 setFeedActive(true);
@@ -3099,8 +4261,8 @@ function CommerceInner() {
                         {feedActive && feedItems[feedIndex]?.type === 'product' && (
                             <ProductDetailPage
                                 item={feedItems[feedIndex]}
-                                onAddToCart={async (productId, variantId, quantity) => {
-                                    await handleAddToCart(productId, variantId, quantity);
+                                onAddToCart={async (product, variant, quantity, customAttributes) => {
+                                    return await handleAddToCart(product, variant, quantity, customAttributes);
                                 }}
                                 onClose={closeProductDetail}
                                 onOpenCart={() => sendToCommerce({ type: 'OPEN_CART' })}
@@ -3109,8 +4271,7 @@ function CommerceInner() {
                             />
                         )}
 
-                        {/* Footer */}
-                        {!feedActive && <Footer />}
+                        {/* Footer moved outside desserts section to stay at bottom of all content */}
                     </motion.div>
             )}
             </AnimatePresence>
@@ -3124,9 +4285,11 @@ function CommerceInner() {
                 const cardAR = ir ? ir.width / ir.height : 1;
                 // On wide, toggle is outside the image section so container is full height
                 const togglePx = wideLayout ? 0 : (expandTransition.hasVariants ? 52 : 0);
+                // Only use shorter 30dvh hero when thumbnails will show (multiple images), otherwise 38dvh
+                const heroFraction = (!wideLayout && expandTransition.hasThumbnails) ? 0.30 : 0.38;
                 // Detail page container dimensions
                 const detailW = wideLayout ? window.innerWidth * 0.5 : window.innerWidth;
-                const detailH = wideLayout ? window.innerHeight : (window.innerHeight * 0.38 - togglePx);
+                const detailH = wideLayout ? window.innerHeight : (window.innerHeight * heroFraction - togglePx);
                 const detailAR = detailW / detailH;
                 // contain-fit rendered size in the detail container
                 const containW = imgAR > detailAR ? detailW : detailH * imgAR;
@@ -3140,7 +4303,7 @@ function CommerceInner() {
                 const toggleOffset = wideLayout ? 0 : (expandTransition.hasVariants ? 26 : 0);
                 const imgTargetCenterY = wideLayout
                     ? (window.innerHeight / 2)
-                    : (window.innerHeight * 0.38 / 2) + toggleOffset;
+                    : (window.innerHeight * heroFraction / 2) + toggleOffset;
                 const dx = imgTargetCenterX - imgStartCenterX;
                 const dy = imgTargetCenterY - imgStartCenterY;
                 // For objectFit:cover, wide images (AR > containerAR) fill height, others fill width
@@ -3162,7 +4325,7 @@ function CommerceInner() {
                                 top: 0,
                                 left: 0,
                                 width: wideLayout ? window.innerWidth * 0.5 : window.innerWidth,
-                                height: wideLayout ? window.innerHeight : window.innerHeight * 0.38,
+                                height: wideLayout ? window.innerHeight : window.innerHeight * heroFraction,
                                 borderRadius: 0,
                                 opacity: wideLayout ? 0 : 1,
                             }}
@@ -3173,7 +4336,7 @@ function CommerceInner() {
                             }}
                             style={{
                                 position: 'fixed',
-                                zIndex: 55,
+                                zIndex: 105,
                                 background: expandTransition.bgStyle,
                                 overflow: 'hidden',
                                 pointerEvents: 'none',
@@ -3204,7 +4367,7 @@ function CommerceInner() {
                                     }}
                                     style={{
                                         position: 'fixed',
-                                        zIndex: 56,
+                                        zIndex: 106,
                                         objectFit: 'contain',
                                         pointerEvents: 'none',
                                     }}
@@ -3233,7 +4396,7 @@ function CommerceInner() {
                                         left: ir.left,
                                         width: ir.width,
                                         height: ir.height,
-                                        zIndex: 56,
+                                        zIndex: 106,
                                         objectFit: 'cover',
                                         borderRadius: 12,
                                         pointerEvents: 'none',
@@ -3253,9 +4416,11 @@ function CommerceInner() {
                 const wideLayout = window.matchMedia('(min-aspect-ratio: 4/3) and (min-width: 768px)').matches;
                 const collapseImgAR = collapseTransition.imgAR || 1;
                 const collapseContainerAR = tr.width / tr.height;
+                // Only use shorter 30dvh hero when thumbnails will show (multiple images), otherwise 38dvh
+                const cHeroFraction = (!wideLayout && collapseTransition.hasThumbnails) ? 0.30 : 0.38;
                 // Compute contain-fit size matching the detail page container
                 const cDetailW = wideLayout ? window.innerWidth * 0.5 : window.innerWidth;
-                const cDetailH = wideLayout ? window.innerHeight : (window.innerHeight * 0.38);
+                const cDetailH = wideLayout ? window.innerHeight : (window.innerHeight * cHeroFraction);
                 const cDetailAR = cDetailW / cDetailH;
                 const cContainW = collapseImgAR > cDetailAR ? cDetailW : cDetailH * collapseImgAR;
                 const cContainH = collapseImgAR > cDetailAR ? cDetailW / collapseImgAR : cDetailH;
@@ -3263,7 +4428,7 @@ function CommerceInner() {
                 const cardCenterX = tr.left + tr.width / 2;
                 const cardCenterY = tr.top + tr.height / 2;
                 const screenCenterX = window.innerWidth / 2;
-                const screenCenterY = window.innerHeight * 0.38 / 2;
+                const screenCenterY = window.innerHeight * cHeroFraction / 2;
                 const offsetX = screenCenterX - cardCenterX;
                 const offsetY = screenCenterY - cardCenterY;
                 const imgStartScale = imgSize / (collapseImgAR > collapseContainerAR ? tr.height : tr.width);
@@ -3291,7 +4456,7 @@ function CommerceInner() {
                         }}
                         style={{
                             position: 'fixed',
-                            zIndex: 56,
+                            zIndex: 106,
                             objectFit: 'contain',
                             pointerEvents: 'none',
                         }}
@@ -3320,7 +4485,7 @@ function CommerceInner() {
                             left: tr.left,
                             width: tr.width,
                             height: tr.height,
-                            zIndex: 56,
+                            zIndex: 106,
                             objectFit: 'cover',
                             borderRadius: 12,
                             pointerEvents: 'none',
@@ -3332,17 +4497,34 @@ function CommerceInner() {
 
 
 
-            <Helmet>
-                <title>{pageTitle || 'Surreal Creamery x tokidoki | Shop'}</title>
-                <meta name="description" content={pageDescription || "Shop exclusive tokidoki x Surreal Creamery collaboration. Limited edition desserts, blind box collectibles, and more!"} />
-            </Helmet>
+            {(() => {
+                const activeProduct = productId && activeProductItem?.product
+                    ? activeProductItem.product
+                    : feedActive && feedItems[feedIndex]?.product
+                        ? feedItems[feedIndex].product
+                        : null;
+                return (
+                    <Helmet>
+                        <title>{activeProduct ? `${activeProduct.name} | Surreal Creamery` : pageTitle || 'Surreal Creamery x tokidoki | Shop'}</title>
+                        <meta name="description" content={activeProduct ? (activeProduct.description || `Shop ${activeProduct.name} at Surreal Creamery`) : pageDescription || "Shop exclusive tokidoki x Surreal Creamery collaboration. Limited edition desserts, blind box collectibles, and more!"} />
+                        {activeProduct && (
+                            <>
+                                <meta property="og:title" content={`${activeProduct.name} | Surreal Creamery`} />
+                                <meta property="og:description" content={activeProduct.description || `Shop ${activeProduct.name} at Surreal Creamery`} />
+                                {activeProduct.imageUrl && <meta property="og:image" content={activeProduct.imageUrl} />}
+                                <meta property="og:type" content="product" />
+                            </>
+                        )}
+                    </Helmet>
+                );
+            })()}
 
             <Box sx={{
-                minHeight: (isDesserts || showProductModal) ? 0 : '100vh',
+                minHeight: (isDesserts || isMerchandise || feedActive || (productId && activeProductItem && !showAddedToCart)) ? 0 : '100vh',
                 backgroundColor: 'white',
                 overflowX: 'hidden',
-                // Hide main content on mobile when swiper/kiosk is active
-                display: isDesserts ? { xs: 'none', md: 'block' } : 'block',
+                // Hide when desserts/merchandise/feed view is active - has its own full-screen UI
+                display: (isDesserts || isMerchandise || feedActive || (productId && activeProductItem && !showAddedToCart)) ? 'none' : 'block',
             }}>
                 {/* ADDED TO CART VIEW */}
                 {showAddedToCart && addedProduct ? (
@@ -3393,14 +4575,19 @@ function CommerceInner() {
                                                 {addedProduct.name || addedProduct.title}
                                             </Typography>
                                             {addedVariant?.title && addedVariant.title !== 'Default Title' && (
-                                                <Typography 
-                                                    sx={{ 
+                                                <Typography
+                                                    sx={{
                                                         color: '#333',
                                                         display: 'block',
                                                         fontSize: '1.6rem'
                                                     }}
                                                 >
                                                     {addedVariant.title} × {addedQuantity}
+                                                </Typography>
+                                            )}
+                                            {addedModifiers?.length > 0 && (
+                                                <Typography sx={{ color: 'text.secondary', fontSize: '1.4rem', mt: 0.25 }}>
+                                                    {addedModifiers.map(m => m.value).join(', ')}
                                                 </Typography>
                                             )}
                                         </Box>
@@ -3435,39 +4622,30 @@ function CommerceInner() {
                                         // Build unified list of all discounts
                                         const allDiscounts = [];
                                         
-                                        // 1. Free Shipping
-                                        allDiscounts.push({
-                                            id: 'free-shipping',
-                                            type: 'shipping',
-                                            title: `Free Shipping for orders over $${REWARDS_CONFIG.freeShipping.threshold}`,
-                                            shortTitle: 'Free Shipping',
-                                            threshold: REWARDS_CONFIG.freeShipping.threshold,
-                                            current: cartTotal,
-                                            progress: shippingProgress.progress,
-                                            unlocked: shippingProgress.unlocked,
-                                            remaining: shippingProgress.remaining,
-                                            priority: 3
-                                        });
-                                        
-                                        // 2. Order Discounts (percentage off)
+                                        // 1. Order Discounts (percentage off or amount off)
                                         orderDiscounts?.forEach(discount => {
                                             const current = cartTotal;
                                             const threshold = discount.threshold;
-                                            const progress = Math.min((current / threshold) * 100, 100);
-                                            const unlocked = current >= threshold;
+                                            const progress = threshold > 0 ? Math.min((current / threshold) * 100, 100) : 100;
+                                            const unlocked = threshold > 0 ? current >= threshold : true;
                                             const remaining = Math.max(0, threshold - current);
-                                            
+                                            const isPercentage = discount.valueType === 'PERCENTAGE';
+                                            const displayValue = isPercentage ? `${discount.percentOff}%` : `$${discount.amountOff}`;
+                                            const thresholdLabel = threshold > 0 ? ` for orders over $${threshold}` : '';
+
                                             allDiscounts.push({
                                                 id: discount.id,
                                                 type: 'order',
-                                                title: `${discount.percentOff}% Off Your Order for orders over $${threshold}`,
-                                                shortTitle: `${discount.percentOff}% Off`,
+                                                title: `${displayValue} Off Your Order${thresholdLabel}`,
+                                                shortTitle: `${displayValue} Off`,
                                                 threshold,
                                                 current,
                                                 progress,
                                                 unlocked,
                                                 remaining,
                                                 percentOff: discount.percentOff,
+                                                amountOff: discount.amountOff,
+                                                valueType: discount.valueType,
                                                 priority: 2
                                             });
                                         });
@@ -3513,20 +4691,14 @@ function CommerceInner() {
                                                 }}>
                                                     {/* Title Row */}
                                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                        {discount.type === 'shipping' && (
-                                                            <LocalShippingOutlinedIcon sx={{ 
-                                                                fontSize: '1.6rem', 
-                                                                color: discount.unlocked ? 'success.main' : 'text.secondary'
-                                                            }} />
-                                                        )}
                                                         {discount.type === 'order' && (
-                                                            <Box sx={{ 
-                                                                fontSize: '1.6rem', 
+                                                            <Box sx={{
+                                                                fontSize: '1.6rem',
                                                                 fontWeight: 700,
                                                                 color: discount.unlocked ? 'success.main' : '#e65100',
                                                                 minWidth: 36
                                                             }}>
-                                                                {discount.percentOff}%
+                                                                {discount.valueType === 'PERCENTAGE' ? `${discount.percentOff}%` : `$${discount.amountOff}`}
                                                             </Box>
                                                         )}
                                                         {discount.type === 'quantity' && (
@@ -3554,7 +4726,7 @@ function CommerceInner() {
                                                     {isActive && !discount.unlocked && (
                                                         <Box sx={{ mt: 1.5 }}>
                                                             {/* Progress Bar for dollar-based discounts */}
-                                                            {(discount.type === 'shipping' || discount.type === 'order') && (
+                                                            {discount.type === 'order' && (
                                                                 <>
                                                                     <Box sx={{ 
                                                                         height: 8, 
@@ -3566,7 +4738,7 @@ function CommerceInner() {
                                                                         <Box sx={{ 
                                                                             height: '100%', 
                                                                             width: `${discount.progress}%`,
-                                                                            bgcolor: discount.type === 'shipping' ? 'primary.main' : '#ff9800',
+                                                                            bgcolor: '#ff9800',
                                                                             borderRadius: 4,
                                                                             transition: 'width 0.3s ease'
                                                                         }} />
@@ -4338,65 +5510,6 @@ function CommerceInner() {
                             )
                         )}
                         
-                        {/* Continue Exploring Section */}
-                        <Container maxWidth="md" sx={{ mt: 4, px: 2 }}>
-                            <Box sx={{ borderTop: '1px solid', borderColor: 'grey.200', pt: 3 }} />
-                            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, textAlign: 'center' }}>
-                                Continue Exploring
-                            </Typography>
-                            
-                            {/* Category Tiles - 2 Column Grid - Dynamic from API */}
-                            <Box sx={{ 
-                                display: 'flex', 
-                                flexWrap: 'wrap', 
-                                gap: 2
-                            }}>
-                                {categories?.map((cat) => (
-                                    <Box 
-                                        key={cat.id}
-                                        onClick={() => {
-                                            handleCloseAddedToCart();
-                                            navigate(`/${cat.handle}`);
-                                            window.scrollTo(0, 0);
-                                        }}
-                                        sx={{ 
-                                            cursor: 'pointer', 
-                                            width: 'calc(50% - 8px)',
-                                            maxWidth: 'calc(50% - 8px)',
-                                            '&:hover': { opacity: 0.8 }
-                                        }}
-                                    >
-                                        <Box sx={{ 
-                                            position: 'relative', 
-                                            borderRadius: 2, 
-                                            overflow: 'hidden', 
-                                            paddingTop: '100%', 
-                                            backgroundColor: 'grey.200' 
-                                        }}>
-                                            <img 
-                                                src={cat.image?.url || `https://placehold.co/400x400/e0e0e0/666666?text=${encodeURIComponent(cat.title)}`} 
-                                                alt={cat.title} 
-                                                style={{ 
-                                                    position: 'absolute', 
-                                                    top: 0, 
-                                                    left: 0, 
-                                                    width: '100%', 
-                                                    height: '100%', 
-                                                    objectFit: 'cover' 
-                                                }}
-                                                onError={(e) => {
-                                                    e.target.onerror = null;
-                                                    e.target.src = `https://placehold.co/400x400/e0e0e0/666666?text=${encodeURIComponent(cat.title)}`;
-                                                }}
-                                            />
-                                        </Box>
-                                        <Typography variant="body1" align="center" sx={{ mt: 1, fontWeight: 600 }}>
-                                            {cat.title}
-                                        </Typography>
-                                    </Box>
-                                ))}
-                            </Box>
-                        </Container>
                     </Box>
                 ) : (
                 <AnimatePresence mode="wait">
@@ -5141,456 +6254,12 @@ function CommerceInner() {
                 </motion.div>
                 )}
 
-                {isMerchandise && (
-                <motion.div
-                    key="merchandise"
-                    variants={pageTransitionVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    style={{ width: '100%' }}
-                >
-                    {/* MERCHANDISE CATALOG VIEW - Sections by subcategory */}
-                    <Box sx={{ mb: 6 }}>
-                        {/* Breadcrumb Navigation */}
-                        <Container maxWidth="md" sx={{ pt: 2, pb: 1 }}>
-                            <Box component="nav" aria-label="Breadcrumb" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-                                <Typography
-                                    component="a"
-                                    role="link"
-                                    tabIndex={0}
-                                    onClick={() => navigate('/')}
-                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/'); } }}
-                                    sx={{
-                                        color: 'text.secondary',
-                                        cursor: 'pointer',
-                                        textDecoration: 'none',
-                                        '&:hover, &:focus-visible': { textDecoration: 'underline' },
-                                        '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2, borderRadius: 0.5 },
-                                    }}
-                                >
-                                    Shop
-                                </Typography>
-                                <Typography aria-hidden="true" sx={{ color: 'text.secondary' }}>/</Typography>
-                                <Typography aria-current="page" sx={{ fontWeight: 600 }}>
-                                    {pageTitle}
-                                </Typography>
-                            </Box>
-                        </Container>
-
-                        <Container maxWidth="md" sx={{ mb: 4 }}>
-
-                            {/* Subcategory Navigation Tiles - Click to scroll to section */}
-                            {/* Mobile: Full-width 16:9 stacked, Desktop: 2-column grid */}
-                            <Box
-                                sx={{
-                                    display: 'flex',
-                                    flexDirection: { xs: 'column', md: 'row' },
-                                    flexWrap: { xs: 'nowrap', md: 'wrap' },
-                                    gap: { xs: 2, md: 2 },
-                                    mx: 'auto',
-                                    mb: 4,
-                                    justifyContent: 'center'
-                                }}
-                            >
-                                {MERCHANDISE_SUBCATEGORIES.map((subcat) => {
-                                    const isBlindBoxTile = subcat.id === 'blind-box' || subcat.title?.toLowerCase().includes('blind box');
-                                    // Get the free gift discount for blind boxes
-                                    const blindBoxFreeGift = isBlindBoxTile && quantityDiscountGroups.length > 0 ? {
-                                        type: 'freeItem',
-                                        quantityRequired: quantityDiscountGroups[0]?.threshold,
-                                        current: blindBoxesInCart,
-                                        remaining: Math.max(0, (quantityDiscountGroups[0]?.threshold || 3) - blindBoxesInCart),
-                                        freeItemName: 'gift',
-                                        options: quantityDiscountGroups[0]?.options || []
-                                    } : null;
-
-                                    return (
-                                        <Box
-                                            key={subcat.id}
-                                            sx={{
-                                                width: { xs: '100%', md: 'calc(50% - 8px)' }
-                                            }}
-                                        >
-                                            <Box
-                                                role="link"
-                                                tabIndex={0}
-                                                aria-label={`Jump to ${subcat.title} section`}
-                                                onClick={() => scrollToSection(subcat.id)}
-                                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scrollToSection(subcat.id); } }}
-                                                sx={{
-                                                    cursor: 'pointer',
-                                                    '&:hover, &:focus-visible': { opacity: 0.8 },
-                                                    '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2, borderRadius: 2 },
-                                                }}
-                                            >
-                                                <Box sx={{
-                                                    position: 'relative',
-                                                    borderRadius: 2,
-                                                    overflow: 'hidden',
-                                                    paddingTop: getAspectRatioPadding(subcat.imageAspectRatio),
-                                                    backgroundColor: 'grey.200'
-                                                }}>
-                                                    <img
-                                                        src={subcat.image}
-                                                        alt={subcat.title}
-                                                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                                                    />
-                                                    {/* Category title overlay */}
-                                                    <Box sx={{
-                                                        position: 'absolute',
-                                                        bottom: 0,
-                                                        left: 0,
-                                                        right: 0,
-                                                        background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
-                                                        p: 2,
-                                                        pt: 4
-                                                    }}>
-                                                        <Typography
-                                                            variant="h6"
-                                                            sx={{
-                                                                color: 'white',
-                                                                fontWeight: 700,
-                                                                textShadow: '0 1px 3px rgba(0,0,0,0.5)'
-                                                            }}
-                                                        >
-                                                            {subcat.title}
-                                                        </Typography>
-                                                    </Box>
-                                                    {/* ZONE 1: Banner on subcategory tile */}
-                                                    <DiscountZonePlaceholder
-                                                        zone={1}
-                                                        variant="banner"
-                                                        discount={blindBoxFreeGift}
-                                                        subcategoryName="Blind Boxes"
-                                                        products={shopifyProducts}
-                                                    />
-                                                </Box>
-                                            </Box>
-
-                                            {/* Contextual offer below blind box tile - only show when 1+ in cart AND we have valid discount data */}
-                                            {isBlindBoxTile && blindBoxesInCart >= 1 && hasBlindBoxDiscount && (
-                                                <Box 
-                                                    onClick={handleReturnToCrossSell}
-                                                    sx={{ 
-                                                        mt: 1,
-                                                        p: 1,
-                                                        borderRadius: 1,
-                                                        cursor: 'pointer',
-                                                        bgcolor: '#e8f5e9',
-                                                        border: '1px solid',
-                                                        borderColor: '#4caf50',
-                                                        '&:hover': { 
-                                                            transform: 'translateY(-1px)',
-                                                            boxShadow: 1
-                                                        },
-                                                        transition: 'all 0.2s ease'
-                                                    }}
-                                                >
-                                                    <Typography 
-                                                        align="center" 
-                                                        sx={{ 
-                                                            fontSize: '1.6rem', 
-                                                            fontWeight: 600,
-                                                            color: '#1b5e20'
-                                                        }}
-                                                    >
-                                                        {isDiscountUnlocked
-                                                            ? `✓ ${blindBoxesInCart} in bag`
-                                                            : (hasBlindBoxDiscount ? `Add ${blindBoxesNeededForDiscount} more for ${BLIND_BOX_DISCOUNT_PERCENT}% off!` : `✓ ${blindBoxesInCart} in bag`)
-                                                        }
-                                                    </Typography>
-                                                </Box>
-                                            )}
-                                        </Box>
-                                    );
-                                })}
-                            </Box>
-                        </Container>
-                        
-                        {/* Product Sections - One per subcategory */}
-                        {MERCHANDISE_SUBCATEGORIES.map((subcat, index) => {
-                            const sectionProducts = productsBySubcategory[subcat.id] || [];
-                            
-                            // Skip empty sections
-                            if (sectionProducts.length === 0) return null;
-                            
-                            // Check if this is the blind box section
-                            const isBlindBoxSection = subcat.id === 'blind-box' || subcat.title?.toLowerCase().includes('blind box');
-                            
-                            // Offer banner for blind box section - changes based on cart state
-                            // Only show if we have valid discount data (percent AND quantity threshold)
-                            const blindBoxOfferBanner = isBlindBoxSection && hasBlindBoxDiscount ? (
-                                isDiscountUnlocked ? (
-                                    // Active discount - show clickable "continue" banner
-                                    <Box
-                                        onClick={handleReturnToCrossSell}
-                                        sx={{
-                                            bgcolor: '#e8f5e9',
-                                            border: '2px solid #4caf50',
-                                            borderRadius: 2,
-                                            p: 2,
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 2,
-                                            '&:hover': {
-                                                bgcolor: '#c8e6c9',
-                                                transform: 'translateY(-2px)',
-                                                boxShadow: 2
-                                            },
-                                            transition: 'all 0.2s ease'
-                                        }}
-                                    >
-                                        <CheckCircleIcon sx={{ fontSize: '2rem', color: '#2e7d32' }} />
-                                        <Box sx={{ flex: 1 }}>
-                                            <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#1b5e20' }}>
-                                                {BLIND_BOX_DISCOUNT_PERCENT}% Off Unlocked!
-                                            </Typography>
-                                            <Typography sx={{ fontSize: '1.6rem', color: '#2e7d32' }}>
-                                                {blindBoxesInCart} in bag. Add more to save even more!
-                                            </Typography>
-                                        </Box>
-                                        <Typography sx={{ fontSize: '1.6rem', color: '#2e7d32', fontWeight: 600 }}>
-                                            View Bag →
-                                        </Typography>
-                                    </Box>
-                                ) : blindBoxesInCart > 0 && blindBoxesNeededForDiscount > 0 ? (
-                                    // Has blind boxes but not enough - show clickable "almost there" banner
-                                    <Box
-                                        onClick={handleReturnToCrossSell}
-                                        sx={{
-                                            bgcolor: '#fff8e1',
-                                            border: '2px solid #ffb300',
-                                            borderRadius: 2,
-                                            p: 2,
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 2,
-                                            '&:hover': {
-                                                bgcolor: '#fff3c4',
-                                                transform: 'translateY(-2px)',
-                                                boxShadow: 2
-                                            },
-                                            transition: 'all 0.2s ease'
-                                        }}
-                                    >
-                                        <LocalOfferIcon sx={{ fontSize: '2rem', color: '#ff6f00' }} />
-                                        <Box sx={{ flex: 1 }}>
-                                            <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#e65100' }}>
-                                                Almost There!
-                                            </Typography>
-                                            <Typography sx={{ fontSize: '1.6rem', color: '#6d4c00' }}>
-                                                Add {blindBoxesNeededForDiscount} more to unlock {BLIND_BOX_DISCOUNT_PERCENT}% off!
-                                            </Typography>
-                                        </Box>
-                                        <Typography sx={{ fontSize: '1.6rem', color: '#ff6f00', fontWeight: 600 }}>
-                                            View Bag →
-                                        </Typography>
-                                    </Box>
-                                ) : (
-                                    // No blind boxes - show static promo banner
-                                    <Box
-                                        sx={{
-                                            bgcolor: '#e8f5e9',
-                                            border: '2px solid #4caf50',
-                                            borderRadius: 2,
-                                            p: 2,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 2
-                                        }}
-                                    >
-                                        <LocalOfferIcon sx={{ fontSize: '2rem', color: '#2e7d32' }} />
-                                        <Box>
-                                            <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#1b5e20' }}>
-                                                {BLIND_BOX_DISCOUNT_PERCENT}% Off When You Buy {BLIND_BOX_QUANTITY_THRESHOLD}+
-                                            </Typography>
-                                            <Typography sx={{ fontSize: '1.6rem', color: '#2e7d32' }}>
-                                                Mix & match any blind boxes to unlock the discount!
-                                            </Typography>
-                                        </Box>
-                                    </Box>
-                                )
-                            ) : null;
-                            
-                            // Build discount data for blind box section
-                            const blindBoxSectionDiscount = isBlindBoxSection && quantityDiscountGroups.length > 0 ? {
-                                type: 'freeItem',
-                                title: `Buy ${quantityDiscountGroups[0]?.threshold}, get free item!`,
-                                quantityRequired: quantityDiscountGroups[0]?.threshold,
-                                current: blindBoxesInCart,
-                                remaining: Math.max(0, (quantityDiscountGroups[0]?.threshold || 3) - blindBoxesInCart),
-                                freeItemName: 'gift',
-                                options: quantityDiscountGroups[0]?.options || []
-                            } : null;
-
-                            // Zone 3 is for product-specific discounts only, not collection discounts
-                            // Collection discounts are shown in Zone 2 (sectionDiscount)
-                            const blindBoxProductDiscount = null;
-
-                            return (
-                                <Box
-                                    key={subcat.id}
-                                    id={`section-${subcat.id}`}
-                                    sx={{ scrollMarginTop: '80px' }} // Offset for fixed header if any
-                                >
-                                    <Section
-                                        title={subcat.title}
-                                        description={subcat.description}
-                                        products={sectionProducts}
-                                        onProductClick={handleChooseProduct}
-                                        showDivider={index > 0}
-                                        afterDescription={blindBoxOfferBanner}
-                                        discountPercent={isBlindBoxSection && hasBlindBoxDiscount && blindBoxesInCart >= 1 ? BLIND_BOX_DISCOUNT_PERCENT : null}
-                                        sectionDiscount={blindBoxSectionDiscount}
-                                        productDiscount={blindBoxProductDiscount}
-                                        subcategoryName={isBlindBoxSection ? "Blind Boxes" : subcat.title}
-                                        allProducts={shopifyProducts}
-                                    />
-                                </Box>
-                            );
-                        })}
-
-                        {/* "Other" Section - Products attached to Level 1 or unmatched */}
-                        {productsBySubcategory['_other'] && productsBySubcategory['_other'].length > 0 && (
-                            <Box
-                                id="section-other"
-                                sx={{ scrollMarginTop: '80px' }}
-                            >
-                                <Section
-                                    title="Other"
-                                    description="Additional items"
-                                    products={productsBySubcategory['_other']}
-                                    onProductClick={handleChooseProduct}
-                                    showDivider={true}
-                                />
-                            </Box>
-                        )}
-                    </Box>
-                </motion.div>
-                )}
                 </AnimatePresence>
                 )}
             </Box>
 
-            {/* Product Modal */}
-            {(() => {
-                console.log('🎭 Modal Render Check:', {
-                    showProductModal,
-                    hasSelectedProductId: !!selectedProductId,
-                    hasSelectedProduct: !!selectedProduct,
-                    selectedProductName: selectedProduct?.name
-                });
-                
-                if (!showProductModal || !selectedProductId) {
-                    console.log('❌ Modal NOT rendering - conditions not met');
-                    return null;
-                }
-                
-                if (!selectedProduct) {
-                    console.log('⏳ Modal NOT rendering - product loading...');
-                    return (
-                        <Box sx={{ p: 4, textAlign: 'center' }}>
-                            <CircularProgress />
-                            <Typography sx={{ mt: 2, fontSize: '1.6rem' }}>
-                                Loading product...
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1, display: 'block', fontSize: '1.6rem' }}>
-                                ID: {typeof selectedProductId === 'string' ? selectedProductId : selectedProductId?.id || 'Unknown'}
-                            </Typography>
-                        </Box>
-                    );
-                }
-                
-                console.log('✅ Modal SHOULD BE RENDERING - calling ProductModal component');
-                console.log('📦 Passing product:', selectedProduct.name);
-                console.log('📦 Passing open:', showProductModal);
-                console.log('📦 Variant info:', selectedVariantInfo.current);
-                
-                // Merge variant info with base product if a specific variant was clicked
-                const variantInfo = selectedVariantInfo.current;
-                let productForModal;
-                
-                if (variantInfo?.availableVariants && variantInfo.availableVariants.length > 1) {
-                    // Grouped product with multiple variants - show selector
-                    // Exclude original variants array from selectedProduct
-                    const { variants: _allVariants, ...productWithoutVariants } = selectedProduct;
-                    
-                    productForModal = {
-                        ...productWithoutVariants,
-                        name: variantInfo.name,
-                        price: variantInfo.price,
-                        imageUrl: variantInfo.imageUrl,
-                        imageAlt: variantInfo.imageAlt,
-                        images: variantInfo.imageUrl 
-                            ? [{ url: variantInfo.imageUrl, alt: variantInfo.imageAlt }]
-                            : selectedProduct.images,
-                        // Pass only the subcategory-specific variants for selector
-                        availableVariants: variantInfo.availableVariants,
-                        variantId: null // Will be set when user selects
-                    };
-                } else if (variantInfo) {
-                    // Single variant product - just use the product name (no variant suffix)
-                    const fullName = variantInfo.name;
-                    
-                    // Exclude original variants array from selectedProduct
-                    const { variants: _allVariants, ...productWithoutVariants } = selectedProduct;
-                    
-                    productForModal = {
-                        ...productWithoutVariants,
-                        name: fullName,
-                        price: variantInfo.price,
-                        variantId: variantInfo.variantId,
-                        variantTitle: variantInfo.variantTitle,
-                        imageUrl: variantInfo.imageUrl,
-                        imageAlt: variantInfo.imageAlt,
-                        images: variantInfo.imageUrl 
-                            ? [{ url: variantInfo.imageUrl, alt: variantInfo.imageAlt }]
-                            : selectedProduct.images,
-                        // Pass availableVariants so modal can check hasVariantImage
-                        availableVariants: variantInfo.availableVariants || null
-                    };
-                } else {
-                    // No variant info - pass product with availableVariants set from variants
-                    productForModal = {
-                        ...selectedProduct,
-                        availableVariants: selectedProduct.variants?.length > 1 ? selectedProduct.variants : null
-                    };
-                }
-                
-                // Determine if this product has a discount (blind box products get free gift discount)
-                const isBlindBoxProduct = productForModal?.merchandiseType === 'blind_box_collectible';
-                console.log('🎯 ProductModal discount check:', {
-                    merchandiseType: productForModal?.merchandiseType,
-                    isBlindBoxProduct,
-                    quantityDiscountGroups: quantityDiscountGroups.length,
-                    blindBoxesInCart
-                });
-                const modalDiscount = isBlindBoxProduct && quantityDiscountGroups.length > 0 ? {
-                    type: 'freeItem',
-                    title: `Buy ${quantityDiscountGroups[0]?.threshold}, get free item!`,
-                    quantityRequired: quantityDiscountGroups[0]?.threshold,
-                    current: blindBoxesInCart,
-                    remaining: Math.max(0, (quantityDiscountGroups[0]?.threshold || 3) - blindBoxesInCart),
-                    freeItemName: 'gift',
-                    options: quantityDiscountGroups[0]?.options || []
-                } : null;
-                console.log('🎯 Modal discount:', modalDiscount);
-
-                return (
-                    <ProductModal
-                        open={showProductModal}
-                        product={productForModal}
-                        onClose={handleCloseProductModal}
-                        onAddToCart={handleAddToCart}
-                        discount={modalDiscount}
-                        preSelectedModifier={preSelectedModifierRef.current}
-                        storeLocations={storeLocations}
-                    />
-                );
-            })()}
+            {/* Footer - after all content, hidden during product detail */}
+            {!feedActive && !productId && <Footer />}
 
             {/* Cart Drawer */}
             <CartDrawer
@@ -5605,7 +6274,6 @@ function CommerceInner() {
                 onAddBlindBox={() => setShowBlindBoxSelector(true)}
                 localCart={localCart}
             />
-            
 
             {/* Blind Box Selector Modal */}
             <Modal

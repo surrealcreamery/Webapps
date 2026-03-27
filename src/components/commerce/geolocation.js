@@ -1,37 +1,107 @@
 /**
  * IP-based Geolocation (No permissions needed)
- * Uses ipapi.co free tier (1,000 requests/day)
+ * Uses multiple providers with fallback and caching
  */
+
+const CACHE_KEY = 'user_geolocation';
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Get cached location from sessionStorage
+ */
+function getCachedLocation() {
+  try {
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (!cached) return null;
+
+    const { data, timestamp } = JSON.parse(cached);
+    if (Date.now() - timestamp > CACHE_DURATION) {
+      sessionStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cache location in sessionStorage
+ */
+function cacheLocation(data) {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+      data,
+      timestamp: Date.now()
+    }));
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 /**
  * Get user's approximate location from IP address
+ * Uses caching and multiple providers for reliability
  * @returns {Promise<Object>} Location data { city, region, postal, latitude, longitude }
  */
 export async function getLocationFromIP() {
-  try {
-    const response = await fetch('https://ipapi.co/json/');
-    
-    if (!response.ok) {
-      throw new Error('Geolocation API failed');
-    }
-    
-    const data = await response.json();
-    
-    return {
-      city: data.city,
-      region: data.region,
-      regionCode: data.region_code,
-      postal: data.postal,
-      country: data.country_name,
-      countryCode: data.country_code,
-      latitude: data.latitude,
-      longitude: data.longitude,
-      timezone: data.timezone
-    };
-  } catch (error) {
-    console.error('IP geolocation failed:', error);
-    return null;
+  // Check cache first
+  const cached = getCachedLocation();
+  if (cached) {
+    console.log('[Geolocation] Using cached location:', cached.city);
+    return cached;
   }
+
+  const providers = [
+    {
+      name: 'ipwho.is',
+      url: 'https://ipwho.is/',
+      parse: (data) => data.success ? {
+        city: data.city, region: data.region, regionCode: data.region_code,
+        postal: data.postal, country: data.country, countryCode: data.country_code,
+        latitude: data.latitude, longitude: data.longitude, timezone: data.timezone?.id
+      } : null
+    },
+    {
+      name: 'ipapi.co',
+      url: 'https://ipapi.co/json/',
+      parse: (data) => !data.error ? {
+        city: data.city, region: data.region, regionCode: data.region_code,
+        postal: data.postal, country: data.country_name, countryCode: data.country_code,
+        latitude: data.latitude, longitude: data.longitude, timezone: data.timezone
+      } : null
+    },
+    {
+      name: 'ip-api.com',
+      url: 'http://ip-api.com/json/?fields=status,city,region,regionName,zip,country,countryCode,lat,lon,timezone',
+      parse: (data) => data.status === 'success' ? {
+        city: data.city, region: data.regionName, regionCode: data.region,
+        postal: data.zip, country: data.country, countryCode: data.countryCode,
+        latitude: data.lat, longitude: data.lon, timezone: data.timezone
+      } : null
+    }
+  ];
+
+  for (const provider of providers) {
+    try {
+      const response = await fetch(provider.url);
+      if (response.ok) {
+        const data = await response.json();
+        const location = provider.parse(data);
+        if (location && location.latitude) {
+          cacheLocation(location);
+          console.log(`[Geolocation] Location from ${provider.name}:`, location.city, location.regionCode);
+          return location;
+        }
+      }
+      console.warn(`[Geolocation] ${provider.name}: bad response (status ${response.status})`);
+    } catch (error) {
+      console.warn(`[Geolocation] ${provider.name} failed:`, error.message);
+    }
+  }
+
+  console.error('[Geolocation] All providers failed');
+  return null;
 }
 
 /**
@@ -128,19 +198,26 @@ export async function getStoresWithDistances(locations) {
  * @param {Array} locations - Array of store locations with lat/lon
  * @returns {Promise<Object>} Nearest location with distance
  */
+const MAX_AUTO_SELECT_DISTANCE = 25; // miles — beyond this, don't auto-select a store
+
 export async function findNearestStore(locations) {
   try {
     const storesWithDistances = await getStoresWithDistances(locations);
     const nearest = storesWithDistances[0];
-    
+
     if (nearest.distance !== null) {
       console.log(`Nearest store: ${nearest.name} (${nearest.distanceText} away)`);
+      // Don't auto-select if nearest store is beyond 25 miles
+      if (nearest.distance > MAX_AUTO_SELECT_DISTANCE) {
+        console.log(`Nearest store is ${nearest.distanceText} away (>${MAX_AUTO_SELECT_DISTANCE} mi) — no auto-selection`);
+        return null;
+      }
     }
-    
+
     return nearest;
   } catch (error) {
     console.error('Error finding nearest store:', error);
-    return { ...locations[0], distance: null, distanceText: null };
+    return null;
   }
 }
 
@@ -177,7 +254,12 @@ export async function initializeLocationSelection(locations) {
   
   // No saved location - use IP geolocation to find nearest
   console.log('No saved location, detecting nearest store...');
-  return await findNearestStore(locations);
+  const nearest = await findNearestStore(locations);
+  if (nearest) {
+    // Auto-select and save for future visits
+    localStorage.setItem('selectedLocation', nearest.id);
+  }
+  return nearest; // null if too far away — consumer app shows "Select Location"
 }
 
 /**

@@ -13,34 +13,57 @@ const formatEventDate = (dateString) => {
     }
 };
 
-// Helper to format time like "3:00pm - 7:00pm"
+// Helper to format date like "February 10th, 2026" (shorter, no day of week)
+const formatShortDate = (dateString) => {
+    if (!dateString) return '';
+    try {
+        const date = new Date(dateString.replace(/-/g, '/'));
+        return format(date, 'MMMM do, yyyy');
+    } catch (e) {
+        return '';
+    }
+};
+
+// Helper to format time like "from 3:00pm to 7:00pm"
 const formatTimeSlot = (slot) => {
     if (!slot || !slot.includes(' - ')) return '';
     try {
         const [startTime, endTime] = slot.split(' - ');
         const start = parse(startTime, 'HH:mm', new Date());
         const end = parse(endTime, 'HH:mm', new Date());
-        return `${format(start, 'h:mmaaa')} - ${format(end, 'h:mmaaa')}`.toLowerCase();
+        return `from ${format(start, 'h:mmaaa')} to ${format(end, 'h:mmaaa')}`.toLowerCase();
     } catch (e) {
         return '';
     }
 };
 
-export const HeroSection = ({ 
-    title, 
-    imageUrl, 
-    description, 
-    bulletPoints, 
-    onSelectLocationClick, 
+export const HeroSection = ({
+    title,
+    imageUrl,
+    description,
+    bulletPoints,
+    onSelectLocationClick,
     isSingleLocation,
     // ✅ NEW: Event details props
     eventDate,
     eventTime,
-    locationAddress
+    locationAddress,
+    // ✅ NEW: For fundraiser host date range display
+    eventType,
+    eventRole,
+    eventEndDate
 }) => {
+    // Check if this is a fundraiser host (show date range instead of single date)
+    const isFundraiserHost = (eventType === 'Fundraiser' || eventType === 'Rolling Fundraiser') && eventRole === 'Host';
+
     // Format the date and time for display
     const formattedDate = formatEventDate(eventDate);
     const formattedTime = formatTimeSlot(eventTime);
+
+    // Format date range for fundraiser hosts
+    const formattedDateRange = isFundraiserHost && eventDate && eventEndDate
+        ? `Host a Fundraiser Between ${formatShortDate(eventDate)} and ${formatShortDate(eventEndDate)}`
+        : null;
     
     return (
         <Box sx={{ mb: 4 }}>
@@ -56,16 +79,17 @@ export const HeroSection = ({
             </Typography>
             
             {/* ✅ NEW: Show date, time, and location below title */}
-            {(formattedDate || formattedTime || locationAddress) && (
+            {(formattedDateRange || formattedDate || formattedTime || locationAddress) && (
                 <Box sx={{ mb: 2 }}>
-                    {formattedDate && (
+                    {formattedDateRange ? (
+                        // Fundraiser host: show date range
                         <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 500 }}>
-                            {formattedDate}
+                            {formattedDateRange}
                         </Typography>
-                    )}
-                    {formattedTime && (
-                        <Typography variant="body1" color="text.secondary">
-                            {formattedTime}
+                    ) : (formattedDate || formattedTime) && (
+                        // Regular event: show date and time
+                        <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 500 }}>
+                            {formattedDate}{formattedDate && formattedTime && ' '}{formattedTime}
                         </Typography>
                     )}
                     {locationAddress && (
@@ -91,11 +115,10 @@ export const HeroSection = ({
                     {description}
                 </Typography>
             )}
-            
-            {/* ✅ Then show bullet points as formatted text (not as bullet list) */}
+
+            {/* ✅ Show bullet points as formatted text */}
             {bulletPoints && (
                 <Box sx={{ textAlign: 'left', my: 2 }}>
-                    {/* Handle both string (with newlines) and array formats */}
                     {typeof bulletPoints === 'string' ? (
                         <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
                             {bulletPoints}
@@ -103,19 +126,17 @@ export const HeroSection = ({
                     ) : Array.isArray(bulletPoints) && bulletPoints.length > 0 && (
                         <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
                             {bulletPoints.map(point => {
-                                // Handle different formats
                                 if (typeof point === 'string') return point;
                                 if (point?.name) return point.name;
                                 if (point?.text) return point.text;
                                 if (point?.value) return point.value;
-                                // Return empty string for line breaks (will preserve spacing)
                                 return '';
                             }).join('\n')}
                         </Typography>
                     )}
                 </Box>
             )}
-            
+
             {/* ✅ For multiple locations, show anchor link to location section */}
             {!isSingleLocation && (
                 <Stack spacing={1.5} sx={{ pt: 2 }}>

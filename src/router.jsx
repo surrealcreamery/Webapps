@@ -1,16 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React from 'react';
 import {
   createBrowserRouter,
   RouterProvider,
   Navigate,
-  Outlet
+  Outlet,
+  useRouteError
 } from 'react-router-dom';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import {
   Box,
-  Typography,
-  CircularProgress,
-  CssBaseline
+  CircularProgress
 } from '@mui/material';
 import {
   ThemeProvider,
@@ -20,8 +18,7 @@ import { CacheProvider } from '@emotion/react';
 import createCache from '@emotion/cache';
 import {
   QueryClient,
-  QueryClientProvider,
-  useQueryClient
+  QueryClientProvider
 } from '@tanstack/react-query';
 import { persistQueryClient } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
@@ -34,7 +31,6 @@ const VITE_APP_MODE = 'COMMERCE';
 
 // THEMES
 import publicTheme from '@/theme/publicTheme';
-import adminTheme from '@/theme/adminTheme';
 
 // --- SHARED PUBLIC COMPONENTS ---
 import Redeem from '@/pages/Redeem';
@@ -52,6 +48,8 @@ import SubscriptionHome from '@/pages/Subscriptions';
 // 2. Events & Fundraisers App Components
 import { LayoutProvider as EventsLayoutProvider } from '@/contexts/events/EventsLayoutContext';
 import EventsLayout from '@/layouts/events/eventsLayout';
+import EventsBareLayout from '@/layouts/events/eventsBareLayout'; // For embedding in Commerce
+import SubscriptionsBareLayout from '@/layouts/subscriptions/subscriptionsBareLayout'; // For embedding in Commerce
 import EventsHome from '@/pages/Events';
 
 // 3. Catering App Components
@@ -62,40 +60,15 @@ import CateringHome from '@/pages/Catering';
 
 // 4. Commerce App Components
 import { LayoutProvider as CommerceLayoutProvider } from '@/contexts/commerce/CommerceLayoutContext';
-import { ShopifyProvider } from '@/contexts/commerce/ShopifyContext_GraphQL'; // ← ADDED: Shopify integration
-import { CheckoutProvider } from '@/components/commerce/CheckoutContext'; // ← NEW: Checkout context
+import { ShopifyProvider } from '@/contexts/commerce/ShopifyContext_GraphQL';
+import { CatalogProvider } from '@/contexts/commerce/CatalogContext';
+import { CheckoutProvider } from '@/components/commerce/CheckoutContext';
 import CommerceLayout from '@/layouts/commerce/commerceLayout';
+import KioskLayout from '@/layouts/commerce/kioskLayout';
 import Commerce from '@/pages/Commerce';
-
-// --- ADMIN COMPONENTS ---
-import AdminLayout from '@/layouts/admin/adminLayout';
-import AdminSignIn from '@/pages/admin/subscription/AdminSignIn';
-import Admin from '@/pages/admin/subscription/Admin';
-import Subscriptions from '@/pages/admin/subscription/Subscriptions';
-import Subscribers from '@/pages/admin/subscription/Subscribers';
-import Locations from '@/pages/admin/core/Locations';
-import ThemeEditor from '@/pages/admin/core/ThemeEditor';
-import Access from '@/pages/admin/core/Access';
-import UserPermission from '@/pages/admin/core/UserPermission';
-import PricingModels from '@/pages/admin/subscription/PricingModels';
-import Plans from '@/pages/admin/subscription/Plans';
-import SelectSquarePlan from '@/pages/admin/subscription/SelectSquarePlan';
-import ViewSquarePlan from '@/pages/admin/subscription/ViewSquarePlan';
-import Reports from '@/pages/admin/core/Reports';
-import Training from '@/pages/admin/subscription/Training';
-import Recipes from '@/pages/admin/core/Recipes';
-import DeviceManagement from '@/pages/admin/core/DeviceManagement';
-import InStoreOrders from '@/pages/admin/core/InStoreOrders';
-import Settings from '@/pages/admin/core/Settings';
-
-import ProtectedRoute from '@/components/protected-route/protected-route.jsx';
-import {
-  useUserPermissions,
-  fetchPlans,
-  fetchSquarePlans,
-  fetchLocations,
-  fetchPricingModels
-} from '@/contexts/admin/AdminDataContext';
+import CheckoutPage from '@/pages/CheckoutPage';
+import DeliveryCheckPage from '@/pages/DeliveryCheckPage';
+import Kiosk from '@/pages/Kiosk';
 
 // --- APP CONFIGURATION OBJECT ---
 const appConfigs = {
@@ -104,8 +77,8 @@ const appConfigs = {
     LayoutProvider: SubscriptionLayoutProvider,
     Layout: SubscriptionsLayout,
     HomePage: SubscriptionHome,
-    gtmId: null, // Add GTM ID when ready
-    ga4Id: null, // Add GA4 ID when ready
+    gtmId: null,
+    ga4Id: null,
     additionalRoutes: [],
   },
   EVENTS: {
@@ -113,8 +86,8 @@ const appConfigs = {
     LayoutProvider: EventsLayoutProvider,
     Layout: EventsLayout,
     HomePage: EventsHome,
-    gtmId: null, // Add GTM ID when ready
-    ga4Id: null, // Add GA4 ID when ready
+    gtmId: null,
+    ga4Id: null,
     additionalRoutes: [
       {
         path: 'login',
@@ -126,8 +99,8 @@ const appConfigs = {
     LayoutProvider: CateringLayoutProvider,
     Layout: CateringLayout,
     HomePage: CateringHome,
-    gtmId: null, // Add GTM ID when ready
-    ga4Id: null, // Add GA4 ID when ready
+    gtmId: null,
+    ga4Id: null,
     additionalRoutes: [],
   },
   COMMERCE: {
@@ -143,7 +116,7 @@ const appConfigs = {
         element: <Commerce />,
       },
       {
-        path: 'merchandise',
+        path: 'collectibles',
         element: <Commerce />,
       },
       {
@@ -154,6 +127,14 @@ const appConfigs = {
         path: 'product/:productId',
         element: <Commerce />,
       },
+      {
+        path: 'checkout',
+        element: <CheckoutPage />,
+      },
+      {
+        path: 'delivery-check',
+        element: <DeliveryCheckPage />,
+      },
       // Catering app - runs with its own state machine (uses Commerce header/footer)
       {
         path: 'catering',
@@ -162,6 +143,36 @@ const appConfigs = {
           {
             index: true,
             element: <CateringHome />,
+          }
+        ],
+      },
+      // Events app - runs with its own state machine (uses Commerce header/footer)
+      {
+        path: 'events',
+        element: <EventsBareLayout />,
+        children: [
+          {
+            index: true,
+            element: <EventsHome />,
+          },
+          {
+            path: 'login',
+            element: <EventsHome />,
+          }
+        ],
+      },
+      // Subscriptions app - runs with its own state machine (uses Commerce header/footer)
+      {
+        path: 'subscriptions',
+        element: <SubscriptionsBareLayout />,
+        children: [
+          {
+            index: true,
+            element: <SubscriptionHome />,
+          },
+          {
+            path: 'redeem',
+            element: <Redeem />,
           }
         ],
       },
@@ -193,82 +204,30 @@ persistQueryClient({
   maxAge: Infinity
 });
 
-// Helper Components
-const FullScreenSpinner = () => (
-  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-    <CircularProgress sx={{ color: 'black' }} />
-  </Box>
-);
-
-const CenteredCard = ({ children }) => (
-  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', bgcolor: 'background.default', p: 3 }}>
-    <Box textAlign="center" bgcolor="white" p={4} borderRadius={2} boxShadow={2}>
-      {children}
-    </Box>
-  </Box>
-);
-
-// Admin-specific Logic
-function PrefetchAll() {
-  const qc = useQueryClient();
-  useEffect(() => {
-    qc.prefetchQuery({ queryKey: ['admin', 'plans'], queryFn: fetchPlans });
-    qc.prefetchQuery({ queryKey: ['admin', 'squarePlans'], queryFn: fetchSquarePlans });
-    qc.prefetchQuery({ queryKey: ['admin', 'locations'], queryFn: fetchLocations });
-    qc.prefetchQuery({ queryKey: ['admin', 'pricingModels'], queryFn: fetchPricingModels });
-  }, [qc]);
-  return null;
-}
-
-function AuthLayout() {
-  const [authState, setAuthState] = useState('checking');
-  useEffect(() => {
-    const unsub = onAuthStateChanged(getAuth(), u => setAuthState(u ? 'signed-in' : 'signed-out'));
-    return unsub;
-  }, []);
-
-  if (authState === 'checking') return <FullScreenSpinner />;
-  
-  return authState === 'signed-out'
-    ? <Navigate to="/signin" />
-    : <Outlet />;
-}
-
-function AdminRoutes() {
-  const { data: perms = {}, isLoading, isError } =
-    useUserPermissions(getAuth().currentUser?.email || '');
-  
-  if (isLoading) return <FullScreenSpinner />;
-  if (isError) return <CenteredCard><Typography color="error">Error loading permissions.</Typography></CenteredCard>;
-
-  return (
-    <AdminLayout fetchedPermissions={perms}>
-      <PrefetchAll />
-      <Outlet context={{ perms }} />
-    </AdminLayout>
-  );
-}
-
 // Dynamic Public Root Layout
-// ✅ UPDATED: Added conditional ShopifyProvider for Commerce mode
-// ✅ UPDATED: Added CateringLayoutProvider for Commerce mode (so header can access catering state)
 function PublicRootLayout() {
     const AppLayoutProvider = selectedApp.LayoutProvider;
 
-    // If Commerce mode, wrap with ShopifyProvider, CheckoutProvider, and CateringLayoutProvider
-    // CateringLayoutProvider is needed at this level so the header can access catering cart/state
+    // If Commerce mode, wrap with ShopifyProvider, CheckoutProvider, and all embedded app providers
+    // These providers are needed at this level so the header can access cart/state
     if (VITE_APP_MODE === 'COMMERCE') {
         return (
             <ShopifyProvider>
+                <CatalogProvider>
                 <CheckoutProvider>
                     <CateringLayoutProvider>
-                        <AppLayoutProvider>
-                            <ThemeProvider theme={publicTheme}>
-                                <Outlet />
-                            </ThemeProvider>
-                        </AppLayoutProvider>
+                        <EventsLayoutProvider>
+                            <SubscriptionLayoutProvider>
+                                <AppLayoutProvider>
+                                    <ThemeProvider theme={publicTheme}>
+                                        <Outlet />
+                                    </ThemeProvider>
+                                </AppLayoutProvider>
+                            </SubscriptionLayoutProvider>
+                        </EventsLayoutProvider>
                     </CateringLayoutProvider>
                 </CheckoutProvider>
+                </CatalogProvider>
             </ShopifyProvider>
         );
     }
@@ -283,59 +242,62 @@ function PublicRootLayout() {
     );
 }
 
+// Route error boundary — keeps header/footer visible and shows the actual error
+function RouteErrorBoundary() {
+  const error = useRouteError();
+  console.error('[RouteErrorBoundary]', error);
+  return (
+    <Box sx={{ p: 4, textAlign: 'center' }}>
+      <h2>Something went wrong</h2>
+      <pre style={{ textAlign: 'left', maxWidth: 600, margin: '0 auto', whiteSpace: 'pre-wrap', color: 'red' }}>
+        {error?.message || String(error)}
+        {error?.stack && `\n\n${error.stack}`}
+      </pre>
+    </Box>
+  );
+}
+
 // Routes definition
 const router = createBrowserRouter([
   {
-    path: '/signin',
-    element: <ThemeProvider theme={adminTheme}><CssBaseline /><AdminSignIn/></ThemeProvider>,
-  },
-  {
     element: <PublicRootLayout />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       {
         path: '/',
         element: React.createElement(selectedApp.Layout),
+        errorElement: <RouteErrorBoundary />,
         children: [
             {
                 index: true,
                 element: React.createElement(selectedApp.HomePage),
+                errorElement: <RouteErrorBoundary />,
             },
             {
                 path: 'redeem',
                 element: <Redeem />,
+                errorElement: <RouteErrorBoundary />,
             },
-            // ✅ Dynamically add app-specific routes
-            ...selectedApp.additionalRoutes
+            // Dynamically add app-specific routes
+            ...selectedApp.additionalRoutes.map(route => ({
+                ...route,
+                errorElement: route.errorElement || <RouteErrorBoundary />,
+            }))
         ]
       },
-    ]
-  },
-  {
-    path: '/admin',
-    element: <AuthLayout/>,
-    children: [
-      {
-        element: <ThemeProvider theme={adminTheme}><CssBaseline /><AdminRoutes/></ThemeProvider>,
+      // Kiosk route — no header/footer, dedicated kiosk experience
+      ...(VITE_APP_MODE === 'COMMERCE' ? [{
+        path: '/kiosk',
+        element: <KioskLayout />,
+        errorElement: <RouteErrorBoundary />,
         children: [
-          { index: true, element: <ProtectedRoute permission="Dashboard"><Admin/></ProtectedRoute> },
-          { path: 'subscriptions',      element: <ProtectedRoute permission="Subscriptions"><Subscriptions/></ProtectedRoute> },
-          { path: 'subscribers',        element: <ProtectedRoute permission="Subscribers"><Subscribers/></ProtectedRoute> },
-          { path: 'locations',          element: <ProtectedRoute permission="Locations"><Locations/></ProtectedRoute> },
-          { path: 'theme-editor',       element: <ProtectedRoute permission="Theme Editor"><ThemeEditor/></ProtectedRoute> },
-          { path: 'access',             element: <ProtectedRoute permission="Access"><Access/></ProtectedRoute> },
-          { path: 'access/:email',      element: <ProtectedRoute permission="User Permissions"><UserPermission/></ProtectedRoute> },
-          { path: 'pricing-models',     element: <ProtectedRoute permission="Pricing Models"><PricingModels/></ProtectedRoute> },
-          { path: 'plans',              element: <ProtectedRoute permission="Plans"><Plans/></ProtectedRoute> },
-          { path: 'select-square-plan', element: <ProtectedRoute permission="Plans"><SelectSquarePlan/></ProtectedRoute> },
-          { path: 'view-square-plan/:planId/:variationId', element: <ProtectedRoute permission="Plans"><ViewSquarePlan/></ProtectedRoute> },
-          { path: 'reports',            element: <ProtectedRoute permission="Reports"><Reports/></ProtectedRoute> },
-          { path: 'in-store-orders',    element: <ProtectedRoute permission="In-store Orders"><InStoreOrders/></ProtectedRoute> },
-          { path: 'training',           element: <ProtectedRoute permission="Training"><Training/></ProtectedRoute> },
-          { path: 'recipes',            element: <ProtectedRoute permission="Recipes"><Recipes/></ProtectedRoute> },
-          { path: 'devices',            element: <ProtectedRoute permission="Device Management"><DeviceManagement/></ProtectedRoute> },
-          { path: 'settings',           element: <ProtectedRoute permission="Settings"><Settings/></ProtectedRoute> },
+          {
+            index: true,
+            element: <Kiosk />,
+            errorElement: <RouteErrorBoundary />,
+          }
         ]
-      }
+      }] : []),
     ]
   },
   { path: '*', element: <Navigate to='/' replace/> }

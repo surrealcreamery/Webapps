@@ -6,10 +6,10 @@ import { LayoutContext } from '@/contexts/events/EventsLayoutContext';
 
 // Navigation items - same as commerce header
 const NAV_ITEMS = [
-    { label: 'Shop', path: 'https://shop.surrealcreamery.com', external: true },
+    // { label: 'Shop', path: 'https://shop.surrealcreamery.com', external: true },
     { label: 'Events', path: '/', external: false, isCurrentApp: true },
     { label: 'Subscriptions', path: 'https://www.dollarbobaclub.com', external: true },
-    { label: 'Catering', path: 'https://catering.surrealcreamery.com', external: true },
+    // { label: 'Catering', path: 'https://catering.surrealcreamery.com', external: true },
 ];
 
 const Header = () => {
@@ -51,12 +51,12 @@ const Header = () => {
     
     const buttonStyles = {
       color: 'black',
-      borderColor: 'black',
+      border: '1px solid black !important',
       textTransform: 'none',
       py: '7px',
       px: '14px',
       '&:hover': {
-        borderColor: 'black',
+        border: '1px solid black !important',
         backgroundColor: 'rgba(0,0,0,0.04)',
       },
     };
@@ -69,8 +69,8 @@ const Header = () => {
             `}</style>
             
             <header className="header" role="banner" aria-label="Site header">
-                {/* Navigation Bar - REI Style */}
-                <Box
+                {/* Navigation Bar - Hidden for now */}
+                {/* <Box
                     component="nav"
                     role="navigation"
                     aria-label="Main navigation"
@@ -124,7 +124,7 @@ const Header = () => {
                             );
                         })}
                     </Box>
-                </Box>
+                </Box> */}
                 
                 {/* Logo and Actions Row */}
                 <div className="shell">
@@ -150,7 +150,7 @@ const Header = () => {
                                     <Button onClick={handleDashboardClick} variant="outlined" sx={buttonStyles}>My Events</Button>
                                 )}
                                 {showLogoutButton && (
-                                    <Button variant="outlined" onClick={logout} sx={buttonStyles}>Log Out</Button>
+                                    <Button onClick={logout} variant="outlined" sx={buttonStyles}>Log Out</Button>
                                 )}
                             </div>
                         </div>
