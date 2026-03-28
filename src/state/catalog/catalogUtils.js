@@ -91,11 +91,11 @@ export const buildShopifyGidLookup = (shopifyProducts) => {
     return map;
 };
 
-// Build catalog-first variant objects with Shopify GID resolution
+// Build catalog-first variant objects (SKU is the canonical ID; Shopify GID attached if available)
 export const buildCatalogFirstVariants = (catalogVariants, shopifyGidLookup) => {
     return (catalogVariants || []).map(cv => {
         const skuUpper = cv.sku?.toUpperCase();
-        const gidFallback = skuUpper ? shopifyGidLookup[skuUpper] : null;
+        const gidFallback = skuUpper ? shopifyGidLookup?.[skuUpper] : null;
         const _locSlug = typeof window !== 'undefined' ? localStorage.getItem('selectedLocation') : null;
         const _locPrice = _locSlug && cv.locationPrices?.[_locSlug];
         return {
@@ -108,7 +108,7 @@ export const buildCatalogFirstVariants = (catalogVariants, shopifyGidLookup) => 
             catalogImage: cv.catalogImage,
             locationPrices: cv.locationPrices || null,
             shopifyVariantGid: cv.platformIds?.shopify || gidFallback?.variantGid || null,
-            id: cv.platformIds?.shopify || gidFallback?.variantGid || cv.sku,
+            id: cv.sku || cv.platformIds?.shopify || gidFallback?.variantGid,
             availableForSale: cv.inventory?.inStock !== false,
             inventory: cv.inventory || {},
         };
@@ -154,12 +154,9 @@ export const getMergedProductOrder = (categories) => {
     return allOrdered;
 };
 
-// Filter Shopify products by location availability (catalog + Shopify checks)
+// Filter products by location availability (catalog locationAvailability is source of truth)
 export const filterProductsByLocation = (shopifyProducts, catalog, storeLocations, locationSlug) => {
     if (!locationSlug || storeLocations.length === 0) return shopifyProducts;
-    const store = storeLocations.find(loc => loc.id === locationSlug);
-    if (!store?.shopifyLocationId) return shopifyProducts;
-    const shopifyGid = `gid://shopify/Location/${store.shopifyLocationId}`;
 
     // Build catalog locationAvailability lookup by product name (lowercase)
     const catalogLocAvail = {};
@@ -172,12 +169,8 @@ export const filterProductsByLocation = (shopifyProducts, catalog, storeLocation
     }
 
     return shopifyProducts.filter(product => {
-        // Check catalog locationAvailability (master location toggle)
         const locAvail = catalogLocAvail[(product.name || product.title || '').toLowerCase()];
         if (locAvail && locAvail[locationSlug] === false) return false;
-        // Check Shopify store availability
-        if (product.storeAvailableLocationIds?.length &&
-            !product.storeAvailableLocationIds.includes(shopifyGid)) return false;
         return true;
     });
 };
@@ -275,20 +268,13 @@ export const buildSubcategoriesFromCatalog = (catalog, shopifyGidLookup, locatio
             // Build variants directly from catalog data
             const catalogVariants = buildCatalogFirstVariants(catalogProduct.variants, shopifyGidLookup);
 
-            // Product-level Shopify GID for cart
+            // Product-level IDs (catalog is source of truth; Shopify GID attached if available)
             const firstSku = catalogProduct.variants?.[0]?.sku?.toUpperCase();
-            const productShopifyGid = catalogProduct.platformIds?.shopify || shopifyGidLookup[firstSku]?.productGid || null;
-
-            // Skip products with NO checkout capability (no Shopify GIDs anywhere)
-            const hasAnyGid = productShopifyGid || catalogVariants.some(v => v.shopifyVariantGid);
-            if (!hasAnyGid) {
-                console.log('📦 [Catalog] No Shopify GIDs for:', catalogProduct.name, '(skipping)');
-                return null;
-            }
+            const productShopifyGid = catalogProduct.platformIds?.shopify || shopifyGidLookup?.[firstSku]?.productGid || null;
 
             // Build catalog-first product object
             const productObj = {
-                id: shopifyGidLookup[firstSku]?.productHandle || catalogProduct.productId || catalogProduct.name,
+                id: catalogProduct.productId || shopifyGidLookup?.[firstSku]?.productHandle || catalogProduct.name,
                 shopifyId: productShopifyGid,
                 platformIds: catalogProduct.platformIds,
                 name: catalogProduct.name,
@@ -347,9 +333,9 @@ export const buildSubcategoriesFromCatalog = (catalog, shopifyGidLookup, locatio
 export const checkLocationAvailability = (variant, product, storeLocations, selectedSlug) => {
     if (!selectedSlug || !storeLocations?.length) return { available: true, locationName: null };
     const store = storeLocations.find(loc => loc.id === selectedSlug);
-    if (!store?.shopifyLocationId) return { available: true, locationName: null };
+    if (!store) return { available: true, locationName: null };
 
-    // Primary: check catalog variant inventory.byLocation
+    // Catalog variant inventory.byLocation is the source of truth
     if (variant?.inventory?.byLocation?.length) {
         const locEntry = variant.inventory.byLocation.find(l => l.locationId === selectedSlug);
         if (!locEntry) {
@@ -365,18 +351,5 @@ export const checkLocationAvailability = (variant, product, storeLocations, sele
         return { available: true, locationName: store.name };
     }
 
-    // Fallback: Shopify storeAvailability (legacy non-catalog-first products)
-    const shopifyGid = `gid://shopify/Location/${store.shopifyLocationId}`;
-    if (variant?.storeAvailability?.length) {
-        const locEntry = variant.storeAvailability.find(sa => sa.locationId === shopifyGid);
-        if (locEntry && !locEntry.available) return { available: false, locationName: store.name };
-        if (!locEntry) return { available: false, locationName: store.name };
-    }
-    // Fallback: check product-level storeAvailableLocationIds
-    if (product?.storeAvailableLocationIds?.length) {
-        if (!product.storeAvailableLocationIds.includes(shopifyGid)) {
-            return { available: false, locationName: store.name };
-        }
-    }
     return { available: true, locationName: store.name };
 };

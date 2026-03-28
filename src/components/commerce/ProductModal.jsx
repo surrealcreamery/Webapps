@@ -381,14 +381,15 @@ export const ProductModal = ({
         const selectedSlug = localStorage.getItem('selectedLocation');
         if (!selectedSlug || !storeLocations?.length) return { available: true, locationName: null };
         const store = storeLocations.find(loc => loc.id === selectedSlug);
-        if (!store?.shopifyLocationId) return { available: true, locationName: null };
-        const shopifyGid = `gid://shopify/Location/${store.shopifyLocationId}`;
-        if (selectedVariant?.storeAvailability?.length) {
-            const locEntry = selectedVariant.storeAvailability.find(sa => sa.locationId === shopifyGid);
-            if (!locEntry || !locEntry.available) return { available: false, locationName: store.name };
-        }
-        if (product?.storeAvailableLocationIds?.length) {
-            if (!product.storeAvailableLocationIds.includes(shopifyGid)) {
+        if (!store) return { available: true, locationName: null };
+        // Catalog inventory is the source of truth
+        if (selectedVariant?.inventory?.byLocation?.length) {
+            const locEntry = selectedVariant.inventory.byLocation.find(l => l.locationId === selectedSlug);
+            if (!locEntry) {
+                if (selectedVariant.inventory.trackInventory) return { available: false, locationName: store.name };
+                return { available: true, locationName: store.name };
+            }
+            if (selectedVariant.inventory.trackInventory && locEntry.quantity <= 0) {
                 return { available: false, locationName: store.name };
             }
         }

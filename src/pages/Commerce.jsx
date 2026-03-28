@@ -3215,7 +3215,7 @@ function CommerceInner() {
                 const _locSlug = localStorage.getItem('selectedLocation');
                 const catalogFirstVariants = (catalogProduct?.variants || []).map(cv => {
                     const skuUpper = cv.sku?.toUpperCase();
-                    const gidFallback = skuUpper ? shopifyGidLookup[skuUpper] : null;
+                    const gidFallback = skuUpper ? shopifyGidLookup?.[skuUpper] : null;
                     const _locPrice = _locSlug && cv.locationPrices?.[_locSlug];
                     return {
                         sku: cv.sku,
@@ -3224,10 +3224,10 @@ function CommerceInner() {
                         compareAtPrice: cv.compareAtPrice,
                         locationPrices: cv.locationPrices || null,
                         shopifyVariantGid: cv.platformIds?.shopify || gidFallback?.variantGid || null,
-                        id: cv.platformIds?.shopify || gidFallback?.variantGid || cv.sku,
+                        id: cv.sku || cv.platformIds?.shopify || gidFallback?.variantGid,
                         availableForSale: cv.inventory?.inStock !== false,
                         inventory: cv.inventory || {},
-                        // Keep Shopify variant metafields for grouping
+                        // Keep variant metafields for grouping
                         ...(product.variants.find(sv => sv.sku?.toUpperCase() === cv.sku?.toUpperCase()) || {}),
                         // Override price/name with catalog values; use location price if available
                         catalogName: cv.name,
@@ -3370,10 +3370,10 @@ function CommerceInner() {
             const catalogPwa = catalogProduct?.masterImage?.pwa || null;
             const catalogImageUrl = catalogProduct?.masterImage?.url || null;
 
-            // Build catalog-first variants with Shopify GIDs attached
+            // Build catalog-first variants (SKU is canonical ID)
             const catalogFirstVariants = (catalogProduct?.variants || []).map(cv => {
                 const skuUpper = cv.sku?.toUpperCase();
-                const gidFallback = skuUpper ? shopifyGidLookup[skuUpper] : null;
+                const gidFallback = skuUpper ? shopifyGidLookup?.[skuUpper] : null;
                 return {
                     sku: cv.sku,
                     name: cv.name,
@@ -3383,7 +3383,7 @@ function CommerceInner() {
                     isDefault: cv.isDefault,
                     catalogImage: cv.catalogImage,
                     shopifyVariantGid: cv.platformIds?.shopify || gidFallback?.variantGid || null,
-                    id: cv.platformIds?.shopify || gidFallback?.variantGid || cv.sku,
+                    id: cv.sku || cv.platformIds?.shopify || gidFallback?.variantGid,
                     availableForSale: cv.inventory?.inStock !== false,
                     inventory: cv.inventory || {},
                 };

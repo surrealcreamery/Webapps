@@ -82,8 +82,8 @@ export const useCart = () => {
 
             return [...prev, {
                 id: crypto.randomUUID(),
-                productId: product?.shopifyId || product?.platformIds?.shopify || product?.id || '',
-                variantId: variant?.shopifyVariantGid || variant?.platformIds?.shopify || variant?.id || '',
+                productId: product?.id || product?.platformIds?.shopify || product?.shopifyId || '',
+                variantId: variant?.sku || variant?.id || variant?.shopifyVariantGid || variant?.platformIds?.shopify || '',
                 sku: product?.sku || variant?.sku || '',
                 variantSku,
                 name: product?.name || product?.title || '',
