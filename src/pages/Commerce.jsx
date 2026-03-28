@@ -717,6 +717,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
         heroImage = typeof img === 'string' ? img : img.url;
     }
     const showThumbnails = isCollectible && allProductImages.length > 1 && !isWide;
+    const showWideThumbnails = isCollectible && allProductImages.length > 1 && isWide;
     const reserveThumbnailSpace = showThumbnails; // Only reserve space when thumbnails will actually show
     const heroHeightNormal = reserveThumbnailSpace ? '30dvh' : '38dvh';
     const heroHeightExpanded = reserveThumbnailSpace ? 'calc(100dvh - 200px - 8dvh)' : 'calc(100dvh - 200px)';
@@ -1240,6 +1241,57 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                         />
                                     )}
                                 </AnimatePresence>
+                                {/* Wide layout: thumbnail gallery overlaid at bottom of image pane.
+                                    Fades in after content is visible, fades out when closing. */}
+                                {showWideThumbnails && (
+                                    <Box
+                                        sx={{
+                                            position: 'absolute',
+                                            bottom: 12,
+                                            left: 0,
+                                            right: 0,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 1,
+                                            px: 2,
+                                            zIndex: 2,
+                                            opacity: (contentVisible && !closing) ? 1 : 0,
+                                            transition: 'opacity 0.3s ease',
+                                        }}
+                                    >
+                                        {allProductImages.map((img, idx) => {
+                                            const imgUrl = typeof img === 'string' ? img : img.url;
+                                            const isActive = selectedThumbnailIndex != null
+                                                ? idx === selectedThumbnailIndex
+                                                : idx === 0;
+                                            return (
+                                                <Box
+                                                    key={idx}
+                                                    onClick={() => setSelectedThumbnailIndex(idx)}
+                                                    sx={{
+                                                        flexShrink: 0,
+                                                        width: 60,
+                                                        height: 60,
+                                                        borderRadius: 1,
+                                                        overflow: 'hidden',
+                                                        cursor: 'pointer',
+                                                        border: isActive ? `2px solid ${heroTextColor}` : '2px solid transparent',
+                                                        opacity: isActive ? 1 : 0.6,
+                                                        transition: 'all 0.2s',
+                                                        '&:hover': { opacity: 1 },
+                                                    }}
+                                                >
+                                                    <img
+                                                        src={imgUrl}
+                                                        alt=""
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                    />
+                                                </Box>
+                                            );
+                                        })}
+                                    </Box>
+                                )}
                             </Box>
                         )}
             </Box>
@@ -1998,7 +2050,7 @@ class CommerceErrorBoundary extends React.Component {
  * Full product catalog moved to /directory
  */
 function CommerceInner() {
-    const { commerceState, sendToCommerce, setActiveTextColor, setIsProductDetail, setOnCloseProductDetail, setCartCount } = useContext(LayoutContext);
+    const { commerceState, sendToCommerce, setActiveTextColor, setIsProductDetail, setOnCloseProductDetail, setCartCount, setEffectivePath } = useContext(LayoutContext);
     const { products: shopifyProducts, loading: shopifyLoading, error: shopifyError, categories, dessertSubcategories, merchandiseSubcategories, getProductHierarchy, getCategoryChildren, getSubcategories, getContainerCategories } = useShopify();
     const localCart = useCart();
     
@@ -2019,12 +2071,19 @@ function CommerceInner() {
     const isProductUrl = window.location.pathname.startsWith('/product/');
     const [feedIndex, setFeedIndex] = useState(() => isProductUrl ? 0 : (commerceState?.context?.feedIndex ?? 0));
     feedIndexRef.current = feedIndex;
-    const [feedActive, setFeedActive] = useState(() => isProductUrl ? false : (commerceState?.context?.feedActive ?? false));
+    const isHomepageLoad = window.location.pathname === '/';
+    const [feedActive, setFeedActive] = useState(() => {
+        // Never restore feedActive on product URLs or homepage — it's only for category pages
+        if (isProductUrl || isHomepageLoad) return false;
+        return commerceState?.context?.feedActive ?? false;
+    });
     const [expandTransition, setExpandTransition] = useState(null); // { rect, bgStyle, imgRect, imgSrc }
     const [collapseTransition, setCollapseTransition] = useState(null); // reverse animation
     const [closingDetail, setClosingDetail] = useState(false); // triggers card slide-down before collapse
+    const [closingProduct, setClosingProduct] = useState(false); // triggers close animation for URL-based product view
     const closeTimeoutRef = useRef(null); // track close timeout for cancellation
     const lastCardTransitionRef = useRef(null); // remember card position for reverse
+    const [activeMerchSection, setActiveMerchSection] = useState(0); // scroll-based active section for merchandise
     const feedScrollPositionRef = useRef(0); // remember scroll position when entering product detail
     const originPathRef = useRef(
         // If direct-loading a product URL, don't store it as origin — will be resolved from product category
@@ -2163,7 +2222,20 @@ function CommerceInner() {
     const location = useLocation();
     const { productId } = useParams();
 
-    // On fresh load at /product/*, open the product directly
+    // Track product page visits so browser back from product never lands on root
+    useEffect(() => {
+        if (productId) {
+            sessionStorage.setItem('sc-from-product', 'true');
+        }
+    }, [productId]);
+
+    // If we just arrived at homepage from a product page (browser back/close), redirect to /desserts
+    useEffect(() => {
+        if (isHomepageLoad && sessionStorage.getItem('sc-from-product')) {
+            sessionStorage.removeItem('sc-from-product');
+            navigate('/desserts', { replace: true });
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Close dessert product detail if user presses browser back button
     useEffect(() => {
@@ -2342,11 +2414,14 @@ function CommerceInner() {
     const PATH_ALIASES = { collectibles: 'merchandise' };
     const resolvedPath = PATH_ALIASES[pathCategory] || pathCategory;
     const currentCategory = categories?.find(c => c.handle === resolvedPath || c.id === resolvedPath);
-    const isCategoryPage = !!currentCategory;
+
+    // When product is dismissed (closed without route change), override category detection
+    const [dismissedCategory, setDismissedCategory] = useState(null);
+    const isCategoryPage = !!dismissedCategory || !!currentCategory;
 
     // Legacy aliases for backward compatibility
-    const isDesserts = currentCategory?.handle === 'desserts';
-    const isMerchandise = currentCategory?.handle === 'merchandise';
+    const isDesserts = dismissedCategory === 'desserts' || (!dismissedCategory && currentCategory?.handle === 'desserts');
+    const isMerchandise = dismissedCategory === 'merchandise' || (!dismissedCategory && currentCategory?.handle === 'merchandise');
     
     // Flag to skip scroll-to-top when returning from product modal
     const skipScrollToTop = useRef(false);
@@ -2464,6 +2539,15 @@ function CommerceInner() {
         // If path changed TO a category page, clear the added-to-cart view
         // This handles: URL bar navigation, header nav links, browser back/forward
         if (prevPath !== currentPath && (isCategoryPage || isHomepage)) {
+            // Reset feed mode when leaving desserts (e.g., navigating to homepage)
+            if (feedActive && !isDesserts) {
+                setFeedActive(false);
+                setIsProductDetail(false);
+                setOnCloseProductDetail(null);
+                setClosingDetail(false);
+                setCollapseTransition(null);
+                lastCardTransitionRef.current = null;
+            }
             if (showAddedToCart) {
                 console.log('🧭 Route changed to category page - clearing cross-sell view');
                 setShowAddedToCart(false);
@@ -2593,8 +2677,11 @@ function CommerceInner() {
     const returningFromProductModal = useRef(false); // Track if returning from modal (don't clear AddedToCart)
     const isFirstRender = useRef(true); // Track first render (don't clear AddedToCart on page load/refresh)
 
-    // Show homepage content behind modal when opened from homepage
-    const showHomepageBehindModal = productId && (returnPath.current === '/' || returnPath.current === null);
+    // When product is dismissed, hide product detail but keep same Commerce instance
+    const showProduct = productId && !dismissedCategory;
+
+    // Show homepage content behind modal when opened FROM homepage (not on direct product URL visits)
+    const showHomepageBehindModal = showProduct && returnPath.current === '/';
     
     // Restore scroll position BEFORE browser paints (runs synchronously after DOM update)
     // This prevents visible scrolling animation when:
@@ -2616,43 +2703,96 @@ function CommerceInner() {
         }
     }, [productId, showProductModal, sendToCommerce]);
 
-    // Handle closing product page — navigate back to where the user came from
+    // Handle closing product page — dismiss product and show category grid
     const handleCloseProduct = () => {
         if (productId) {
-            // Set pending scroll restore BEFORE navigation
-            pendingScrollRestore = savedScrollPosition.current;
-
-            // Skip the scroll-to-top effect when returning from product
             skipScrollToTop.current = true;
 
-            // Mark that we're returning from product (don't clear AddedToCart state)
             if (showAddedToCart) {
                 returningFromProductModal.current = true;
                 returningFromAddToCart.current = true;
             }
 
-            // If returnPath is null (direct URL visit or reset after add-to-cart), determine fallback
-            if (!returnPath.current) {
-                // Try originPathRef first (set when opening from feed)
-                const origin = originPathRef.current;
-                if (origin && origin !== '/' && !origin.startsWith('/product/')) {
-                    navigate(origin, { replace: true });
-                } else {
-                    const product = shopifyProducts.find(p => p.id === productId);
-                    const productCategory = product?.category;
-                    const HANDLE_TO_PATH = { merchandise: 'collectibles' };
-                    const categoryPath = HANDLE_TO_PATH[productCategory] || productCategory;
-                    navigate(`/${categoryPath || 'desserts'}`, { replace: true });
-                }
-            } else {
-                navigate(returnPath.current, { replace: true });
+            const product = activeProductItem?.product;
+            // Use feed item's isCollectible flag (product.category can be a UUID)
+            const isMerch = activeProductItem?.isCollectible || false;
+            const categoryPath = isMerch ? '/collectibles' : '/desserts';
+            const dismissCategory = isMerch ? 'merchandise' : 'desserts';
+            const isValidReturn = (path) => path && path !== '/' && !path.startsWith('/product/');
+            const targetPath = (returnPath.current && isValidReturn(returnPath.current))
+                ? returnPath.current
+                : isValidReturn(originPathRef.current)
+                    ? originPathRef.current
+                    : categoryPath;
+
+            // Build the expected post-dismiss feedItems to find the product's card index
+            // (Current feedItems may be empty on /product/:id since no category is active yet)
+            const expectedSubcats = isMerch ? merchandiseWithDefaults : DESSERT_SUBCATEGORIES;
+            const expectedFeedItems = buildFeedItems(expectedSubcats);
+            const productFeedIdx = expectedFeedItems.findIndex(f =>
+                f.type === 'product' && (f.product?.id === productId || f.id === productId ||
+                f.id?.startsWith(productId + '-'))
+            );
+            if (productFeedIdx >= 0) {
+                setFeedIndex(productFeedIdx);
             }
 
-            // Reset refs for next product view
-            returnPath.current = null;
-            savedScrollPosition.current = 0;
-            selectedVariantInfo.current = null;
-            preSelectedModifierRef.current = null;
+            // Start close animation: keep ProductDetailPage visible (closing=true) while grid appears behind
+            setClosingProduct(true);
+            setDismissedCategory(dismissCategory);
+            window.history.replaceState(window.history.state, '', targetPath);
+
+            // Restore header immediately (like closeProductDetail does)
+            setActiveTextColor('black');
+            setIsProductDetail(false);
+            setOnCloseProductDetail(null);
+            // Tell header the effective category path (React Router still thinks we're on /product/:id)
+            setEffectivePath(categoryPath);
+
+            // After grid renders, measure card position and start collapse image animation
+            if (activeProductItem && productFeedIdx >= 0) {
+                const imgSrc = activeProductItem.image;
+                const isCollectible = isMerch;
+                const imageCount = activeProductItem.catalogImages?.length || product?.images?.length || 0;
+
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        const cardWrapper = document.querySelector(`[data-feed-index="${productFeedIdx}"]`);
+                        if (cardWrapper) {
+                            const cardEl = cardWrapper.querySelector('[data-card]');
+                            const imgEl = cardWrapper.querySelector('[data-product-img]');
+                            const targetRect = cardEl ? cardEl.getBoundingClientRect() : cardWrapper.getBoundingClientRect();
+                            const targetImgRect = imgEl ? imgEl.getBoundingClientRect() : targetRect;
+                            const imgAR = (imgEl?.naturalWidth && imgEl?.naturalHeight)
+                                ? imgEl.naturalWidth / imgEl.naturalHeight
+                                : 1;
+
+                            setCollapseTransition({
+                                targetRect,
+                                targetImgRect,
+                                bgStyle: activeProductItem.backgroundColor || '#1a1a2e',
+                                imgSrc,
+                                imgAR,
+                                title: activeProductItem.title || product?.name || '',
+                                price: '',
+                                textColor: activeProductItem.textColor || getTextColorForBackground(activeProductItem.backgroundColor),
+                                isCollectible,
+                                hasThumbnails: isCollectible && imageCount > 1,
+                            });
+                        }
+                    });
+                });
+            }
+
+            // After animations complete (700ms matches closeProductDetail), clean up
+            setTimeout(() => {
+                setClosingProduct(false);
+                setCollapseTransition(null);
+                returnPath.current = null;
+                savedScrollPosition.current = 0;
+                selectedVariantInfo.current = null;
+                preSelectedModifierRef.current = null;
+            }, 700);
         }
     };
 
@@ -3857,7 +3997,30 @@ function CommerceInner() {
             element.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     };
-    
+
+    // IntersectionObserver to track which merchandise section is in view
+    useEffect(() => {
+        if (!isMerchandise || feedActive) return;
+        const sections = activeFeedSubcategories.map((sub, idx) => ({
+            el: document.getElementById(`section-${sub.id}`),
+            idx,
+        })).filter(s => s.el);
+        if (!sections.length) return;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                for (const entry of entries) {
+                    if (entry.isIntersecting) {
+                        const match = sections.find(s => s.el === entry.target);
+                        if (match) setActiveMerchSection(match.idx);
+                    }
+                }
+            },
+            { rootMargin: '-40% 0px -55% 0px', threshold: 0 }
+        );
+        sections.forEach(s => observer.observe(s.el));
+        return () => observer.disconnect();
+    }, [isMerchandise, feedActive, activeFeedSubcategories]);
+
     // Products organized by subcategory (for section view)
     let productsBySubcategory = {};
     
@@ -4070,7 +4233,7 @@ function CommerceInner() {
     return (
         <>
             {/* Full-page product detail (ALL products — no modal) */}
-            {productId && activeProductItem && (
+            {(showProduct || closingProduct) && activeProductItem && (
                 <ProductDetailPage
                     item={activeProductItem}
                     onAddToCart={async (product, variant, quantity, customAttributes) => {
@@ -4078,21 +4241,16 @@ function CommerceInner() {
                     }}
                     onClose={handleCloseProduct}
                     onOpenCart={() => sendToCommerce({ type: 'OPEN_CART' })}
-                    closing={false}
+                    closing={closingProduct}
                     storeLocations={storeLocations}
                 />
             )}
 
             {/* Mobile: card grid/feed */}
-            <AnimatePresence mode="wait">
-            {!productId && (isDesserts || isMerchandise || feedActive) && (
-                    <motion.div
-                        key="card-grid-mode"
-                        initial={{ opacity: 0, y: 30 }}
-                        animate={{ opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } }}
-                        exit={{ opacity: 0, y: -15, transition: { duration: 0.3, ease: [0.22, 1, 0.36, 1] } }}
-                        style={{ display: 'block', overscrollBehavior: 'none' }}
-                    >
+            {(() => {
+                const showGrid = (!showProduct || closingProduct) && (isDesserts || isMerchandise || feedActive);
+                const gridContent = (
+                    <>
                         {/* Added to Cart banner */}
                         {showAddedToCart && addedProduct && (
                             <Box sx={{ bgcolor: 'white', py: 1.5, px: 2, borderBottom: '1px solid', borderColor: 'grey.200', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
@@ -4147,11 +4305,17 @@ function CommerceInner() {
                                 }}
                             >
                                 {activeFeedSubcategories.map((category, idx) => {
-                                    const isActive = feedItems[feedIndex]?.categoryIndex === idx;
+                                    const isActive = isMerchandise
+                                        ? activeMerchSection === idx
+                                        : feedItems[feedIndex]?.categoryIndex === idx;
                                     return (
                                         <Typography
                                             key={category.id}
                                             onClick={() => {
+                                                if (isMerchandise) {
+                                                    scrollToSection(category.id);
+                                                    return;
+                                                }
                                                 const dividerIdx = feedItems.findIndex(f => f.type === 'divider' && f.categoryId === category.id);
                                                 if (dividerIdx >= 0) setFeedIndex(dividerIdx);
                                                 setFeedActive(false);
@@ -4178,16 +4342,87 @@ function CommerceInner() {
                         {(!feedActive || closingDetail) && (
                             <AnimatePresence mode="wait">
                             <motion.div
-                                key={activeCategoryIndex}
-                                initial={closingDetail ? false : { opacity: 0, y: 20 }}
+                                key={isMerchandise ? 'merchandise-all' : activeCategoryIndex}
+                                initial={(closingDetail || dismissedCategory) ? false : { opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -15 }}
                                 transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                             >
+                            {isMerchandise ? (
+                                // Merchandise: render all subcategories with section headers
+                                activeFeedSubcategories.map((subcat, idx) => {
+                                    const subcatProducts = feedItems.filter(f => f.type === 'product' && f.categoryIndex === idx);
+                                    if (!subcatProducts.length) return null;
+                                    return (
+                                        <Box id={`section-${subcat.id}`} key={subcat.id}>
+                                            <Typography sx={{ fontSize: '1.8rem', fontWeight: 700, mb: 1.5, mt: idx > 0 ? 3 : 0, px: 2 }}>
+                                                {subcat.title}
+                                            </Typography>
+                                            <ProductCardGrid
+                                                items={subcatProducts}
+                                                feedItems={feedItems}
+                                                collapsingFeedIndex={(collapseTransition || closingProduct) ? feedIndex : undefined}
+                                                onProductTap={(itemFeedIndex, cardData) => {
+                                                    feedScrollPositionRef.current = window.scrollY;
+                                                    originPathRef.current = window.location.pathname;
+                                                    if (closeTimeoutRef.current) {
+                                                        clearTimeout(closeTimeoutRef.current);
+                                                        closeTimeoutRef.current = null;
+                                                        setClosingDetail(false);
+                                                        setCollapseTransition(null);
+                                                    }
+                                                    setFeedIndex(itemFeedIndex);
+                                                    const tappedItem = feedItems[itemFeedIndex];
+                                                    const productHandle = tappedItem?.product?.id;
+                                                    if (productHandle) {
+                                                        window.history.pushState(null, '', `/product/${productHandle}`);
+                                                    }
+                                                    const itemTextColor = tappedItem?.textColor || getTextColorForBackground(tappedItem?.backgroundColor);
+                                                    setActiveTextColor(itemTextColor);
+                                                    setIsProductDetail(true);
+                                                    setOnCloseProductDetail(() => closeProductDetail);
+                                                    if (tappedItem?.isMYO) {
+                                                        lastCardTransitionRef.current = null;
+                                                        setFeedActive(true);
+                                                    } else if (cardData?.rect) {
+                                                        lastCardTransitionRef.current = {
+                                                            rect: cardData.rect,
+                                                            bgColor: cardData.bgColor,
+                                                            bgGradient: cardData.bgGradient,
+                                                            imgRect: cardData.imgRect,
+                                                            imgSrc: cardData.imgSrc,
+                                                            imgAR: cardData.imgAR,
+                                                        };
+                                                        const tappedIsCollectible = tappedItem?.isCollectible || tappedItem?.product?.category?.toLowerCase() === 'merchandise' || tappedItem?.product?.productType?.toLowerCase() === 'merchandise';
+                                                        const tappedImageCount = tappedItem?.catalogImages?.length || tappedItem?.product?.images?.length || 0;
+                                                        setExpandTransition({
+                                                            rect: cardData.rect,
+                                                            bgStyle: cardData.bgGradient,
+                                                            imgRect: cardData.imgRect,
+                                                            imgSrc: cardData.imgSrc,
+                                                            imgAR: cardData.imgAR,
+                                                            hasVariants: (tappedItem?.variants?.length || 0) > 1,
+                                                            isCollectible: tappedIsCollectible,
+                                                            hasThumbnails: tappedIsCollectible && tappedImageCount > 1,
+                                                        });
+                                                        setFeedActive(true);
+                                                        setTimeout(() => { setExpandTransition(null); }, 500);
+                                                    } else {
+                                                        setFeedActive(true);
+                                                    }
+                                                }}
+                                                onMYOOptionTap={(productId, preSelection) => {
+                                                    handleChooseProduct(productId, preSelection);
+                                                }}
+                                            />
+                                        </Box>
+                                    );
+                                })
+                            ) : (
                             <ProductCardGrid
                                 items={activeCategoryProducts}
                                 feedItems={feedItems}
-                                collapsingFeedIndex={collapseTransition ? feedIndex : undefined}
+                                collapsingFeedIndex={(collapseTransition || closingProduct) ? feedIndex : undefined}
                                 onProductTap={(itemFeedIndex, cardData) => {
                             // Save scroll position and origin path before entering product detail
                             feedScrollPositionRef.current = window.scrollY;
@@ -4253,6 +4488,7 @@ function CommerceInner() {
                                     handleChooseProduct(productId, preSelection);
                                 }}
                     />
+                            )}
                             </motion.div>
                             </AnimatePresence>
                         )}
@@ -4272,9 +4508,29 @@ function CommerceInner() {
                         )}
 
                         {/* Footer moved outside desserts section to stay at bottom of all content */}
-                    </motion.div>
-            )}
-            </AnimatePresence>
+                    </>
+                );
+                // When dismissing a product (post-refresh), render grid instantly without animation
+                if (dismissedCategory && showGrid) {
+                    return <div style={{ display: 'block', overscrollBehavior: 'none' }}>{gridContent}</div>;
+                }
+                // Normal flow: animated enter/exit via AnimatePresence
+                return (
+                    <AnimatePresence mode="wait">
+                        {showGrid && (
+                            <motion.div
+                                key="card-grid-mode"
+                                initial={{ opacity: 0, y: 30 }}
+                                animate={{ opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] } }}
+                                exit={{ opacity: 0, y: -15, transition: { duration: 0.3, ease: [0.22, 1, 0.36, 1] } }}
+                                style={{ display: 'block', overscrollBehavior: 'none' }}
+                            >
+                                {gridContent}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                );
+            })()}
 
             {/* Expanding gradient transition overlay */}
             {expandTransition && (() => {
@@ -4457,7 +4713,7 @@ function CommerceInner() {
                         style={{
                             position: 'fixed',
                             zIndex: 106,
-                            objectFit: 'contain',
+                            objectFit: 'cover',
                             pointerEvents: 'none',
                         }}
                     />
@@ -4520,11 +4776,11 @@ function CommerceInner() {
             })()}
 
             <Box sx={{
-                minHeight: (isDesserts || isMerchandise || feedActive || (productId && activeProductItem && !showAddedToCart)) ? 0 : '100vh',
+                minHeight: (isDesserts || isMerchandise || feedActive || ((showProduct || closingProduct) && !showAddedToCart)) ? 0 : '100vh',
                 backgroundColor: 'white',
                 overflowX: 'hidden',
-                // Hide when desserts/merchandise/feed view is active - has its own full-screen UI
-                display: (isDesserts || isMerchandise || feedActive || (productId && activeProductItem && !showAddedToCart)) ? 'none' : 'block',
+                // Hide when desserts/merchandise/feed/product view is active
+                display: (isDesserts || isMerchandise || feedActive || ((showProduct || closingProduct) && !showAddedToCart)) ? 'none' : 'block',
             }}>
                 {/* ADDED TO CART VIEW */}
                 {showAddedToCart && addedProduct ? (
@@ -6259,7 +6515,7 @@ function CommerceInner() {
             </Box>
 
             {/* Footer - after all content, hidden during product detail */}
-            {!feedActive && !productId && <Footer />}
+            {(!feedActive || closingDetail || closingProduct) && !showProduct && <Footer />}
 
             {/* Cart Drawer */}
             <CartDrawer

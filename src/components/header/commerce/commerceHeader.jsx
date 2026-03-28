@@ -73,6 +73,7 @@ const Header = () => {
         onCloseProductDetail,
         kioskCartCount = 0,
         cartCount = 0,
+        effectivePath = null,
     } = useContext(LayoutContext);
 
     // Debug log
@@ -119,7 +120,7 @@ const Header = () => {
 
     // Determine active nav item based on current path
     const getActiveNavItem = () => {
-        const currentPath = location.pathname;
+        const currentPath = effectivePath || location.pathname;
 
         // Events paths
         if (currentPath.startsWith('/events')) {
@@ -189,6 +190,11 @@ const Header = () => {
         !cateringState?.matches('loginFlow') &&
         !cateringState?.matches('viewingOrders');
 
+    // Show commerce account button on shop pages (not catering, events, checkout, subscriptions, or product detail)
+    const isSubscriptionsMode = location.pathname.startsWith('/subscriptions');
+    const isAccountPage = location.pathname === '/account';
+    const showCommerceAccountButton = !isCateringMode && !isEventsMode && !isCheckoutPage && !isSubscriptionsMode && !isProductDetail && !isAccountPage;
+
     // Check if on orders page (for log out button)
     const isOnOrdersPage = isCateringMode && cateringState?.matches('viewingOrders');
 
@@ -200,11 +206,11 @@ const Header = () => {
           !cateringState?.matches('loginFlow') &&
           !cateringState?.matches('viewingOrders') &&
           totalItems > 0
-        : totalItems > 0);
+        : !isAccountPage && totalItems > 0);
 
     // Show location selector in commerce mode, or in catering mode only on the availability page
-    // Hide in events mode
-    const showLocationSelector = !isEventsMode && !isCheckoutPage && (!isCateringMode || cateringState?.context?.showingAvailabilityPage);
+    // Hide in events mode and account page
+    const showLocationSelector = !isEventsMode && !isCheckoutPage && !isAccountPage && (!isCateringMode || cateringState?.context?.showingAvailabilityPage);
 
     const handleLogoClick = (e) => {
         e.preventDefault();
@@ -275,8 +281,9 @@ const Header = () => {
     };
 
     const activeNavPath = getActiveNavItem();
+    const navPath = effectivePath || location.pathname;
     const isShopSubcategory = activeNavPath === '/shop' && (
-        location.pathname.startsWith('/desserts') || location.pathname.startsWith('/collectibles')
+        navPath.startsWith('/desserts') || navPath.startsWith('/collectibles')
     );
     const SHOP_SUBCATEGORIES = [
         { label: 'Desserts', path: '/desserts' },
@@ -309,7 +316,7 @@ const Header = () => {
                     sx={{
                         backgroundColor: '#000',
                         width: '100vw',
-                        display: (isProductDetail || isEventsMode || isCheckoutPage) ? 'none' : 'flex',
+                        display: (isProductDetail || isEventsMode || isCheckoutPage || isAccountPage) ? 'none' : 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         marginLeft: 'calc(-50vw + 50%)',
@@ -367,16 +374,15 @@ const Header = () => {
                                 {isShopSubcategory && (
                                     <motion.div
                                         key="shop-toggle"
-                                        initial={{ width: 0, opacity: 0 }}
+                                        initial={effectivePath ? false : { width: 0, opacity: 0 }}
                                         animate={{ width: 'auto', opacity: 1 }}
                                         exit={{ width: 0, opacity: 0 }}
-                                        transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                                        transition={{ duration: effectivePath ? 0 : 0.25, ease: [0.4, 0, 0.2, 1] }}
                                         style={{ overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center' }}
                                     >
                                         <ToggleButtonGroup
-                                            value={location.pathname.startsWith('/collectibles') ? '/collectibles' : '/desserts'}
+                                            value={navPath.startsWith('/collectibles') ? '/collectibles' : '/desserts'}
                                             exclusive
-                                            onChange={(_, val) => { if (val) navigate(val); }}
                                             sx={{
                                                 borderRadius: '4px',
                                                 bgcolor: '#000',
@@ -391,6 +397,7 @@ const Header = () => {
                                                 <ToggleButton
                                                     key={sub.path}
                                                     value={sub.path}
+                                                    onClick={() => navigate(sub.path)}
                                                     sx={{
                                                         textTransform: 'none',
                                                         color: '#fff',
@@ -472,7 +479,7 @@ const Header = () => {
 
                             {/* Left column - Menu button or Close button in product detail */}
                             <div style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                {!isCateringMode && !isEventsMode && !isCheckoutPage && (
+                                {!isCateringMode && !isEventsMode && !isCheckoutPage && !isAccountPage && (
                                     isProductDetail ? null : (
                                         <Button
                                             onClick={() => setMenuDrawerOpen(true)}
@@ -669,6 +676,35 @@ const Header = () => {
                                         ) : (
                                             <AccountCircleIcon sx={{ fontSize: avatarSize, color: 'black' }} />
                                         )}
+                                    </IconButton>
+                                )}
+
+                                {/* Account page: Log Out button */}
+                                {isAccountPage && sessionStorage.getItem('accountSession') && (
+                                    <Button
+                                        variant="outlined"
+                                        onClick={() => {
+                                            sessionStorage.removeItem('accountSession');
+                                            window.dispatchEvent(new CustomEvent('accountLogout'));
+                                        }}
+                                        sx={{
+                                            color: 'black', borderColor: 'black', textTransform: 'none', fontWeight: 600,
+                                            padding: '6px 16px',
+                                            '&:hover': { borderColor: 'black', backgroundColor: 'rgba(0,0,0,0.04)' },
+                                        }}
+                                    >
+                                        Log Out
+                                    </Button>
+                                )}
+
+                                {/* Account Icon (commerce - shop pages) */}
+                                {showCommerceAccountButton && (
+                                    <IconButton
+                                        onClick={() => navigate('/account')}
+                                        aria-label="Account"
+                                        sx={{ color: activeTextColor, transition: 'color 0.4s ease' }}
+                                    >
+                                        <AccountCircleIcon sx={{ fontSize: 32 }} />
                                     </IconButton>
                                 )}
 

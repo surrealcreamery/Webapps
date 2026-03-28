@@ -407,11 +407,14 @@ export default function CheckoutPage() {
   const [error, setError] = useState(null);
   const [mobileOrderExpanded, setMobileOrderExpanded] = useState(false);
 
-  // Contact info
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  // Contact info (restore from sessionStorage on revisit)
+  const savedCheckout = useMemo(() => {
+    try { return JSON.parse(sessionStorage.getItem('checkoutContact') || '{}'); } catch { return {}; }
+  }, []);
+  const [email, setEmail] = useState(savedCheckout.email || '');
+  const [phone, setPhone] = useState(savedCheckout.phone || '');
+  const [firstName, setFirstName] = useState(savedCheckout.firstName || '');
+  const [lastName, setLastName] = useState(savedCheckout.lastName || '');
 
   // Contact gate
   const [contactVerified, setContactVerified] = useState(false);
@@ -433,12 +436,15 @@ export default function CheckoutPage() {
   const [saveNewCard, setSaveNewCard] = useState(true);
   const [newAddressLabel, setNewAddressLabel] = useState('Home');
 
-  // Address (shared for delivery + shipping)
-  const [addressFields, setAddressFields] = useState({ address1: '', address2: '', city: '', provinceCode: '', zip: '' });
-  const [addressInput, setAddressInput] = useState('');
+  // Address (shared for delivery + shipping) — restore from sessionStorage on revisit
+  const savedAddress = useMemo(() => {
+    try { return JSON.parse(sessionStorage.getItem('checkoutAddress') || '{}'); } catch { return {}; }
+  }, []);
+  const [addressFields, setAddressFields] = useState(savedAddress.fields || { address1: '', address2: '', city: '', provinceCode: '', zip: '' });
+  const [addressInput, setAddressInput] = useState(savedAddress.input || '');
   const [addressSuggestions, setAddressSuggestions] = useState([]);
   const [useManualAddress, setUseManualAddress] = useState(false);
-  const [addressValidated, setAddressValidated] = useState(false);
+  const [addressValidated, setAddressValidated] = useState(!!savedAddress.fields?.address1);
 
   // Delivery check result
   const [deliveryResult, setDeliveryResult] = useState(null);
@@ -480,8 +486,8 @@ export default function CheckoutPage() {
   const needsDeliveryAddress = fulfillmentMethods.includes('delivery');
   const needsAddress = needsShippingAddress || needsDeliveryAddress;
 
-  const selectedLocationSlug = useMemo(() =>
-    localStorage.getItem('selectedLocation') || '', []);
+  const [selectedLocationSlug, setSelectedLocationSlug] = useState(() =>
+    localStorage.getItem('selectedLocation') || '');
 
   const selectedLocation = useMemo(() =>
     locations.find(l => l.id === selectedLocationSlug), [locations, selectedLocationSlug]);
@@ -607,6 +613,29 @@ export default function CheckoutPage() {
       }
     }
   }, [needsDeliveryAddress, savedDeliveryAddress]);
+
+  // Persist contact info to sessionStorage
+  useEffect(() => {
+    if (email || firstName || lastName || phone) {
+      sessionStorage.setItem('checkoutContact', JSON.stringify({ email, phone, firstName, lastName }));
+    }
+  }, [email, phone, firstName, lastName]);
+
+  // Persist address to sessionStorage
+  useEffect(() => {
+    if (addressFields.address1) {
+      sessionStorage.setItem('checkoutAddress', JSON.stringify({ fields: addressFields, input: addressInput }));
+    }
+  }, [addressFields, addressInput]);
+
+  // Auto-verify contact on return if previously filled
+  useEffect(() => {
+    if (savedCheckout.email && savedCheckout.firstName && savedCheckout.lastName) {
+      setContactVerified(true);
+      if (cart.length > 0) fetchOrderCalc();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fetch dynamic shipping rates from ShipEngine after address is confirmed
   useEffect(() => {
@@ -737,6 +766,12 @@ export default function CheckoutPage() {
         deliveryAddress: addr,
         pickupLocation: selectedLocationSlug,
       });
+      // If a different location is closer, switch to it
+      if (result.available && result.switchedLocation && result.storeId) {
+        setSelectedLocationSlug(result.storeId);
+        localStorage.setItem('selectedLocation', result.storeId);
+        window.dispatchEvent(new CustomEvent('locationChanged', { detail: { locationId: result.storeId } }));
+      }
       setDeliveryResult(result);
       // Re-calc order with the delivery fee
       if (result.available && result.deliveryFee != null) {
@@ -974,6 +1009,8 @@ export default function CheckoutPage() {
       const result = await callApi('createSquareCheckout', payload);
       setCheckoutConfirmation(result);
       clearCart();
+      sessionStorage.removeItem('checkoutContact');
+      sessionStorage.removeItem('checkoutAddress');
     } catch (err) {
       setError(err.message);
     }
@@ -1436,6 +1473,11 @@ export default function CheckoutPage() {
                     <CheckCircleIcon sx={{ color: '#4caf50', fontSize: 20 }} />
                     <Typography variant="body2" fontWeight={600} color="#2e7d32">Delivery Available</Typography>
                   </Stack>
+                  {deliveryResult.switchedLocation && deliveryResult.storeName && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      Delivering from <strong>{deliveryResult.storeName}</strong> (closest to you)
+                    </Typography>
+                  )}
                   <Stack direction="row" spacing={3} sx={{ mt: 1 }}>
                     {deliveryResult.deliveryFee != null && (
                       <Typography variant="body2" color="text.secondary">
@@ -1659,7 +1701,7 @@ export default function CheckoutPage() {
   );
 
   return (
-    <Box sx={{ maxWidth: 960, mx: 'auto', p: { xs: 2, sm: 3 }, pb: 8 }}>
+    <Box sx={{ width: '100%', maxWidth: 960, mx: 'auto', p: { xs: 2, sm: 3 }, pb: 8 }}>
       {isMobile ? (
         // Mobile: single column with collapsible summary at bottom
         <>

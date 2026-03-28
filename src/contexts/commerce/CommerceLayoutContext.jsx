@@ -20,6 +20,7 @@ export const LayoutProvider = ({ children }) => {
             if (window.location.pathname.startsWith('/product/')) {
                 parsed.context.selectedProductId = null;
                 parsed.context.showProductModal = false;
+                parsed.context.feedActive = false;
                 parsed.value = { commerce: 'idle' };
             }
             rehydratedState = commerceMachine.resolveState(parsed);
@@ -77,10 +78,23 @@ export const LayoutProvider = ({ children }) => {
     const [isProductDetail, setIsProductDetail] = useState(false);
     const [onCloseProductDetail, setOnCloseProductDetail] = useState(null);
 
+    // ===== EFFECTIVE PATH OVERRIDE =====
+    // When set, header uses this instead of location.pathname for nav highlighting.
+    // Used when replaceState updates the URL but React Router doesn't know about it.
+    const [effectivePath, setEffectivePath] = useState(null);
+
     useEffect(() => {
         // Show back button on product pages (/product/:id)
         const isProductPage = location.pathname.startsWith('/product/');
         setShowBackButton(isProductPage);
+    }, [location.pathname]);
+
+    // Auto-clear effectivePath when React Router navigates to a non-product page.
+    // This handles edge cases like browser back/forward that bypass handleCloseProduct.
+    useEffect(() => {
+        if (effectivePath && !location.pathname.startsWith('/product/')) {
+            setEffectivePath(null);
+        }
     }, [location.pathname]);
 
     // ===== NAVIGATION HELPERS =====
@@ -126,6 +140,10 @@ export const LayoutProvider = ({ children }) => {
         cartCount,
         setCartCount,
 
+        // Effective path override (for header nav when replaceState bypasses React Router)
+        effectivePath,
+        setEffectivePath,
+
         // Navigation helpers
         goBack,
         resetFlow,
@@ -139,6 +157,7 @@ export const LayoutProvider = ({ children }) => {
         kioskCartCount,
         kioskViewMode,
         cartCount,
+        effectivePath,
         goBack,
         resetFlow,
     ]);

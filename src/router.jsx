@@ -68,6 +68,7 @@ import KioskLayout from '@/layouts/commerce/kioskLayout';
 import Commerce from '@/pages/Commerce';
 import CheckoutPage from '@/pages/CheckoutPage';
 import DeliveryCheckPage from '@/pages/DeliveryCheckPage';
+import AccountPage from '@/pages/AccountPage';
 import Kiosk from '@/pages/Kiosk';
 
 // --- APP CONFIGURATION OBJECT ---
@@ -134,6 +135,10 @@ const appConfigs = {
       {
         path: 'delivery-check',
         element: <DeliveryCheckPage />,
+      },
+      {
+        path: 'account',
+        element: <AccountPage />,
       },
       // Catering app - runs with its own state machine (uses Commerce header/footer)
       {
