@@ -1,4 +1,5 @@
 import React, { useState, useRef, useContext, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { Box, Typography, Button, CircularProgress, Alert, Divider, Stack, Container, Breadcrumbs, Link as MuiLink } from '@mui/material';
 import { format, parse } from 'date-fns';
 import { LayoutContext } from '@/contexts/events/EventsLayoutContext';
@@ -24,11 +25,12 @@ import { DuplicateErrorSection } from '@/components/events/DuplicateErrorSection
 
 // ✅ 1. Import your new data-fetching function
 import { fetchInitialData } from '@/state/events/eventService';
+import { trackEventViewed, trackEventDateSelected, trackEventTimeSelected } from '@/services/analytics';
 
 // ✅ New component for the loading/verifying screen
 const VerifyingLoader = () => (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '50vh', textAlign: 'center', p: 3 }}>
-        <CircularProgress />
+    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '50vh', textAlign: 'center', p: 3 }} role="status" aria-live="polite" aria-busy="true">
+        <CircularProgress aria-label="Loading" />
         <Typography variant="h5" sx={{ mt: 3 }}>
             Verifying your information...
         </Typography>
@@ -119,7 +121,7 @@ export default function Home() {
     // EARLY RETURNS - After all hooks
     // ========================================
     if (!fundraiserState || !fundraiserState.context) {
-        return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>;
+        return <Box component="main" sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
     }
 
     console.log('Current machine state:', fundraiserState.value);
@@ -129,13 +131,13 @@ export default function Home() {
     }
     const handleViewChange = (event, newView) => { if (newView !== null) setView(newView); };
 
-    const handleChooseFundraiser = (eventId) => sendToFundraiser({ type: 'CHOOSE_FUNDRAISER', eventId: eventId });
+    const handleChooseFundraiser = (eventId) => { trackEventViewed(eventId); sendToFundraiser({ type: 'CHOOSE_FUNDRAISER', eventId: eventId }); };
     const handleLocationSelect = (locationId) => {
         console.log(`Location selected, sending event: SELECT_LOCATION with id: ${locationId}`);
         sendToFundraiser({ type: 'SELECT_LOCATION', value: locationId });
     };
-    const handleDateSelect = (newDate) => sendToFundraiser({ type: 'SELECT_DATE', value: newDate });
-    const handleTimeSelect = (newTime) => sendToFundraiser({ type: 'SELECT_TIME', value: newTime });
+    const handleDateSelect = (newDate) => { trackEventDateSelected(newDate); sendToFundraiser({ type: 'SELECT_DATE', value: newDate }); };
+    const handleTimeSelect = (newTime) => { trackEventTimeSelected(newTime); sendToFundraiser({ type: 'SELECT_TIME', value: newTime }); };
     const handleProceedToContact = () => sendToFundraiser({ type: 'PROCEED_TO_CONTACT' });
     const handleContactChange = (event) => sendToFundraiser({ type: 'UPDATE_FIELD', field: event.target.name, value: event.target.value });
     const handleSubmitContact = () => sendToFundraiser({ type: 'SUBMIT' });
@@ -149,14 +151,16 @@ export default function Home() {
         const { locations } = fundraiserState.context;
         if (!locations || locations.length === 0) return <Typography sx={{ p: 2 }}>No locations are available at this time.</Typography>;
         return (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mt: 2 }}>
+            <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0, display: 'flex', flexDirection: 'column', gap: 1.5, mt: 2 }}>
                 {locations.map((location) => (
-                    <Button key={location.id} variant="outlined" fullWidth onClick={() => handleLocationSelect(location.id)}>
-                        <Box sx={{ width: '100%', p: 1, textTransform: 'none', textAlign: 'left' }}>
-                            <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{location['Location Name']}</Typography>
-                            <Typography variant="body2" color="text.secondary">{location.Address}</Typography>
-                        </Box>
-                    </Button>
+                    <Box component="li" key={location.id}>
+                        <Button variant="outlined" fullWidth onClick={() => handleLocationSelect(location.id)}>
+                            <Box sx={{ width: '100%', p: 1, textTransform: 'none', textAlign: 'left' }}>
+                                <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{location['Location Name']}</Typography>
+                                <Typography variant="body2" color="text.secondary">{location.Address}</Typography>
+                            </Box>
+                        </Button>
+                    </Box>
                 ))}
             </Box>
         );
@@ -222,25 +226,27 @@ export default function Home() {
 
     // ✅ 3. UPDATE THIS LOADING CHECK
     if (fundraiserState.matches('booting')) {
-        return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>;
+        return <Box component="main" sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
     }
     if (fundraiserState.matches('failure')) {
-        return <Alert severity="error">{fundraiserState.context.error}</Alert>;
+        return <Box component="main"><Alert severity="error" role="alert">{fundraiserState.context.error}</Alert></Box>;
     }
 
     // If in wizardFlow but currentEvent not found
     if (fundraiserState.matches('wizardFlow') && !currentEvent && !fundraiserState.context.isAuthenticated) {
         // Show loading spinner while we wait for data or reset
-        return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>;
+        return <Box component="main" sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
     }
 
     return (
-        <Box sx={{ width: '100%', mx: 'auto' }}>
+        <Box component="main" sx={{ width: '100%', mx: 'auto' }}>
+            <Helmet><title>Events | Surreal Creamery</title></Helmet>
+            <Typography variant="h1" component="h1" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Fundraiser Events</Typography>
             {fundraiserState.matches('directory') && (<DirectorySection events={fundraiserState.context.fundraiserEvents} onChooseFundraiser={handleChooseFundraiser} view={view} handleViewChange={handleViewChange} />)}
-            {fundraiserState.matches('userDashboard.loadingEvents') && (<Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>)}
+            {fundraiserState.matches('userDashboard.loadingEvents') && (<Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>)}
             {fundraiserState.matches('userDashboard.idle') && (<UserDashboard events={fundraiserState.context.registeredEvents} allEvents={fundraiserState.context.fundraiserEvents} onScheduleNew={() => sendToFundraiser({ type: 'SCHEDULE_NEW' })} onViewTransactions={(eventId) => sendToFundraiser({ type: 'VIEW_TRANSACTIONS', eventId })} onViewMarketingMaterials={(eventId) => sendToFundraiser({ type: 'VIEW_MARKETING_MATERIALS', eventId })} />)}
             
-            {fundraiserState.matches('transactionDetails.loading') && (<Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>)}
+            {fundraiserState.matches('transactionDetails.loading') && (<Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>)}
             {fundraiserState.matches('transactionDetails.idle') && eventToView && (<TransactionDetails event={eventToView} onBack={() => sendToFundraiser({ type: 'BACK_TO_DASHBOARD' })} onGoHome={() => sendToFundraiser({ type: 'RESET' })} onViewPayouts={() => sendToFundraiser({ type: 'VIEW_PAYOUTS' })} />)}
 
             {fundraiserState.matches('payoutDetails') && eventToView && (
@@ -314,7 +320,7 @@ export default function Home() {
                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                 />
                             </Box>
-                            <Typography variant="h1" component="h1" sx={{ mb: 2 }}>
+                            <Typography variant="h1" component="h2" sx={{ mb: 2 }}>
                                 {currentEvent.title}
                             </Typography>
 
@@ -444,7 +450,7 @@ export default function Home() {
                     />
                 )}
                 
-                {fundraiserState.matches({ wizardFlow: 'success' }) && (<Alert severity="success" sx={{ mt: 2 }}>Your event has been successfully scheduled!</Alert>)}
+                {fundraiserState.matches({ wizardFlow: 'success' }) && (<Alert severity="success" role="alert" sx={{ mt: 2 }}>Your event has been successfully scheduled!</Alert>)}
             </Box>
         </Box>
     );

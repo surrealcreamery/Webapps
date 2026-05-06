@@ -3,6 +3,7 @@ import { Box, Typography, Button, Alert } from '@mui/material';
 import { LocalizationProvider, DateCalendar, PickersDay } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { isBefore, startOfToday, isToday, format, parse, isValid } from 'date-fns';
+import { trackEventDateSelected } from '@/services/analytics';
 
 // Helper function to format time slots like "15:00 - 19:00" to "3:00pm - 7:00pm"
 const formatTimeSlot = (slot) => {
@@ -103,7 +104,7 @@ export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selected
                 <DateCalendar
                     key={currentEvent.id}
                     value={selectedDate ? new Date(selectedDate) : null}
-                    onChange={onDateChange}
+                    onChange={(date) => { trackEventDateSelected(date); onDateChange(date); }}
                     referenceDate={initialMonth}
                     disablePast
                     shouldDisableDate={shouldDisableDate}

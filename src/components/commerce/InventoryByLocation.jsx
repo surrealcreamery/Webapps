@@ -78,9 +78,9 @@ export function InventoryByLocation({ product, compact = false }) {
           <Typography variant="body1" sx={{ fontWeight: 600 }}>
             {inStock ? 'In Stock' : 'Low Stock'}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {inStock 
-              ? 'Available across all store locations' 
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '1.6rem' }}>
+            {inStock
+              ? 'Available across all store locations'
               : 'Limited availability - order now to reserve'}
           </Typography>
         </Box>
@@ -94,7 +94,7 @@ export function InventoryByLocation({ product, compact = false }) {
       </Box>
       
       {!inStock && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontStyle: 'italic' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontStyle: 'italic', fontSize: '1.6rem' }}>
           Note: You can still order - we'll confirm availability after checkout
         </Typography>
       )}

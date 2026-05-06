@@ -12,14 +12,13 @@ export const fetchInitialData = async () => {
 
     const [locationsRes, eventsRes] = await Promise.all([
         // Append the cache buster to the URL
-        fetch(`${LIST_LOCATIONS_URL}${cacheBuster}`),
+        fetch(`${LIST_LOCATIONS_URL}${cacheBuster}`).catch(() => null),
         fetch(`${LIST_EVENTS_URL}${cacheBuster}`)
     ]);
-    
-    if (!locationsRes.ok) throw new Error(`Failed to fetch locations: ${locationsRes.statusText}`);
+
     if (!eventsRes.ok) throw new Error('Failed to fetch events');
-    
-    const locationsData = await locationsRes.json();
+
+    const locationsData = locationsRes?.ok ? await locationsRes.json() : [];
     const eventsData = await eventsRes.json();
     
     // Normalization logic

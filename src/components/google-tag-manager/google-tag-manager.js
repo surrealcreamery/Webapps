@@ -1,10 +1,10 @@
 /**
- * Google Tag Manager & GA4 Integration
- * 
+ * GA4 Client-Side Integration
+ *
  * Setup:
- * 1. Import and call initGTM('GTM-XXXXXXX', 'G-XXXXXXXX') in router.jsx
- * 2. Tracking functions work automatically with both GTM and GA4
- * 
+ * 1. Import and call initGA4('G-XXXXXXXX') in router.jsx
+ * 2. Server-side CAPI (Measurement Protocol) handles enriched events separately
+ *
  * Events tracked:
  * - page_view: Page navigation
  * - view_item: Product detail view
@@ -14,93 +14,37 @@
  * - begin_checkout: Checkout started
  */
 
-let GTM_ID = null;
 let GA4_ID = null;
 
 /**
- * Initialize Google Tag Manager and GA4
- * @param {string} gtmId - Your GTM Container ID (e.g., 'GTM-XXXXXXX')
- * @param {string} ga4Id - Your GA4 Measurement ID (e.g., 'G-XXXXXXXX')
+ * Initialize GA4 — gtag.js is loaded from index.html, this just stores the ID.
+ * Call this so the tracking functions below know GA4 is active.
  */
+export function initGA4(ga4Id) {
+  if (ga4Id) GA4_ID = ga4Id;
+}
+
+// Backwards compat
 export function initGTM(gtmId, ga4Id = null) {
-  if (typeof window === 'undefined') return;
-  
-  // Initialize dataLayer first (used by both GTM and GA4)
-  window.dataLayer = window.dataLayer || [];
-  
-  // Initialize GTM
-  if (gtmId) {
-    GTM_ID = gtmId;
-    
-    const gtmScript = document.createElement('script');
-    gtmScript.innerHTML = `
-      (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-      new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-      j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-      'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-      })(window,document,'script','dataLayer','${GTM_ID}');
-    `;
-    document.head.insertBefore(gtmScript, document.head.firstChild);
-
-    // Add noscript fallback
-    const noscript = document.createElement('noscript');
-    const iframe = document.createElement('iframe');
-    iframe.src = `https://www.googletagmanager.com/ns.html?id=${GTM_ID}`;
-    iframe.height = '0';
-    iframe.width = '0';
-    iframe.style.display = 'none';
-    iframe.style.visibility = 'hidden';
-    noscript.appendChild(iframe);
-    document.body.insertBefore(noscript, document.body.firstChild);
-
-    console.log('✅ GTM initialized:', GTM_ID);
-  }
-  
-  // Initialize GA4
-  if (ga4Id) {
-    GA4_ID = ga4Id;
-    
-    // Load gtag.js
-    const ga4Script = document.createElement('script');
-    ga4Script.async = true;
-    ga4Script.src = `https://www.googletagmanager.com/gtag/js?id=${GA4_ID}`;
-    document.head.appendChild(ga4Script);
-    
-    // Initialize gtag
-    window.gtag = function() {
-      window.dataLayer.push(arguments);
-    };
-    window.gtag('js', new Date());
-    window.gtag('config', GA4_ID, {
-      send_page_view: false // We'll send page views manually for more control
-    });
-
-    console.log('✅ GA4 initialized:', GA4_ID);
-  }
+  initGA4(ga4Id);
 }
 
 /**
- * Push event to dataLayer (for GTM) and gtag (for GA4)
+ * Send event via gtag
  */
+const isDebug = typeof location !== 'undefined' &&
+  (location.hostname.indexOf('beta') === 0 || location.search.indexOf('ga_debug') > -1);
+
 function pushEvent(event) {
-  if (typeof window === 'undefined') return;
-  
-  window.dataLayer = window.dataLayer || [];
-  window.dataLayer.push(event);
-  
-  // Also send to GA4 via gtag if available
-  if (window.gtag && event.event) {
-    const { event: eventName, ecommerce, ...otherParams } = event;
-    if (ecommerce) {
-      // GA4 ecommerce events
-      window.gtag('event', eventName, ecommerce);
-    } else {
-      // Non-ecommerce events
-      window.gtag('event', eventName, otherParams);
-    }
+  if (typeof window === 'undefined' || !window.gtag || !event.event) return;
+
+  const debugParam = isDebug ? { debug_mode: true } : {};
+  const { event: eventName, ecommerce, ...otherParams } = event;
+  if (ecommerce) {
+    window.gtag('event', eventName, { ...ecommerce, ...debugParam });
+  } else {
+    window.gtag('event', eventName, { ...otherParams, ...debugParam });
   }
-  
-  console.log('📊 Analytics Event:', event);
 }
 
 /**

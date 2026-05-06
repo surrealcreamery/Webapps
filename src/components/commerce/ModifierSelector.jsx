@@ -7,6 +7,7 @@ import {
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { fetchModifiersBySku } from '@/services/squareModifiers';
+import { trackModifierSelected } from '@/services/analytics';
 
 /**
  * ModifierSelector Component (Catering-style Staged Approach)
@@ -174,8 +175,9 @@ export const ModifierSelector = forwardRef(({
 
     // Notify parent when all steps are complete (last step with valid selections)
     useEffect(() => {
-        if (!modifierData?.modifierCategories) {
-            onAllStepsComplete?.(false);
+        if (!modifierData?.modifierCategories?.length) {
+            // Still loading (null) — don't change parent state; confirmed no modifiers — report valid
+            if (modifierData) onAllStepsComplete?.(true);
             return;
         }
         if (isAllAtOnce) {
@@ -252,6 +254,9 @@ export const ModifierSelector = forwardRef(({
             ...prev,
             [categoryId]: [modifierId],
         }));
+        const category = categories.find(c => c.id === categoryId);
+        const modifier = category?.modifiers?.find(m => m.id === modifierId);
+        if (modifier) trackModifierSelected(sku, category?.name, modifier.name, modifier.price || 0);
         if (wasEmpty) scrollToNextCategory(categoryId);
         if (autoAdvance) {
             clearTimeout(autoAdvanceTimer.current);
@@ -283,6 +288,9 @@ export const ModifierSelector = forwardRef(({
                 [categoryId]: [...current, modifierId],
             };
         });
+        const category = categories.find(c => c.id === categoryId);
+        const modifier = category?.modifiers?.find(m => m.id === modifierId);
+        if (modifier) trackModifierSelected(sku, category?.name, modifier.name, modifier.price || 0);
     };
 
     // Remove one instance of a modifier from a category
@@ -368,8 +376,8 @@ export const ModifierSelector = forwardRef(({
 
     if (loading) {
         return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress size={32} />
+            <Box role="status" aria-live="polite" sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress size={32} aria-label="Loading" />
             </Box>
         );
     }
@@ -380,7 +388,7 @@ export const ModifierSelector = forwardRef(({
                 <Typography color="error" variant="body2">
                     Failed to load customization options
                 </Typography>
-                <Typography color="text.secondary" variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                <Typography color="text.secondary" variant="caption" sx={{ display: 'block', mt: 0.5, fontSize: '1.6rem' }}>
                     SKU: {sku} | Error: {error}
                 </Typography>
             </Box>
@@ -398,7 +406,7 @@ export const ModifierSelector = forwardRef(({
         const isSelected = selectedIds.includes(modifier.id);
         const selectionCount = selectedIds.filter(id => id === modifier.id).length;
         const hasPrice = modifier.price > 0;
-        const imageUrl = modifier.image || modifier.imageUrl;
+        const imageUrl = modifier.imageVariants?.thumb?.url || modifier.image || modifier.imageUrl;
         const totalLimit = modifierData?.totalModifierSelections;
         const linkedFull = totalLimit && isCategoryLinked(category.id) && getTotalSelectionCount() >= totalLimit;
         const categoryMax = category.maxSelections > 0 ? category.maxSelections : null;
@@ -417,12 +425,26 @@ export const ModifierSelector = forwardRef(({
         return (
             <Box
                 key={modifier.id}
+                role="button"
+                tabIndex={isDisabled ? -1 : 0}
+                aria-label={`${modifier.name}${isSelected ? ', selected' : ''}${selectionCount > 1 ? `, ${selectionCount} selected` : ''}${hasPrice ? `, +$${modifier.price.toFixed(2)}` : ''}`}
                 onClick={() => {
                     if (isDisabled) return;
                     if (isSingle) {
                         handleSingleSelect(category.id, modifier.id);
                     } else {
                         handleMultiSelect(category.id, modifier.id, maxSelections);
+                    }
+                }}
+                onKeyDown={(e) => {
+                    if (isDisabled) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        if (isSingle) {
+                            handleSingleSelect(category.id, modifier.id);
+                        } else {
+                            handleMultiSelect(category.id, modifier.id, maxSelections);
+                        }
                     }
                 }}
                 sx={{
@@ -460,6 +482,7 @@ export const ModifierSelector = forwardRef(({
                             <img
                                 src={imageUrl}
                                 alt={modifier.name}
+                                loading="lazy"
                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             />
                         ) : (
@@ -481,7 +504,7 @@ export const ModifierSelector = forwardRef(({
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: '1.1rem',
+                            fontSize: '1.6rem',
                             fontWeight: 700,
                             border: '2px solid white',
                             boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
@@ -491,9 +514,19 @@ export const ModifierSelector = forwardRef(({
                     )}
                     {selectionCount > 0 && !isSingle && (
                         <Box
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Remove one ${modifier.name}`}
                             onClick={(e) => {
                                 e.stopPropagation();
                                 handleRemoveOne(category.id, modifier.id);
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleRemoveOne(category.id, modifier.id);
+                                }
                             }}
                             sx={{
                                 position: 'absolute',
@@ -507,7 +540,7 @@ export const ModifierSelector = forwardRef(({
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                fontSize: '1.2rem',
+                                fontSize: '1.6rem',
                                 fontWeight: 700,
                                 border: '2px solid white',
                                 boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
@@ -542,7 +575,7 @@ export const ModifierSelector = forwardRef(({
                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, textAlign: 'center' }}>
                     {category.name}
                 </Typography>
-                <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', mt: 0.5, textAlign: 'center' }}>
+                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', mt: 0.5, textAlign: 'center' }}>
                     {isSingle
                         ? category.required ? 'Select one' : 'Select one (optional)'
                         : maxSelections
@@ -550,13 +583,13 @@ export const ModifierSelector = forwardRef(({
                             : category.required ? 'Select one or more' : 'Select one or more (optional)'}
                 </Typography>
                 {!isSingle && (
-                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', mt: 0.25, textAlign: 'center' }}>
+                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', mt: 0.25, textAlign: 'center' }}>
                         Tap to add the same modifier more than once
                     </Typography>
                 )}
                 {showRequiredErrors && category.required && (selections[category.id] || []).length === 0 && (
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, mt: 1, mx: 'auto', px: 2, py: 0.75, bgcolor: 'rgba(245, 166, 35, 0.1)', border: '1px solid rgba(245, 166, 35, 0.4)', borderRadius: 2, maxWidth: 'fit-content' }}>
-                        <Typography sx={{ fontSize: '1.6rem', color: '#8b6508', fontWeight: 600 }}>
+                        <Typography sx={{ fontSize: '1.6rem', color: '#6d4c00', fontWeight: 600 }}>
                             Selection Required
                         </Typography>
                     </Box>
@@ -635,7 +668,7 @@ export const ModifierSelector = forwardRef(({
     return (
         <Box sx={{ mb: 3 }}>
             {/* Progress Indicator — only show with 3+ steps */}
-            {steps.length > 2 && <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', mb: 1 }}>
+            {steps.length > 2 && <Box role="group" aria-label="Customization progress" sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', mb: 1 }}>
                 {steps.map((step, idx) => {
                     const isComplete = step.categories.every(cat => (selections[cat.id] || []).length > 0) && idx < currentStep;
                     const isCurrent = idx === currentStep;
@@ -649,7 +682,16 @@ export const ModifierSelector = forwardRef(({
                                     bgcolor: isComplete || isCurrent ? 'black' : 'grey.300' }} />
                             )}
                             <Box
+                                role={isComplete ? 'button' : undefined}
+                                tabIndex={isComplete ? 0 : undefined}
+                                aria-label={isComplete ? `Edit step: ${stepLabel}` : undefined}
                                 onClick={() => isComplete && handleEditStep(idx)}
+                                onKeyDown={isComplete ? (e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        handleEditStep(idx);
+                                    }
+                                } : undefined}
                                 sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
                                     cursor: isComplete ? 'pointer' : 'default',
                                     flex: `0 0 ${100 / steps.length}%`, maxWidth: 120 }}
@@ -665,7 +707,7 @@ export const ModifierSelector = forwardRef(({
                                     {isCurrent && <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'white' }} />}
                                 </Box>
                                 <Typography sx={{
-                                    fontSize: '1rem', fontWeight: isComplete || isCurrent ? 600 : 400,
+                                    fontSize: '1.6rem', fontWeight: isComplete || isCurrent ? 600 : 400,
                                     color: isComplete || isCurrent ? 'text.primary' : 'text.secondary',
                                     textAlign: 'center', lineHeight: 1.2,
                                 }}>

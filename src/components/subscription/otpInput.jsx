@@ -23,7 +23,7 @@ const OtpInput = ({ onCodeChange }) => {
         }
     };
     return (
-        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+        <Box role="group" aria-label="6-digit verification code" sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
             {code.map((digit, i) => (
                 <TextField
                     key={i}
@@ -31,7 +31,15 @@ const OtpInput = ({ onCodeChange }) => {
                     value={digit}
                     onChange={e => handleChange(e, i)}
                     onKeyDown={e => handleKeyDown(e, i)}
-                    inputProps={{ maxLength: 1, style: { textAlign: 'center' } }}
+                    inputProps={{
+                        maxLength: 1,
+                        style: { textAlign: 'center' },
+                        'aria-label': `Digit ${i + 1} of 6`,
+                        'aria-required': 'true',
+                        inputMode: 'numeric',
+                        pattern: '[0-9]*',
+                        ...(i === 0 && { autoComplete: 'one-time-code' }),
+                    }}
                     sx={{ width: '45px' }}
                 />
             ))}

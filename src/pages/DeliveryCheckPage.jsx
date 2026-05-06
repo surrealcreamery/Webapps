@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Box, Typography, Button, IconButton, TextField, CircularProgress, Alert, Divider, Stack
@@ -9,6 +10,7 @@ import StoreIcon from '@mui/icons-material/Store';
 import { useCart } from '@/hooks/useCart';
 import { useCatalog } from '@/contexts/commerce/CatalogContext';
 import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
+import { trackDeliveryCheckStarted, trackDeliveryAddressEntered, trackDeliveryAddressValidated, trackDeliveryAddressFailed, trackDeliveryConfirmed, trackDeliverySwitchedToPickup } from '@/services/analytics';
 
 const GOOGLE_MAPS_API_KEY = 'AIzaSyBo0VtpHTnsl_iy68nHBt5hi6vPdBtcmpo';
 const SHIPPING_API_URL = 'https://thugumzwi4445lq5q7qhnjfwoe0mrwjl.lambda-url.us-east-1.on.aws';
@@ -26,6 +28,7 @@ export default function DeliveryCheckPage() {
     const [useManualEntry, setUseManualEntry] = useState(false);
     const [inputValue, setInputValue] = useState('');
     const [suggestions, setSuggestions] = useState([]);
+    const [activeIndex, setActiveIndex] = useState(-1);
 
     // Validation state
     const [validating, setValidating] = useState(false);
@@ -45,6 +48,11 @@ export default function DeliveryCheckPage() {
     useEffect(() => {
         if (!product) navigate('/desserts', { replace: true });
     }, [product, navigate]);
+
+    // Analytics: track delivery check started
+    useEffect(() => {
+        if (product) trackDeliveryCheckStarted(product?.id || product?.sku);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Load Google Maps script if not already loaded
     useEffect(() => {
@@ -145,6 +153,7 @@ export default function DeliveryCheckPage() {
         setInputValue(val);
         setResult(null);
         setError(null);
+        setActiveIndex(-1);
         if (!val || val.length < 3 || !autocompleteServiceRef.current) {
             setSuggestions([]);
             return;
@@ -166,9 +175,28 @@ export default function DeliveryCheckPage() {
         );
     };
 
+    // Keyboard navigation for address suggestions listbox
+    const handleSuggestionKeyDown = (e) => {
+        if (suggestions.length === 0) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActiveIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : 0));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActiveIndex(prev => (prev > 0 ? prev - 1 : suggestions.length - 1));
+        } else if (e.key === 'Enter' && activeIndex >= 0) {
+            e.preventDefault();
+            handleSelectSuggestion(suggestions[activeIndex].place_id);
+        } else if (e.key === 'Escape') {
+            setSuggestions([]);
+            setActiveIndex(-1);
+        }
+    };
+
     // User selects a suggestion — get place details then validate
     const handleSelectSuggestion = (placeId) => {
         setSuggestions([]);
+        setActiveIndex(-1);
         if (!placesServiceRef.current) return;
         placesServiceRef.current.getDetails(
             {
@@ -195,6 +223,7 @@ export default function DeliveryCheckPage() {
                 };
                 setInputValue(place.formatted_address || `${parsed.address1}, ${parsed.city}, ${parsed.provinceCode} ${parsed.zip}`);
                 setAddress(parsed);
+                trackDeliveryAddressEntered('autocomplete');
                 validateAddress(parsed);
             }
         );
@@ -225,12 +254,21 @@ export default function DeliveryCheckPage() {
             const parsed = typeof data.body === 'string' ? JSON.parse(data.body) : data;
             if (parsed.error) {
                 setError(parsed.error);
+                trackDeliveryAddressFailed(parsed.error, parsed.distanceMiles);
                 return;
             }
+            // $0.00 delivery fee = invalid quote, treat as unavailable
+            if (parsed.available && parsed.deliveryFee === 0) {
+                setError('Delivery is not available for this address at this time.');
+                trackDeliveryAddressFailed('zero_fee', parsed.distanceMiles);
+                return;
+            }
+            trackDeliveryAddressValidated(parsed.available, parsed.distanceMiles, parsed.deliveryFee, parsed.estimatedMinutes);
             setResult(parsed);
             updateMapMarkers(parsed);
         } catch (err) {
             console.error('[DeliveryCheck] Error:', err);
+            trackDeliveryAddressFailed(err.message, null);
             setError('Failed to validate address. Please try again.');
         } finally {
             setValidating(false);
@@ -340,6 +378,7 @@ export default function DeliveryCheckPage() {
 
     // Add to cart and navigate back
     const handleAddToCart = () => {
+        trackDeliveryConfirmed(result?.deliveryFee, pickupLocation || localStorage.getItem('selectedLocation') || '');
         localCart.addToCart(product, variant, quantity || 1, modifiers || [], { fulfillmentMethod: 'delivery' });
         // Store the delivery address + fee for CartDrawer
         localStorage.setItem('deliveryAddress', JSON.stringify({
@@ -356,6 +395,7 @@ export default function DeliveryCheckPage() {
 
     // Switch to pickup
     const handleSwitchToPickup = () => {
+        trackDeliverySwitchedToPickup(product?.id);
         localCart.addToCart(product, variant, quantity || 1, modifiers || [], { fulfillmentMethod: 'pickup' });
         setIsProductDetail(false);
         sendToCommerce({ type: 'CLOSE_PRODUCT' });
@@ -372,7 +412,8 @@ export default function DeliveryCheckPage() {
     const price = parseFloat(variant?.price?.amount || variant?.price || 0);
 
     return (
-        <Box sx={{ minHeight: '100vh', bgcolor: 'white', pb: 4 }}>
+        <Box component="main" sx={{ minHeight: '100vh', bgcolor: 'white', pb: 4 }}>
+            <Helmet><title>Delivery Check | Surreal Creamery</title></Helmet>
             {/* Header */}
             <Box sx={{
                 px: 2, py: 1.5,
@@ -380,11 +421,11 @@ export default function DeliveryCheckPage() {
                 borderBottom: '1px solid #e0e0e0',
                 position: 'sticky', top: 0, zIndex: 10, bgcolor: 'white',
             }}>
-                <IconButton onClick={() => navigate(-1)} sx={{ color: 'text.primary' }}>
+                <IconButton onClick={() => navigate(-1)} sx={{ color: 'text.primary' }} aria-label="Go back">
                     <ArrowBackIcon />
                 </IconButton>
-                <LocalShippingIcon color="action" />
-                <Typography variant="h6">Check Delivery Availability</Typography>
+                <LocalShippingIcon color="action" aria-hidden="true" />
+                <Typography variant="h6" component="h1">Check Delivery Availability</Typography>
             </Box>
 
             <Box sx={{ maxWidth: 600, mx: 'auto', px: 2, pt: 3 }}>
@@ -400,8 +441,8 @@ export default function DeliveryCheckPage() {
                     )}
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }} noWrap>{productName}</Typography>
-                        {variantName && <Typography sx={{ fontSize: '1.4rem', lineHeight: 1.3 }} noWrap>{variantName}</Typography>}
-                        <Typography sx={{ fontSize: '1.4rem', lineHeight: 1.3 }}>
+                        {variantName && <Typography sx={{ fontSize: '1.6rem', lineHeight: 1.3 }} noWrap>{variantName}</Typography>}
+                        <Typography sx={{ fontSize: '1.6rem', lineHeight: 1.3 }}>
                             {quantity > 1 ? `${quantity} x ` : ''}${price.toFixed(2)}
                         </Typography>
                     </Box>
@@ -422,18 +463,31 @@ export default function DeliveryCheckPage() {
                             autoFocus
                             value={inputValue}
                             onChange={handleInputChange}
+                            onKeyDown={handleSuggestionKeyDown}
+                            inputProps={{
+                                role: 'combobox',
+                                'aria-expanded': suggestions.length > 0,
+                                'aria-controls': 'address-suggestions-listbox',
+                                'aria-activedescendant': activeIndex >= 0 ? `suggestion-${activeIndex}` : undefined,
+                                'aria-autocomplete': 'list',
+                            }}
                         />
                         {suggestions.length > 0 && (
-                            <Box>
-                                {suggestions.map((s) => (
+                            <Box role="listbox" id="address-suggestions-listbox" aria-label="Address suggestions">
+                                {suggestions.map((s, index) => (
                                     <Box
                                         key={s.place_id}
+                                        id={`suggestion-${index}`}
+                                        role="option"
+                                        aria-selected={index === activeIndex}
+                                        tabIndex={-1}
                                         onClick={() => handleSelectSuggestion(s.place_id)}
                                         sx={{
                                             py: 1.5, px: 1,
                                             fontSize: '1.6rem',
                                             cursor: 'pointer',
                                             borderBottom: '1px solid #f0f0f0',
+                                            bgcolor: index === activeIndex ? '#e3f2fd' : 'transparent',
                                             '&:hover': { bgcolor: '#f5f5f5' },
                                         }}
                                     >
@@ -463,21 +517,22 @@ export default function DeliveryCheckPage() {
                         </Stack>
                         <Button
                             variant="contained"
-                            onClick={() => validateAddress()}
+                            onClick={() => { trackDeliveryAddressEntered('manual'); validateAddress(); }}
                             disabled={validating || !address.address1 || !address.city || !address.provinceCode || !address.zip}
+                            aria-label={validating ? 'Validating address' : 'Check Availability'}
                         >
-                            {validating ? <CircularProgress size={20} /> : 'Check Availability'}
+                            {validating ? <CircularProgress size={20} aria-label="Loading" /> : 'Check Availability'}
                         </Button>
                     </Stack>
                 )}
 
                 {/* Error */}
-                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                {error && <Alert severity="error" role="alert" sx={{ mb: 2 }}>{error}</Alert>}
 
                 {/* Validating spinner */}
                 {validating && (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-                        <CircularProgress />
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }} role="status" aria-live="polite" aria-busy="true">
+                        <CircularProgress aria-label="Loading" />
                     </Box>
                 )}
 
@@ -486,12 +541,12 @@ export default function DeliveryCheckPage() {
 
                 {/* Delivery Result */}
                 {result && (
-                    <>
+                    <Box aria-live="polite">
                         <Divider sx={{ mb: 2 }} />
                         {result.available ? (
                             <>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                                    <LocalShippingIcon sx={{ color: 'success.main' }} />
+                                    <LocalShippingIcon sx={{ color: 'success.main' }} aria-hidden="true" />
                                     <Typography sx={{ fontSize: '1.6rem', color: 'success.main' }}>
                                         Delivery Available
                                     </Typography>
@@ -505,10 +560,12 @@ export default function DeliveryCheckPage() {
                                         <Typography sx={{ fontSize: '1.6rem' }} >Delivery Fee</Typography>
                                         <Typography sx={{ fontSize: '1.6rem' }}>${result.deliveryFee.toFixed(2)}</Typography>
                                     </Box>
+                                    {result.estimatedMinutes != null && (
                                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <Typography sx={{ fontSize: '1.6rem' }} >Estimated Time</Typography>
                                         <Typography sx={{ fontSize: '1.6rem' }}>~{result.estimatedMinutes} min</Typography>
                                     </Box>
+                                    )}
                                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <Typography sx={{ fontSize: '1.6rem' }} >From</Typography>
                                         <Typography sx={{ fontSize: '1.6rem' }}>{result.storeName}</Typography>
@@ -535,7 +592,7 @@ export default function DeliveryCheckPage() {
                         ) : (
                             <>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                                    <LocalShippingIcon sx={{ color: 'error.main' }} />
+                                    <LocalShippingIcon sx={{ color: 'error.main' }} aria-hidden="true" />
                                     <Typography sx={{ fontSize: '1.6rem', color: 'error.main' }}>
                                         Out of Delivery Range
                                     </Typography>
@@ -558,7 +615,7 @@ export default function DeliveryCheckPage() {
                                 <Button
                                     variant="contained"
                                     fullWidth
-                                    startIcon={<StoreIcon />}
+                                    startIcon={<StoreIcon aria-hidden="true" />}
                                     onClick={handleSwitchToPickup}
                                     sx={{
                                         mt: 1,
@@ -575,7 +632,7 @@ export default function DeliveryCheckPage() {
                                 </Button>
                             </>
                         )}
-                    </>
+                    </Box>
                 )}
             </Box>
         </Box>

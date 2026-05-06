@@ -14,6 +14,7 @@ import {
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import HeroImage from '@/assets/images/Surreal Creamery/Hero.png';
+import { trackSubscriptionPlanSelected } from '@/services/analytics';
 
 // A sub-component for displaying the main offer details.
 const OfferDetails = ({ onViewAllDrinks }) => {
@@ -104,7 +105,8 @@ const StepPlanSelection = ({ send, planId, availablePlans, currentFlowType, onVi
         return (
             <Button
                 key={plan.id}
-                onClick={() => send({ type: 'SELECT_PLAN', value: plan.id })}
+                onClick={() => { trackSubscriptionPlanSelected(plan.id); send({ type: 'SELECT_PLAN', value: plan.id }); }}
+                aria-pressed={plan.id === planId}
                 variant="outlined"
                 fullWidth
                 sx={{
@@ -122,7 +124,7 @@ const StepPlanSelection = ({ send, planId, availablePlans, currentFlowType, onVi
                 <CardContent>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <Box>
-                            <Typography variant="h3">{plan.name}</Typography>
+                            <Typography variant="h3" component="h2">{plan.name}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                                 {plan.description || 'No description available.'}
                             </Typography>
@@ -152,7 +154,7 @@ const StepPlanSelection = ({ send, planId, availablePlans, currentFlowType, onVi
                                 {plan.benefits.map((benefit, index) => (
                                     <ListItem key={index} disableGutters sx={{ py: 0 }}>
                                         <ListItemIcon sx={{ minWidth: 28 }}>
-                                            <CheckIcon fontSize="small" color="primary" />
+                                            <CheckIcon fontSize="small" color="primary" aria-hidden="true" />
                                         </ListItemIcon>
                                         <ListItemText 
                                             primary={benefit} 

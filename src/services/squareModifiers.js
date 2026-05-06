@@ -62,6 +62,7 @@ export const fetchModifiersBySku = async (sku) => {
               name: opt.name,
               price: opt.price || 0,
               image: opt.image,
+              imageVariants: opt.imageVariants || null,
             })),
           };
         }),

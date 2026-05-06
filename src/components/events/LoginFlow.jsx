@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Typography, Button, TextField, FormHelperText, CircularProgress, Card, CardContent, Radio, Alert } from '@mui/material';
 import OtpInput from './OtpInput';
+import { trackOtpRequested, trackOtpEntered } from '@/services/analytics';
 
 export const LoginFlow = ({ send, context }) => {
     // Note: The `context` prop is the full state object from XState.
@@ -16,10 +17,12 @@ export const LoginFlow = ({ send, context }) => {
 
     const handleSendCode = () => {
         if (!identifier) return;
+        trackOtpRequested('events');
         send({ type: 'SUBMIT_IDENTIFIER', value: identifier });
     };
 
     const handleVerifyCode = () => {
+        trackOtpEntered('events');
         send({ type: 'SUBMIT_OTP', value: otp });
     };
 

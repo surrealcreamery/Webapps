@@ -7,20 +7,28 @@ import {
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
+import StorefrontIcon from '@mui/icons-material/Storefront';
 import PlaceIcon from '@mui/icons-material/Place';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import LockIcon from '@mui/icons-material/Lock';
 import EmailIcon from '@mui/icons-material/Email';
+import ShoppingCartCheckoutIcon from '@mui/icons-material/ShoppingCartCheckout';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
+import VerifiedIcon from '@mui/icons-material/Verified';
 import { parsePhoneNumber } from 'libphonenumber-js';
-import { PaymentForm, CreditCard } from 'react-square-web-payments-sdk';
+import { PaymentForm, CreditCard, ApplePay, GooglePay } from 'react-square-web-payments-sdk';
 import { Card as EvervaultCard, themes as evervaultThemes } from '@evervault/react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import useCart from '@/hooks/useCart';
 import { useCheckout } from '@/components/commerce/CheckoutContext';
-import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
+import { useWebSocket } from '@/contexts/commerce/WebSocketContext';
+import { groupCartByFulfillmentOrigin } from '@/utils/fulfillmentRouter';
+import { trackFulfillmentSelected, trackPaymentAttempted, trackOrderCompleted, identifyUser, trackCheckoutContactEntered, trackCheckoutPickupLocationSelected, trackCheckoutShippingAddressEntered, trackCheckoutShippingRateSelected, trackCheckoutPromoApplied, trackCheckoutPromoError, trackTipSelected, trackCustomTipEntered, trackPaymentMethodSelected, trackPaymentFailed, trackOrderConfirmationViewed, trackOrderSummaryToggled } from '@/services/analytics';
 
 const PackageViewer3D = React.lazy(() => import('@/components/commerce/PackageViewer3D'));
 
@@ -32,9 +40,9 @@ const SHIPPING_API_URL = 'https://thugumzwi4445lq5q7qhnjfwoe0mrwjl.lambda-url.us
 const LOCATIONS_URL = 'https://data.surrealcreamery.com/locations.json';
 const GOOGLE_MAPS_API_KEY = 'AIzaSyBo0VtpHTnsl_iy68nHBt5hi6vPdBtcmpo';
 
-const TIP_OPTIONS = [0, 200, 300, 500]; // cents
+const TIP_PERCENTAGES = [10, 15, 20]; // percent
 
-const SHIPPING_ACTIONS = ['getShippingRates', 'checkDeliveryAvailability', 'validateDeliveryAddress'];
+const SHIPPING_ACTIONS = ['getShippingRates', 'getMultiOriginShippingRates', 'checkDeliveryAvailability', 'validateDeliveryAddress'];
 
 function callApi(action, data = {}) {
   const url = SHIPPING_ACTIONS.includes(action) ? SHIPPING_API_URL : CHECKOUT_API_URL;
@@ -51,7 +59,7 @@ function callApi(action, data = {}) {
 }
 
 // ─── Payment Card Form (Square Web Payments SDK) ───
-function PaymentCardForm({ onCardData, isProcessing, squareAppId, squareLocationId }) {
+function PaymentCardForm({ onCardData, isProcessing, squareAppId, squareLocationId, children }) {
   const [error, setError] = useState(null);
 
   const handleTokenize = useCallback((token, buyer) => {
@@ -71,6 +79,7 @@ function PaymentCardForm({ onCardData, isProcessing, squareAppId, squareLocation
         locationId={squareLocationId || SQUARE_LOCATION_ID}
         cardTokenizeResponseReceived={handleTokenize}
       >
+        {children}
         <CreditCard
           buttonProps={{
             isLoading: isProcessing,
@@ -116,7 +125,7 @@ const evCardTheme = evervaultThemes.minimal({
 });
 
 // ─── Evervault Card Form ───
-function EvervaultCardForm({ onCardData, isProcessing }) {
+function EvervaultCardForm({ onCardData, isProcessing, children }) {
   const [cardState, setCardState] = useState(null);
   const [error, setError] = useState(null);
 
@@ -154,6 +163,7 @@ function EvervaultCardForm({ onCardData, isProcessing }) {
           fields={['number', 'expiry', 'cvc']}
         />
       </Box>
+      {children}
       <Button
         variant="contained"
         fullWidth
@@ -168,14 +178,14 @@ function EvervaultCardForm({ onCardData, isProcessing }) {
           height: 48,
         }}
       >
-        {isProcessing ? <CircularProgress size={24} color="inherit" /> : 'Place Order'}
+        {isProcessing ? <CircularProgress size={24} color="inherit" aria-label="Submitting order" /> : 'Place Order'}
       </Button>
     </Box>
   );
 }
 
 // ─── Stripe Card Form (Stripe Elements) ───
-function StripeCardFormInner({ onCardData, isProcessing }) {
+function StripeCardFormInner({ onCardData, isProcessing, children }) {
   const stripe = useStripe();
   const elements = useElements();
   const [error, setError] = useState(null);
@@ -214,6 +224,7 @@ function StripeCardFormInner({ onCardData, isProcessing }) {
           },
         }} />
       </Box>
+      {children}
       <Button
         variant="contained"
         fullWidth
@@ -228,13 +239,13 @@ function StripeCardFormInner({ onCardData, isProcessing }) {
           height: 48,
         }}
       >
-        {isProcessing ? <CircularProgress size={24} color="inherit" /> : 'Place Order'}
+        {isProcessing ? <CircularProgress size={24} color="inherit" aria-label="Submitting order" /> : 'Place Order'}
       </Button>
     </Box>
   );
 }
 
-function StripeCardForm({ onCardData, isProcessing, stripePublishableKey }) {
+function StripeCardForm({ onCardData, isProcessing, stripePublishableKey, children }) {
   const stripePromise = useMemo(
     () => stripePublishableKey ? loadStripe(stripePublishableKey) : null,
     [stripePublishableKey]
@@ -246,7 +257,7 @@ function StripeCardForm({ onCardData, isProcessing, stripePublishableKey }) {
 
   return (
     <Elements stripe={stripePromise}>
-      <StripeCardFormInner onCardData={onCardData} isProcessing={isProcessing} />
+      <StripeCardFormInner onCardData={onCardData} isProcessing={isProcessing}>{children}</StripeCardFormInner>
     </Elements>
   );
 }
@@ -255,53 +266,123 @@ function StripeCardForm({ onCardData, isProcessing, stripePublishableKey }) {
 function OrderSummaryPanel({ cart, checkoutOrderCalc, calcLoading, calcError, fetchOrderCalc,
   fulfillmentMethods, checkoutTip, displayTotal, fmtCents,
   checkoutPromoCode, promoInput, setPromoInput, handleApplyPromo, handleRemovePromo, promoError,
-  tipMode, handleTipChange, TIP_OPTIONS: tipOptions, customTip, setCustomTip, handleCustomTipBlur,
+  tipMode, handleTipChange, TIP_PERCENTAGES: tipPercentages, customTip, setCustomTip, handleCustomTipBlur, subtotalCents,
+  selectedLocation, addressFields, selectedShippingRate,
 }) {
+  // Group items by fulfillment method
+  const methodOrder = ['pickup', 'delivery', 'shipping'];
+  const grouped = {};
+  cart.forEach(item => {
+    const m = item.fulfillmentMethod || 'pickup';
+    if (!grouped[m]) grouped[m] = [];
+    grouped[m].push(item);
+  });
+  const sortedMethods = Object.keys(grouped).sort((a, b) => methodOrder.indexOf(a) - methodOrder.indexOf(b));
+  const hasMultipleMethods = sortedMethods.length > 1;
+
+  const renderItem = (item, idx) => (
+    <Box component="li" key={item.id}>
+      {idx > 0 && <Divider />}
+      <Stack direction="row" spacing={2} sx={{ py: 1.5 }}>
+        <Box sx={{ position: 'relative', flexShrink: 0 }}>
+          {item.image && (
+            <Box
+              component="img"
+              src={item.image}
+              alt={item.name}
+              sx={{ width: 56, height: 56, borderRadius: 1, objectFit: 'cover' }}
+            />
+          )}
+          {item.quantity > 1 && (
+            <Box sx={{
+              position: 'absolute', top: -8, right: -8,
+              bgcolor: 'grey.600', color: 'white', borderRadius: '50%',
+              width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '1.6rem', fontWeight: 700,
+            }}>
+              {item.quantity}
+            </Box>
+          )}
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }} noWrap>
+            {item.name}
+          </Typography>
+          {item.variantName && (
+            <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>{item.variantName}</Typography>
+          )}
+          {item.modifiers?.length > 0 && (
+            <Typography variant="caption" color="text.secondary" display="block">
+              {item.modifiers.map(m => m.name || m.value).join(', ')}
+            </Typography>
+          )}
+        </Box>
+        <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, whiteSpace: 'nowrap', alignSelf: 'center' }}>
+          {item.isFreeGift ? 'FREE' : `$${(item.unitPrice * item.quantity).toFixed(2)}`}
+        </Typography>
+      </Stack>
+    </Box>
+  );
+
   return (
     <>
-      {/* Line items */}
-      {cart.map((item, idx) => (
-        <Box key={item.id}>
-          {idx > 0 && <Divider />}
-          <Stack direction="row" spacing={2} sx={{ py: 1.5 }}>
-            <Box sx={{ position: 'relative', flexShrink: 0 }}>
-              {item.image && (
-                <Box
-                  component="img"
-                  src={item.image}
-                  alt={item.name}
-                  sx={{ width: 56, height: 56, borderRadius: 1, objectFit: 'cover' }}
-                />
-              )}
-              {item.quantity > 1 && (
-                <Box sx={{
-                  position: 'absolute', top: -6, right: -6,
-                  bgcolor: 'grey.600', color: 'white', borderRadius: '50%',
-                  width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '0.75rem', fontWeight: 700,
-                }}>
-                  {item.quantity}
-                </Box>
-              )}
-            </Box>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }} noWrap>
-                {item.name}
-              </Typography>
-              {item.variantName && (
-                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>{item.variantName}</Typography>
-              )}
-              {item.modifiers?.length > 0 && (
-                <Typography variant="caption" color="text.secondary" display="block">
-                  {item.modifiers.map(m => m.name || m.value).join(', ')}
-                </Typography>
-              )}
-            </Box>
-            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, whiteSpace: 'nowrap', alignSelf: 'center' }}>
-              {item.isFreeGift ? 'FREE' : `$${(item.unitPrice * item.quantity).toFixed(2)}`}
+      {/* Fulfillment info */}
+      <Stack spacing={1} sx={{ mb: 2 }}>
+        {fulfillmentMethods.includes('pickup') && (
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <StorefrontIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+            <Typography variant="body2" sx={{ fontSize: '1.6rem' }}>
+              Pickup{selectedLocation?.name ? ` at ${selectedLocation.name}` : ''}
             </Typography>
           </Stack>
-        </Box>
+        )}
+        {fulfillmentMethods.includes('delivery') && (
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <LocalShippingIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+            <Typography variant="body2" sx={{ fontSize: '1.6rem' }}>
+              {addressFields?.address1
+                ? `Delivery to ${addressFields.address1}, ${addressFields.city}`
+                : 'Delivery'}
+            </Typography>
+          </Stack>
+        )}
+        {fulfillmentMethods.includes('shipping') && (
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <LocalShippingOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+            <Typography variant="body2" sx={{ fontSize: '1.6rem' }}>
+              {addressFields?.address1
+                ? `Ship to ${addressFields.address1}, ${addressFields.city}`
+                : 'Shipping'}
+              {selectedShippingRate ? ` · ${selectedShippingRate.carrier ? `${selectedShippingRate.carrier} ` : ''}${selectedShippingRate.name}` : ''}
+            </Typography>
+          </Stack>
+        )}
+      </Stack>
+
+      {/* Line items — grouped by fulfillment method when mixed */}
+      {sortedMethods.map((method, methodIdx) => (
+        <React.Fragment key={method}>
+          {hasMultipleMethods && (
+            <>
+              {methodIdx > 0 && <Divider sx={{ my: 1 }} />}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>
+                {method === 'pickup' && <StorefrontIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
+                {method === 'delivery' && <LocalShippingIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
+                {method === 'shipping' && <LocalShippingOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
+                <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '1.6rem' }}>
+                  {method === 'pickup' && `Pickup${selectedLocation?.name ? ` at ${selectedLocation.name}` : ''}`}
+                  {method === 'delivery' && (addressFields?.address1
+                    ? `Delivery to ${addressFields.address1}, ${addressFields.city}`
+                    : 'Delivery')}
+                  {method === 'shipping' && 'Shipping'}
+                </Typography>
+              </Box>
+            </>
+          )}
+          <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
+            {grouped[method].map((item, idx) => renderItem(item, idx))}
+          </Box>
+        </React.Fragment>
       ))}
 
       <Divider sx={{ my: 2 }} />
@@ -328,29 +409,60 @@ function OrderSummaryPanel({ cart, checkoutOrderCalc, calcLoading, calcError, fe
       </Stack>
       {promoError && <Alert severity="error" sx={{ mb: 2 }}>{promoError}</Alert>}
 
+      {/* Tip (pickup/delivery only, not shipping-only) */}
+      {fulfillmentMethods.includes('pickup') || fulfillmentMethods.includes('delivery') ? <Box sx={{ mb: 2 }}>
+        <Typography variant="body2" sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 1 }}>Tip</Typography>
+        <ToggleButtonGroup
+          value={tipMode === 'preset' ? tipPercentages.find(p => Math.round(subtotalCents * p / 100) === checkoutTip) ?? null : 'custom'}
+          exclusive
+          onChange={handleTipChange}
+          size="small"
+          sx={{ display: 'flex', '& .MuiToggleButton-root': { flex: 1, fontSize: '1.6rem', textTransform: 'none' } }}
+        >
+          {tipPercentages.map(p => (
+            <ToggleButton key={p} value={p}>{p}%</ToggleButton>
+          ))}
+          <ToggleButton value="custom">Other</ToggleButton>
+        </ToggleButtonGroup>
+        {tipMode === 'custom' && (
+          <TextField
+            label="Custom tip amount"
+            size="small"
+            fullWidth
+            value={customTip}
+            onChange={e => setCustomTip(e.target.value.replace(/[^0-9.]/g, ''))}
+            onBlur={handleCustomTipBlur}
+            InputProps={{
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
+            }}
+            sx={{ mt: 1 }}
+          />
+        )}
+      </Box> : null}
+
       {/* Totals */}
       {calcLoading ? (
-        <CircularProgress size={24} sx={{ display: 'block', mx: 'auto', my: 2 }} />
+        <CircularProgress size={24} sx={{ display: 'block', mx: 'auto', my: 2 }} aria-label="Calculating order total" />
       ) : calcError ? (
         <Alert severity="error" sx={{ mb: 1 }}>
           {calcError}
           <Button size="small" onClick={() => fetchOrderCalc()} sx={{ ml: 1 }}>Retry</Button>
         </Alert>
-      ) : checkoutOrderCalc ? (
+      ) : (
         <Stack spacing={0.5} sx={{ '& .MuiTypography-root': { fontSize: '1.6rem' } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
             <Typography color="text.secondary">
               Subtotal · {cart.reduce((s, i) => s + i.quantity, 0)} items
             </Typography>
-            <Typography>{fmtCents(checkoutOrderCalc.subtotal)}</Typography>
+            <Typography>{fmtCents(checkoutOrderCalc ? checkoutOrderCalc.subtotal : subtotalCents)}</Typography>
           </Box>
-          {checkoutOrderCalc.discount > 0 && (
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', color: '#4caf50' }}>
+          {checkoutOrderCalc?.discount > 0 && (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', color: '#2e7d32' }}>
               <Typography>Discount</Typography>
               <Typography>-{fmtCents(checkoutOrderCalc.discount)}</Typography>
             </Box>
           )}
-          {checkoutOrderCalc.deliveryFee > 0 && (
+          {checkoutOrderCalc?.deliveryFee > 0 && (
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
               <Typography color="text.secondary">
                 {fulfillmentMethods.includes('delivery') && fulfillmentMethods.includes('shipping')
@@ -360,10 +472,17 @@ function OrderSummaryPanel({ cart, checkoutOrderCalc, calcLoading, calcError, fe
               <Typography>{fmtCents(checkoutOrderCalc.deliveryFee)}</Typography>
             </Box>
           )}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-            <Typography color="text.secondary">Tax</Typography>
-            <Typography>{fmtCents(checkoutOrderCalc.tax)}</Typography>
-          </Box>
+          {checkoutOrderCalc ? (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Typography color="text.secondary">Tax</Typography>
+              <Typography>{fmtCents(checkoutOrderCalc.tax)}</Typography>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Typography color="text.secondary">Tax</Typography>
+              <Typography color="text.disabled">TBD</Typography>
+            </Box>
+          )}
           {checkoutTip > 0 && (
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
               <Typography color="text.secondary">Tip</Typography>
@@ -376,11 +495,180 @@ function OrderSummaryPanel({ cart, checkoutOrderCalc, calcLoading, calcError, fe
             <Typography fontWeight={700}>{fmtCents(displayTotal)}</Typography>
           </Box>
         </Stack>
-      ) : (
-        <CircularProgress size={24} sx={{ display: 'block', mx: 'auto', my: 2 }} />
       )}
     </>
   );
+}
+
+// ─── Processing Overlay ───
+const PROCESSING_STAGES = [
+  { text: 'Processing Purchase...', icon: ShoppingCartCheckoutIcon },
+  { text: 'Processing Payment...', icon: CreditCardIcon },
+  { text: 'Confirming Your Purchase...', icon: ReceiptLongIcon },
+  { text: 'Almost Done...', icon: HourglassBottomIcon },
+  { text: 'Finalizing Transaction...', icon: VerifiedIcon },
+  { text: 'Purchase Successful!', icon: CheckCircleIcon },
+];
+
+const overlayFadeKeyframes = {
+  '@keyframes overlayFadeIn': {
+    from: { opacity: 0, transform: 'translateY(8px)' },
+    to: { opacity: 1, transform: 'translateY(0)' },
+  },
+  '@keyframes overlayFadeOut': {
+    from: { opacity: 1, transform: 'translateY(0)' },
+    to: { opacity: 0, transform: 'translateY(-8px)' },
+  },
+};
+
+function ProcessingOverlay({ confirmation, onComplete }) {
+  const [stageIndex, setStageIndex] = useState(0);
+  const [fading, setFading] = useState(false);
+  const timerRef = useRef(null);
+  const successShownRef = useRef(false);
+  const statusRef = useRef(null);
+
+  // Focus the status message when overlay mounts for screen reader announcement
+  useEffect(() => {
+    setTimeout(() => statusRef.current?.focus(), 100);
+  }, []);
+
+  // Auto-advance stages 0-4 every 2.5s
+  useEffect(() => {
+    if (stageIndex >= 4) return; // stop at stage 4 (index 4 = "Finalizing Transaction...")
+    timerRef.current = setInterval(() => {
+      setFading(true);
+      setTimeout(() => {
+        setStageIndex(prev => {
+          if (prev >= 4) return prev;
+          return prev + 1;
+        });
+        setFading(false);
+      }, 300);
+    }, 2500);
+    return () => clearInterval(timerRef.current);
+  }, [stageIndex]);
+
+  // Show success stage when confirmation arrives
+  useEffect(() => {
+    if (confirmation && !successShownRef.current) {
+      successShownRef.current = true;
+      setFading(true);
+      setTimeout(() => {
+        setStageIndex(5); // "Purchase Successful!"
+        setFading(false);
+      }, 300);
+      // Dismiss after 1.5s on success stage
+      setTimeout(() => {
+        onComplete();
+      }, 2100); // 300ms fade + 1500ms display + 300ms buffer
+    }
+  }, [confirmation, onComplete]);
+
+  const stage = PROCESSING_STAGES[stageIndex];
+  const StageIcon = stage.icon;
+  const isSuccess = stageIndex === 5;
+
+  return (
+    <Box
+      role="dialog"
+      aria-modal="true"
+      aria-label="Processing your order"
+      sx={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.92)',
+        backdropFilter: 'blur(8px)',
+        ...overlayFadeKeyframes,
+      }}
+    >
+      <Box
+        sx={{
+          backgroundColor: '#fff',
+          borderRadius: '16px',
+          width: 400,
+          maxWidth: '90vw',
+          py: 6,
+          px: 4,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 3,
+        }}
+      >
+        <Box
+          key={stageIndex}
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 2.5,
+            animation: fading
+              ? 'overlayFadeOut 0.3s ease forwards'
+              : 'overlayFadeIn 0.4s ease forwards',
+          }}
+        >
+          <StageIcon
+            sx={{
+              fontSize: 80,
+              color: isSuccess ? '#2e7d32' : '#222',
+              transition: 'color 0.3s ease',
+            }}
+          />
+          <Typography
+            variant="h5"
+            ref={statusRef}
+            tabIndex={-1}
+            aria-live="assertive"
+            aria-atomic="true"
+            sx={{
+              color: '#222',
+              fontFamily: 'Outfit, sans-serif',
+              fontWeight: 600,
+              textAlign: 'center',
+              outline: 'none',
+            }}
+          >
+            {stage.text}
+          </Typography>
+        </Box>
+        {!isSuccess && (
+          <CircularProgress
+            size={28}
+            thickness={4}
+            sx={{ color: 'rgba(0,0,0,0.3)', mt: 1 }}
+            aria-label="Processing your order"
+          />
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+// ─── Roving tabindex helper for custom radio groups (WCAG SC 2.1.1) ───
+function handleRadioGroupKeyDown(e, items, currentIndex, selectItem) {
+  const { key } = e;
+  let nextIndex = -1;
+  if (key === 'ArrowDown' || key === 'ArrowRight') {
+    e.preventDefault();
+    nextIndex = (currentIndex + 1) % items.length;
+  } else if (key === 'ArrowUp' || key === 'ArrowLeft') {
+    e.preventDefault();
+    nextIndex = (currentIndex - 1 + items.length) % items.length;
+  }
+  if (nextIndex >= 0) {
+    selectItem(nextIndex);
+    // Focus the newly selected radio element
+    const container = e.currentTarget.closest('[role="radiogroup"]');
+    if (container) {
+      const radios = container.querySelectorAll('[role="radio"]');
+      radios[nextIndex]?.focus();
+    }
+  }
 }
 
 // ─── Main CheckoutPage ───
@@ -389,7 +677,7 @@ export default function CheckoutPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const { cart, cartId, getSubtotal, clearCart } = useCart();
-  const { testModeEnabled } = useShopify();
+  const testModeEnabled = localStorage.getItem('testModeEnabled') === 'true';
   const {
     checkoutCustomer, setCheckoutCustomer,
     checkoutFulfillment, setCheckoutFulfillment,
@@ -420,6 +708,9 @@ export default function CheckoutPage() {
   const [contactVerified, setContactVerified] = useState(false);
   const [customerMatch, setCustomerMatch] = useState(null);
   const [customerLoading, setCustomerLoading] = useState(false);
+
+  // Form validation touched state
+  const [fieldsTouched, setFieldsTouched] = useState({ firstName: false, lastName: false, email: false });
 
   // OTP sign-in
   const [otpStep, setOtpStep] = useState(null); // null | 'prompt' | 'sending' | 'input' | 'verifying' | 'verified'
@@ -456,6 +747,22 @@ export default function CheckoutPage() {
   const [binPacking, setBinPacking] = useState([]);
   const [selectedShippingTierId, setSelectedShippingTierId] = useState(null);
 
+  // Multi-origin shipping state
+  const [multiOriginRates, setMultiOriginRates] = useState(null); // { originRates: [{ locationId, locationName, rates, binPacking }] }
+  const [selectedRatesByOrigin, setSelectedRatesByOrigin] = useState({}); // { [locationId]: rateObject }
+
+  // Billing address
+  const [billingFields, setBillingFields] = useState({ address1: '', address2: '', city: '', provinceCode: '', zip: '' });
+  const [billingSameAsAddress, setBillingSameAsAddress] = useState(true);
+  const [billingInput, setBillingInput] = useState('');
+  const [billingSuggestions, setBillingSuggestions] = useState([]);
+  const [useManualBillingAddress, setUseManualBillingAddress] = useState(false);
+  const [billingValidated, setBillingValidated] = useState(false);
+
+  // Focus management refs
+  const nextSectionRef = useRef(null);
+  const processingStatusRef = useRef(null);
+
   // Google Maps refs
   const autocompleteServiceRef = useRef(null);
   const placesServiceRef = useRef(null);
@@ -471,6 +778,7 @@ export default function CheckoutPage() {
 
   // Payment
   const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState(null);
   const [configLoading, setConfigLoading] = useState(true);
 
@@ -503,6 +811,13 @@ export default function CheckoutPage() {
     fetch(LOCATIONS_URL).then(r => r.json()).then(setLocations).catch(() => {});
   }, []);
 
+  // Compute fulfillment groups for multi-origin shipping
+  const fulfillmentGroupsData = useMemo(() => {
+    if (!cart.length || !locations.length) return { groups: [], requiresSplitShipping: false };
+    return groupCartByFulfillmentOrigin(cart, locations);
+  }, [cart, locations]);
+  const { groups: fulfillmentGroups, requiresSplitShipping } = fulfillmentGroupsData;
+
   useEffect(() => {
     callApi('getCheckoutConfig')
       .then(setPaymentConfig)
@@ -517,22 +832,41 @@ export default function CheckoutPage() {
   }, [cart, checkoutConfirmation, navigate]);
 
   // ─── Order calculation ───
-  const buildCalcPayload = useCallback(() => ({
-    cartItems: cart.map(item => ({
-      sku: item.sku, variantSku: item.variantSku, name: item.name, variantName: item.variantName,
-      clientPrice: item.unitPrice, quantity: item.quantity, modifiers: item.modifiers || [],
-      isFreeGift: item.isFreeGift || false, discountId: item.discountId || null,
-    })),
-    pickupLocation: selectedLocationSlug,
-    fulfillmentMethods,
-    deliveryAddress: addressFields.address1 ? addressFields : (savedDeliveryAddress || undefined),
-    shipdayDeliveryFee: deliveryResult?.deliveryFee ?? savedDeliveryAddress?.shipdayDeliveryFee ?? undefined,
-    selectedShippingTierId: selectedShippingTierId || undefined,
-    shippingRateAmount: shippingRates.find(r => r.id === selectedShippingTierId)?.rate ?? undefined,
-    shippingRateName: shippingRates.find(r => r.id === selectedShippingTierId)?.name ?? undefined,
-    tipAmountCents: 0,
-    promoCode: checkoutPromoCode || undefined,
-  }), [cart, selectedLocationSlug, fulfillmentMethods, addressFields, savedDeliveryAddress, deliveryResult, selectedShippingTierId, shippingRates, checkoutPromoCode]);
+  const buildCalcPayload = useCallback(() => {
+    const payload = {
+      cartItems: cart.map(item => ({
+        sku: item.sku, variantSku: item.variantSku, name: item.name, variantName: item.variantName,
+        clientPrice: item.unitPrice, quantity: item.quantity, modifiers: item.modifiers || [],
+        isFreeGift: item.isFreeGift || false, discountId: item.discountId || null,
+        fulfillmentLocationId: item.fulfillmentLocationId || null,
+      })),
+      pickupLocation: selectedLocationSlug,
+      fulfillmentMethods,
+      deliveryAddress: addressFields.address1 ? addressFields : (savedDeliveryAddress || undefined),
+      shipdayDeliveryFee: deliveryResult?.deliveryFee ?? savedDeliveryAddress?.shipdayDeliveryFee ?? undefined,
+      tipAmountCents: 0,
+      promoCode: checkoutPromoCode || undefined,
+    };
+    // Multi-origin shipping charges
+    if (multiOriginRates && Object.keys(selectedRatesByOrigin).length > 0) {
+      const totalShipping = Object.values(selectedRatesByOrigin).reduce((sum, r) => sum + (r?.rate || 0), 0);
+      payload.selectedShippingTierId = 'multi_origin';
+      payload.shippingRateAmount = totalShipping;
+      payload.shippingRateName = 'Split shipping';
+      payload.shippingCharges = Object.entries(selectedRatesByOrigin).map(([locationId, rate]) => ({
+        locationId, rate: rate?.rate || 0, name: rate?.name || 'Shipping', carrier: rate?.carrier || '',
+      }));
+      payload.fulfillmentGroups = fulfillmentGroups.map(g => ({
+        locationId: g.locationId, locationName: g.locationName, fulfillmentMethod: g.fulfillmentMethod,
+        items: g.items.map(i => ({ sku: i.sku, variantSku: i.variantSku, quantity: i.quantity })),
+      }));
+    } else {
+      payload.selectedShippingTierId = selectedShippingTierId || undefined;
+      payload.shippingRateAmount = shippingRates.find(r => r.id === selectedShippingTierId)?.rate ?? undefined;
+      payload.shippingRateName = shippingRates.find(r => r.id === selectedShippingTierId)?.name ?? undefined;
+    }
+    return payload;
+  }, [cart, selectedLocationSlug, fulfillmentMethods, addressFields, savedDeliveryAddress, deliveryResult, selectedShippingTierId, shippingRates, checkoutPromoCode, multiOriginRates, selectedRatesByOrigin, fulfillmentGroups]);
 
   const fetchOrderCalc = useCallback(async (overrides = {}) => {
     setCalcLoading(true);
@@ -548,14 +882,16 @@ export default function CheckoutPage() {
     setCalcLoading(false);
   }, [buildCalcPayload, setCheckoutOrderCalc]);
 
-  // Order calc fires after contact verification (not on mount)
+  // Order calc fires when promo code changes (not on initial mount if calc already exists)
+  const promoInitRef = useRef(false);
   useEffect(() => {
-    if (contactVerified && checkoutPromoCode !== undefined && cart.length > 0) fetchOrderCalc();
+    if (!promoInitRef.current) { promoInitRef.current = true; return; } // skip initial mount
+    if (checkoutPromoCode !== undefined && cart.length > 0
+        && (!needsShippingAddress || selectedShippingTierId)) fetchOrderCalc();
   }, [checkoutPromoCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load Google Maps script
+  // Load Google Maps script (needed for billing address autocomplete even on pickup-only)
   useEffect(() => {
-    if (!needsAddress) return;
     if (window.google?.maps) return;
     const existing = document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]');
     if (existing) return;
@@ -563,11 +899,10 @@ export default function CheckoutPage() {
     script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;
     script.async = true;
     document.head.appendChild(script);
-  }, [needsAddress]);
+  }, []);
 
   // Init autocomplete services
   useEffect(() => {
-    if (!needsAddress) return;
     const init = () => {
       if (!window.google?.maps?.places) return;
       autocompleteServiceRef.current = new window.google.maps.places.AutocompleteService();
@@ -580,16 +915,15 @@ export default function CheckoutPage() {
       if (window.google?.maps?.places) { init(); clearInterval(interval); }
     }, 200);
     return () => clearInterval(interval);
-  }, [needsAddress]);
+  }, []);
 
   // Hide Google's pac-container dropdown (we render our own)
   useEffect(() => {
-    if (!needsAddress) return;
     const style = document.createElement('style');
     style.textContent = '.pac-container { display: none !important; }';
     document.head.appendChild(style);
     return () => style.remove();
-  }, [needsAddress]);
+  }, []);
 
   // Pre-fill address from savedDeliveryAddress for delivery items
   useEffect(() => {
@@ -632,33 +966,140 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (savedCheckout.email && savedCheckout.firstName && savedCheckout.lastName) {
       setContactVerified(true);
-      if (cart.length > 0) fetchOrderCalc();
+      // Only calc if we don't already have a cached result — avoids redundant API calls on return
+      if (cart.length > 0 && !needsShippingAddress && !checkoutOrderCalc) fetchOrderCalc();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch dynamic shipping rates from ShipEngine after address is confirmed
+  // Focus management: move focus to next section after contact submit
+  const prevContactVerifiedRef = useRef(false);
+  useEffect(() => {
+    if (contactVerified && !prevContactVerifiedRef.current) {
+      // Delay to allow DOM to render
+      setTimeout(() => {
+        nextSectionRef.current?.focus();
+      }, 100);
+    }
+    prevContactVerifiedRef.current = contactVerified;
+  }, [contactVerified]);
+
+  // Fetch dynamic shipping rates — supports single-origin and multi-origin
   useEffect(() => {
     if (!needsShippingAddress || !addressValidated || !addressFields.zip) return;
+    const shippableItems = cart.filter(i => (i.fulfillmentMethod || 'pickup') === 'shipping');
+    if (shippableItems.length === 0) {
+      setShippingRates([]);
+      setBinPacking([]);
+      setShippingRatesLoading(false);
+      setMultiOriginRates(null);
+      return;
+    }
     let cancelled = false;
+    const shipTo = { address1: addressFields.address1, city: addressFields.city, provinceCode: addressFields.provinceCode, zip: addressFields.zip };
+
+    // Check if we have items from multiple fulfillment locations
+    const shippingGroups = fulfillmentGroups.filter(g => g.fulfillmentMethod === 'shipping');
+    const hasMultipleShippingOrigins = shippingGroups.length > 1;
+
     (async () => {
       setShippingRatesLoading(true);
       try {
-        const result = await callApi('getShippingRates', {
-          shipTo: { address1: addressFields.address1, city: addressFields.city, provinceCode: addressFields.provinceCode, zip: addressFields.zip },
-          locationSlug: selectedLocationSlug || undefined,
-          cartItems: cart.map(item => ({ sku: item.sku, variantSku: item.variantSku, quantity: item.quantity })),
-        });
-        if (cancelled) return;
-        const rates = result.rates || [];
-        setBinPacking(result.binPacking || []);
-        setShippingRates(rates);
-        if (rates.length > 0) {
-          setSelectedShippingTierId(rates[0].id);
+        if (hasMultipleShippingOrigins) {
+          // Multi-origin: fetch rates for each origin in parallel
+          const origins = shippingGroups.map(g => ({
+            locationId: g.locationId || selectedLocationSlug,
+            cartItems: g.items.map(item => ({ sku: item.sku, variantSku: item.variantSku, quantity: item.quantity })),
+          }));
+          const result = await callApi('getMultiOriginShippingRates', { origins, shipTo });
+          if (cancelled) return;
+          setMultiOriginRates(result);
+          // Auto-select cheapest merged tier (matching carrier+name across all origins)
+          const allOrigins = result.originRates || [];
+          const tierMap = {};
+          for (const origin of allOrigins) {
+            for (const tier of (origin.rates || [])) {
+              const key = `${(tier.carrier || '').toLowerCase()}|${(tier.name || '').toLowerCase()}`;
+              if (!tierMap[key]) tierMap[key] = { perOrigin: {}, combinedRate: 0 };
+              tierMap[key].perOrigin[origin.locationId] = tier;
+              tierMap[key].combinedRate += parseFloat(tier.rate || 0);
+            }
+          }
+          const cheapestMerged = Object.values(tierMap)
+            .filter(t => Object.keys(t.perOrigin).length === allOrigins.length)
+            .sort((a, b) => a.combinedRate - b.combinedRate)[0];
+          if (cheapestMerged) {
+            setSelectedRatesByOrigin(cheapestMerged.perOrigin);
+          } else {
+            // Fallback: select cheapest per origin individually
+            const autoSelected = {};
+            for (const origin of allOrigins) {
+              if (origin.rates?.length > 0) autoSelected[origin.locationId] = origin.rates[0];
+            }
+            setSelectedRatesByOrigin(autoSelected);
+          }
+          // Also set single-origin state for backward compat (use first origin)
+          const firstOrigin = result.originRates?.[0];
+          if (firstOrigin?.rates?.length > 0) {
+            setShippingRates(firstOrigin.rates);
+            setBinPacking(firstOrigin.binPacking || []);
+            setSelectedShippingTierId(firstOrigin.rates[0].id);
+          }
         } else {
-          // Fallback to static tiers
-          if (paymentConfig?.shippingTiers?.length > 0) {
-            setSelectedShippingTierId(paymentConfig.shippingTiers[0].id);
+          // Single-origin: existing flow with cart cache
+          setMultiOriginRates(null);
+          const currentFingerprint = shippableItems
+            .map(ci => `${ci.sku}|${ci.variantSku || ''}|${ci.quantity || 1}`)
+            .sort()
+            .join(';');
+          let usedCache = false;
+          try {
+            const { cart: persistedCart } = await callApi('getCart', { cartId });
+            if (persistedCart?.shippingRates) {
+              const cached = persistedCart.shippingRates;
+              const ageMs = Date.now() - new Date(cached.fetchedAt).getTime();
+              if (cached.cartFingerprint === currentFingerprint
+                  && cached.addressZip === addressFields.zip
+                  && (cached.locationSlug || '') === (selectedLocationSlug || '')
+                  && cached.binPacking?.length > 0
+                  && ageMs < 30 * 60 * 1000) {
+                if (!cancelled) {
+                  setBinPacking(cached.binPacking || []);
+                  setShippingRates(cached.rates);
+                  if (cached.rates.length > 0) setSelectedShippingTierId(cached.rates[0].id);
+                  usedCache = true;
+                }
+              }
+            }
+          } catch (err) {
+            console.warn('[getCart] Cache check failed, proceeding to ShipEngine:', err);
+          }
+          if (!usedCache && !cancelled) {
+            const locationSlug = shippingGroups[0]?.locationId || selectedLocationSlug || undefined;
+            const result = await callApi('getShippingRates', {
+              shipTo,
+              locationSlug,
+              cartItems: shippableItems.map(item => ({ sku: item.sku, variantSku: item.variantSku, quantity: item.quantity })),
+            });
+            if (cancelled) return;
+            const rates = result.rates || [];
+            setBinPacking(result.binPacking || []);
+            setShippingRates(rates);
+            if (rates.length > 0) {
+              setSelectedShippingTierId(rates[0].id);
+            } else if (paymentConfig?.shippingTiers?.length > 0) {
+              setSelectedShippingTierId(paymentConfig.shippingTiers[0].id);
+            }
+            callApi('saveCart', {
+              cartId,
+              shippingRates: {
+                rates, binPacking: result.binPacking || [],
+                cartFingerprint: result.cartFingerprint || currentFingerprint,
+                addressZip: addressFields.zip,
+                locationSlug: locationSlug || '',
+                fetchedAt: new Date().toISOString(),
+              },
+            }).catch(err => console.warn('[saveCart] Rates persist error:', err));
           }
         }
       } catch (err) {
@@ -670,20 +1111,41 @@ export default function CheckoutPage() {
       if (!cancelled) setShippingRatesLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [needsShippingAddress, addressValidated, addressFields.zip]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [needsShippingAddress, addressValidated, addressFields.zip, fulfillmentGroups.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-trigger order calc when shipping tier changes
   useEffect(() => {
-    if (selectedShippingTierId && cart.length > 0) {
+    if (cart.length === 0) return;
+    if (multiOriginRates && Object.keys(selectedRatesByOrigin).length > 0) {
+      // Multi-origin: sum all selected rates
+      const totalShipping = Object.values(selectedRatesByOrigin).reduce((sum, r) => sum + (r?.rate || 0), 0);
+      const rateNames = Object.entries(selectedRatesByOrigin).map(([locId, r]) => `${locId}: ${r?.name}`).join(', ');
+      fetchOrderCalc({
+        selectedShippingTierId: 'multi_origin',
+        shippingRateAmount: totalShipping,
+        shippingRateName: rateNames,
+        shippingCharges: Object.entries(selectedRatesByOrigin).map(([locationId, rate]) => ({
+          locationId,
+          rate: rate?.rate || 0,
+          name: rate?.name || 'Shipping',
+          carrier: rate?.carrier || '',
+        })),
+      });
+    } else if (selectedShippingTierId) {
       const selectedRate = shippingRates.find(r => r.id === selectedShippingTierId);
       fetchOrderCalc({
         selectedShippingTierId,
         ...(selectedRate ? { shippingRateAmount: selectedRate.rate, shippingRateName: selectedRate.name } : {}),
       });
     }
-  }, [selectedShippingTierId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedShippingTierId, selectedRatesByOrigin]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const displayTotal = (checkoutOrderCalc?.total || 0) + checkoutTip;
+  // Until the server-side order calc runs (which only fires after contact is verified
+  // and shipping rates are resolved), fall back to the locally-known subtotal so the
+  // mobile order bar / summary never flashes "$0.00".
+  const subtotalCents = Math.round(getSubtotal() * 100);
+  const hasCalc = !!checkoutOrderCalc;
+  const displayTotal = hasCalc ? (checkoutOrderCalc.total || 0) + checkoutTip : subtotalCents;
   const totalItems = cart.reduce((s, i) => s + i.quantity, 0);
 
   const handleApplyPromo = () => {
@@ -691,6 +1153,7 @@ export default function CheckoutPage() {
     if (!code) return;
     setCheckoutPromoCode(code);
     setPromoError(null);
+    trackCheckoutPromoApplied(code, null);
   };
 
   const handleRemovePromo = () => {
@@ -704,14 +1167,17 @@ export default function CheckoutPage() {
       setTipMode('custom');
     } else if (val !== null) {
       setTipMode('preset');
-      setCheckoutTip(val);
+      const tipCents = Math.round(subtotalCents * val / 100);
+      setCheckoutTip(tipCents);
       setCustomTip('');
+      trackTipSelected(val, tipCents);
     }
   };
 
   const handleCustomTipBlur = () => {
     const cents = Math.round(parseFloat(customTip || '0') * 100);
     setCheckoutTip(cents >= 0 ? cents : 0);
+    trackCustomTipEntered(cents >= 0 ? cents : 0);
   };
 
   // ─── Address autocomplete handlers ───
@@ -750,6 +1216,7 @@ export default function CheckoutPage() {
         };
         setAddressFields(addr);
         setAddressValidated(true);
+        trackCheckoutShippingAddressEntered();
         // Reset session token for next prediction cycle
         sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken();
         // Auto-check delivery availability for delivery items
@@ -757,6 +1224,45 @@ export default function CheckoutPage() {
       },
     );
   }, [needsDeliveryAddress]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleBillingInputChange = useCallback((value) => {
+    setBillingInput(value);
+    setBillingValidated(false);
+    if (value.length < 3 || !autocompleteServiceRef.current) {
+      setBillingSuggestions([]);
+      return;
+    }
+    autocompleteServiceRef.current.getPlacePredictions(
+      { input: value, componentRestrictions: { country: 'us' }, types: ['address'], sessionToken: sessionTokenRef.current },
+      (predictions) => setBillingSuggestions(predictions || []),
+    );
+  }, []);
+
+  const handleSelectBillingSuggestion = useCallback((suggestion) => {
+    setBillingSuggestions([]);
+    setBillingInput(suggestion.description);
+    if (!placesServiceRef.current) return;
+    placesServiceRef.current.getDetails(
+      { placeId: suggestion.place_id, fields: ['address_components'], sessionToken: sessionTokenRef.current },
+      (place) => {
+        if (!place?.address_components) return;
+        const comps = place.address_components;
+        const get = (type, short) => {
+          const c = comps.find(c => c.types.includes(type));
+          return c ? (short ? c.short_name : c.long_name) : '';
+        };
+        setBillingFields({
+          address1: `${get('street_number')} ${get('route')}`.trim(),
+          address2: '',
+          city: get('locality') || get('sublocality_level_1'),
+          provinceCode: get('administrative_area_level_1', true),
+          zip: get('postal_code'),
+        });
+        setBillingValidated(true);
+        sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken();
+      },
+    );
+  }, []);
 
   const checkDeliveryForAddress = useCallback(async (addr) => {
     setDeliveryChecking(true);
@@ -791,7 +1297,139 @@ export default function CheckoutPage() {
     if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   };
-  const subtotalCents = Math.round(getSubtotal() * 100);
+
+  // ─── WebSocket: event-driven checkout state for admin stall detection ───
+  const {
+    isConnected: wsIsConnected,
+    sendCheckoutStarted,
+    sendCheckoutStepChanged,
+    sendCheckoutResumed,
+    sendCheckoutEnded,
+    setCustomerTraits: wsSetCustomerTraits,
+    activeNudge: wsActiveNudge,
+    dismissNudge: wsDismissNudge,
+    sendNudgeAction: wsSendNudgeAction,
+    pushedPromos: wsPushedPromos,
+  } = useWebSocket();
+
+  // Determine the current checkout step from local state.
+  // IMPORTANT: We must gate lower steps (contact, address, shipping_rate)
+  // BEFORE falling through to 'payment'. Otherwise `paymentConfig` loading
+  // asynchronously on mount causes the step to flip to 'payment' immediately,
+  // which resets the server-side stepEnteredAt to the wrong step + threshold
+  // and stalls never fire for the contact/address/tip steps.
+  const currentCheckoutStep = useMemo(() => {
+    if (checkoutConfirmation) return 'confirmation';
+    if (paymentProcessing) return 'payment_processing';
+    // Gate lower steps before any payment fallthrough.
+    if (!contactVerified) return 'contact';
+    if (needsAddress && !addressValidated) return 'address';
+    if (needsShippingAddress && !selectedShippingTierId) return 'shipping_rate';
+    // All prerequisites met — fall through to payment/tip/review.
+    if (selectedSavedPaymentId !== null || paymentConfig) return 'payment';
+    if (checkoutTip != null) return 'tip';
+    return 'review';
+  }, [
+    checkoutConfirmation, paymentProcessing, selectedSavedPaymentId, paymentConfig,
+    checkoutTip, contactVerified, needsAddress, addressValidated,
+    needsShippingAddress, selectedShippingTierId,
+  ]);
+
+  // ─── Event-driven checkout state machine ───
+  // Replaces the old 30s heartbeat polling. The server computes dwellMs from
+  // stepEnteredAt, so the client only needs to announce lifecycle events:
+  //   checkout_started      — first time we're connected with an active cart
+  //   checkout_step_changed — current step transitioned
+  //   checkout_resumed      — WS dropped and reconnected mid-checkout
+  //   checkout_ended        — unmount, confirmation, or cart emptied
+  //
+  // Refs are used instead of state so effect reruns don't fire extra events.
+  const checkoutStateRef = useRef({ started: false, lastStep: null, wasConnected: false });
+  // Keep the latest send handlers in a ref so the state-machine effect doesn't
+  // rerun on every context rerender.
+  const checkoutSendersRef = useRef(null);
+  checkoutSendersRef.current = {
+    start: sendCheckoutStarted,
+    stepChanged: sendCheckoutStepChanged,
+    resumed: sendCheckoutResumed,
+    ended: sendCheckoutEnded,
+  };
+
+  useEffect(() => {
+    const state = checkoutStateRef.current;
+    const senders = checkoutSendersRef.current;
+
+    if (!wsIsConnected) {
+      state.wasConnected = false;
+      return;
+    }
+    if (checkoutConfirmation || cart.length === 0) return;
+
+    const payload = {
+      step: currentCheckoutStep,
+      cartId: cartId || null,
+      cartTotal: subtotalCents,
+    };
+
+    if (!state.started) {
+      // First connect while on checkout → fresh state on the server.
+      state.started = true;
+      state.lastStep = currentCheckoutStep;
+      state.wasConnected = true;
+      senders.start(payload);
+      return;
+    }
+
+    if (!state.wasConnected) {
+      // Reconnected after a drop — re-bind the server record to the new
+      // connectionId without resetting stepEnteredAt. Pass the current step
+      // so the server can rebuild the record if it was GC'd during the outage.
+      state.wasConnected = true;
+      senders.resumed(payload);
+    }
+
+    if (state.lastStep !== currentCheckoutStep) {
+      // Step transition resets the dwell timer server-side.
+      // Only update lastStep if the send succeeds — if the WS is disconnected
+      // (common on iPhone Safari), we need to retry on reconnect. Without this
+      // guard, lastStep gets set but the message is lost, and the resumed path
+      // doesn't update the step.
+      if (senders.stepChanged(payload)) {
+        state.lastStep = currentCheckoutStep;
+      }
+    }
+  }, [wsIsConnected, checkoutConfirmation, cart.length, currentCheckoutStep, cartId, subtotalCents]);
+
+  // End the checkout session on confirmation so the record gets cleaned up
+  // immediately instead of waiting for the 1h TTL.
+  useEffect(() => {
+    if (!checkoutConfirmation) return;
+    const state = checkoutStateRef.current;
+    if (!state.started) return;
+    state.started = false;
+    checkoutSendersRef.current?.ended();
+  }, [checkoutConfirmation]);
+
+  // End the session on unmount (navigation away from /checkout).
+  useEffect(() => {
+    return () => {
+      const state = checkoutStateRef.current;
+      if (!state.started) return;
+      state.started = false;
+      checkoutSendersRef.current?.ended();
+    };
+  }, []);
+
+  // Apply pushed promo automatically (admin-initiated rescue)
+  const lastAppliedPromoRef = useRef(null);
+  useEffect(() => {
+    if (!wsPushedPromos || wsPushedPromos.length === 0) return;
+    const latest = wsPushedPromos[wsPushedPromos.length - 1];
+    if (!latest?.code || latest.code === lastAppliedPromoRef.current) return;
+    lastAppliedPromoRef.current = latest.code;
+    setCheckoutPromoCode(latest.code);
+    setPromoInput(latest.code);
+  }, [wsPushedPromos, setCheckoutPromoCode]);
 
   // ─── Contact gate: Continue handler ───
   const handleContactContinue = useCallback(async () => {
@@ -824,7 +1462,30 @@ export default function CheckoutPage() {
       if (result.customerId) {
         setAuthenticatedCustomerId(result.customerId);
         console.log('[checkoutCustomerMatch] Resolved customer:', result.customerId, 'account:', result.accountId);
+        // Identify for analytics + trigger server-side audience auto-population.
+        // persistVisitorSegment in analytics-api will sync this customer into
+        // any behavioral audiences they qualify for based on their signals.
+        try {
+          identifyUser(result.customerId, {
+            email: email.trim(),
+            firstName: firstName.trim(),
+            lastName: lastName.trim(),
+            phone: formattedPhone || undefined,
+          });
+        } catch (idErr) { console.warn('[identifyUser] failed:', idErr); }
       }
+      // Push customer traits onto the WebSocket so lambda-websocket back-fills
+      // the CHECKOUT_STATE record with email/name/phone. Without this, admin
+      // Audiences → Checkout Stalls shows anonymous rows even though the user
+      // completed the contact form.
+      try {
+        const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ');
+        wsSetCustomerTraits({
+          email: email.trim() || null,
+          name: fullName || null,
+          phone: formattedPhone || null,
+        });
+      } catch (tErr) { console.warn('[wsSetCustomerTraits] failed:', tErr); }
       if (result.customers?.length > 1) {
         console.log('[checkoutCustomerMatch] Multiple accounts found:', JSON.stringify(result, null, 2));
       }
@@ -832,6 +1493,19 @@ export default function CheckoutPage() {
       if (result.otpChallengeAvailable) {
         setOtpStep('prompt');
       }
+      // Persist cart to DynamoDB for abandoned cart retargeting using the
+      // freshly-resolved customerId (setAuthenticatedCustomerId is async so
+      // the outer closure still sees the old value).
+      callApi('saveCart', {
+        cartId,
+        items: cart,
+        contact: { email: email.trim(), phone: phone.trim(), firstName: firstName.trim(), lastName: lastName.trim() },
+        address: addressFields.address1 ? addressFields : undefined,
+        fulfillmentMethods,
+        locationSlug: selectedLocationSlug || undefined,
+        customerId: result.customerId || undefined,
+        subtotalCents,
+      }).catch(err => console.warn('[saveCart] Error:', err));
     } catch (err) {
       console.warn('[checkoutCustomerMatch] Error:', err);
       setCustomerMatch({ matchType: 'none', customers: [] });
@@ -839,8 +1513,9 @@ export default function CheckoutPage() {
     setContactVerified(true);
     setCustomerLoading(false);
     // Trigger order calculation now that contact is verified
-    if (cart.length > 0) fetchOrderCalc();
-  }, [firstName, lastName, email, phone, cart, fetchOrderCalc]);
+    // Skip if we already have a cached calc, or if shipping is needed but rates haven't loaded yet
+    if (cart.length > 0 && !checkoutOrderCalc && (!needsShippingAddress || selectedShippingTierId)) fetchOrderCalc();
+  }, [firstName, lastName, email, phone, cart, fetchOrderCalc, cartId, addressFields, fulfillmentMethods, selectedLocationSlug, subtotalCents, checkoutOrderCalc, needsShippingAddress, selectedShippingTierId]);
 
   const handleEditContact = useCallback(() => {
     setContactVerified(false);
@@ -880,6 +1555,7 @@ export default function CheckoutPage() {
       }
       setOtpSessionToken(result.sessionToken);
       setAuthenticatedCustomerId(result.customerId);
+      if (result.customerId) identifyUser(result.customerId, { email: email.trim() });
 
       // Fetch saved addresses + payment methods
       try {
@@ -934,6 +1610,12 @@ export default function CheckoutPage() {
       setError('Please select a shipping option.');
       return false;
     }
+    if (!billingSameAsAddress || !needsAddress) {
+      if (!billingFields.address1 || !billingFields.city || !billingFields.provinceCode || !billingFields.zip) {
+        setError('Please fill in all required billing address fields.');
+        return false;
+      }
+    }
 
     let formattedPhone = '';
     if (phone.trim()) {
@@ -955,35 +1637,36 @@ export default function CheckoutPage() {
       location: selectedLocation,
       address: needsAddress ? addressFields : null,
     });
+    trackFulfillmentSelected(fulfillmentMethods.join(','), selectedLocation?.id);
     setError(null);
     return customer;
-  }, [firstName, lastName, email, phone, needsAddress, needsDeliveryAddress, needsShippingAddress, addressFields, deliveryResult, selectedShippingTierId, fulfillmentMethods, selectedLocation, setCheckoutCustomer, setCheckoutFulfillment]);
+  }, [firstName, lastName, email, phone, needsAddress, needsDeliveryAddress, needsShippingAddress, addressFields, deliveryResult, selectedShippingTierId, billingFields, billingSameAsAddress, fulfillmentMethods, selectedLocation, setCheckoutCustomer, setCheckoutFulfillment]);
 
   const handleCardPayment = async (cardData) => {
     const customer = validateAndPay(cardData);
     if (!customer) return;
 
     setPaymentProcessing(true);
+    setShowOverlay(true);
     setError(null);
+    const pmLabel = cardData.savedPaymentMethodId ? 'saved_card' : cardData.stripeToken ? 'stripe' : cardData.encryptedCard ? 'evervault' : 'square';
     try {
+      const calcPayload = buildCalcPayload();
       const payload = {
-        cartItems: cart.map(item => ({
-          sku: item.sku, variantSku: item.variantSku, name: item.name, variantName: item.variantName,
-          clientPrice: item.unitPrice, quantity: item.quantity, modifiers: item.modifiers || [],
-          isFreeGift: item.isFreeGift || false, discountId: item.discountId || null,
-        })),
-        pickupLocation: selectedLocationSlug,
-        fulfillmentMethods,
+        ...calcPayload,
         customer,
-        deliveryAddress: addressFields.address1 ? addressFields : (savedDeliveryAddress || undefined),
-        shipdayDeliveryFee: deliveryResult?.deliveryFee ?? savedDeliveryAddress?.shipdayDeliveryFee ?? undefined,
-        selectedShippingTierId: selectedShippingTierId || undefined,
-        shippingRateAmount: shippingRates.find(r => r.id === selectedShippingTierId)?.rate ?? undefined,
-        shippingRateName: shippingRates.find(r => r.id === selectedShippingTierId)?.name ?? undefined,
         tipAmountCents: checkoutTip,
-        promoCode: checkoutPromoCode || undefined,
         cartSessionId: cartId,
         testMode: testModeEnabled || undefined,
+        billingAddress: (billingSameAsAddress && needsAddress) ? addressFields : billingFields,
+        // Browser context for server-side conversion tracking (Meta CAPI + Google MP)
+        clientUserAgent: navigator.userAgent,
+        fbc: document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)?.[1] || undefined,
+        fbp: document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/)?.[1] || undefined,
+        gaClientId: document.cookie.match(/(?:^|;\s*)_ga=GA\d+\.\d+\.(.+)/)?.[1] || undefined,
+        pageUrl: window.location.href,
+        attribution: JSON.parse(sessionStorage.getItem('attribution') || 'null') || undefined,
+        environment: window.location.hostname.includes('beta') ? 'beta' : 'production',
       };
 
       // Saved payment method path
@@ -1000,19 +1683,115 @@ export default function CheckoutPage() {
         payload.paymentMethod = paymentConfig?.paymentMethod || 'evervault_stripe';
       }
 
-      // Card saving (only when authenticated)
-      if (otpSessionToken && saveNewCard && !cardData.savedPaymentMethodId) {
+      // Card saving
+      if (saveNewCard && !cardData.savedPaymentMethodId) {
         payload.saveCard = true;
-        payload.otpSessionToken = otpSessionToken;
+        if (otpSessionToken) payload.otpSessionToken = otpSessionToken;
       }
 
+      trackPaymentAttempted(pmLabel, displayTotal);
       const result = await callApi('createSquareCheckout', payload);
+      trackOrderCompleted(result, { subtotal: result.subtotal, tax: result.tax, tip: checkoutTip, total: result.total, itemCount: cart.length, paymentMethod: pmLabel });
+      trackOrderConfirmationViewed(result.orderId || result.receiptNumber);
       setCheckoutConfirmation(result);
       clearCart();
+      callApi('completeCart', { cartId }).catch(err => console.warn('[completeCart] Error:', err));
       sessionStorage.removeItem('checkoutContact');
       sessionStorage.removeItem('checkoutAddress');
     } catch (err) {
+      trackPaymentFailed(pmLabel, err.message);
       setError(err.message);
+      setShowOverlay(false);
+    }
+    setPaymentProcessing(false);
+  };
+
+  // Handler for express wallet payments (Apple Pay / Google Pay)
+  const handleWalletPayment = async (token, buyer) => {
+    if (token.status !== 'OK') {
+      setError(token.errors?.[0]?.message || 'Wallet payment failed. Please try again.');
+      return;
+    }
+    const details = token.details || {};
+    const contact = details.shipping?.contact || details.billing || details.card?.billing || buyer?.shippingContact || buyer?.billingContact || {};
+    const walletFirstName = contact.givenName || firstName;
+    const walletLastName = contact.familyName || lastName;
+    const walletEmail = contact.email || email;
+    const walletPhone = contact.phone || phone;
+    if (!walletFirstName || !walletLastName || !walletEmail) {
+      setError('Please fill in your name and email before using Apple Pay or Google Pay.');
+      return;
+    }
+
+    setPaymentProcessing(true);
+    setShowOverlay(true);
+    setError(null);
+    try {
+      const calcPayload = buildCalcPayload();
+      const customer = {
+        firstName: walletFirstName,
+        lastName: walletLastName,
+        email: walletEmail,
+        phone: walletPhone,
+      };
+
+      // Use wallet shipping address for delivery/shipping if available
+      const shippingAddr = buyer?.shippingContact;
+      const walletAddress = shippingAddr?.addressLines?.[0] ? {
+        address1: shippingAddr.addressLines[0],
+        address2: shippingAddr.addressLines[1] || '',
+        city: shippingAddr.city || '',
+        provinceCode: shippingAddr.state || '',
+        zip: shippingAddr.postalCode || '',
+        countryCode: shippingAddr.countryCode || 'US',
+      } : null;
+
+      // Use wallet billing contact for billing address
+      const billingContact = buyer?.billingContact;
+      const walletBillingAddress = billingContact?.addressLines?.[0] ? {
+        address1: billingContact.addressLines[0],
+        address2: billingContact.addressLines[1] || '',
+        city: billingContact.city || '',
+        provinceCode: billingContact.state || '',
+        zip: billingContact.postalCode || '',
+        countryCode: billingContact.countryCode || 'US',
+      } : null;
+
+      const payload = {
+        ...calcPayload,
+        customer,
+        tipAmountCents: checkoutTip,
+        cartSessionId: cartId,
+        testMode: testModeEnabled || undefined,
+        paymentNonce: token.token,
+        billingAddress: walletBillingAddress || walletAddress || billingFields,
+        clientUserAgent: navigator.userAgent,
+        fbc: document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)?.[1] || undefined,
+        fbp: document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/)?.[1] || undefined,
+        gaClientId: document.cookie.match(/(?:^|;\s*)_ga=GA\d+\.\d+\.(.+)/)?.[1] || undefined,
+        pageUrl: window.location.href,
+        attribution: JSON.parse(sessionStorage.getItem('attribution') || 'null') || undefined,
+        environment: window.location.hostname.includes('beta') ? 'beta' : 'production',
+      };
+
+      // Override delivery address from wallet if needed
+      if (needsAddress && walletAddress) {
+        payload.deliveryAddress = walletAddress;
+      }
+
+      trackPaymentAttempted('wallet', displayTotal);
+      const result = await callApi('createSquareCheckout', payload);
+      trackOrderCompleted(result, { subtotal: result.subtotal, tax: result.tax, tip: checkoutTip, total: result.total, itemCount: cart.length, paymentMethod: 'wallet' });
+      trackOrderConfirmationViewed(result.orderId || result.receiptNumber);
+      setCheckoutConfirmation(result);
+      clearCart();
+      callApi('completeCart', { cartId }).catch(err => console.warn('[completeCart] Error:', err));
+      sessionStorage.removeItem('checkoutContact');
+      sessionStorage.removeItem('checkoutAddress');
+    } catch (err) {
+      trackPaymentFailed('wallet', err.message);
+      setError(err.message);
+      setShowOverlay(false);
     }
     setPaymentProcessing(false);
   };
@@ -1020,22 +1799,33 @@ export default function CheckoutPage() {
   // Handler for placing order with a saved payment method
   const handleSavedCardPayment = useCallback(async () => {
     if (!selectedSavedPaymentId) return;
+    trackPaymentMethodSelected('saved_card');
     await handleCardPayment({ savedPaymentMethodId: selectedSavedPaymentId });
   }, [selectedSavedPaymentId, handleCardPayment]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveCardCheckbox = (
+    <FormControlLabel
+      control={<Checkbox checked={saveNewCard} onChange={e => setSaveNewCard(e.target.checked)} sx={{ '& .MuiSvgIcon-root': { fontSize: 24 } }} />}
+      label={<Typography sx={{ fontSize: '1.6rem' }}>Save this card for future purchases</Typography>}
+      sx={{ mt: 0, mb: 1 }}
+    />
+  );
 
   // Shared props for OrderSummaryPanel
   const summaryProps = {
     cart, checkoutOrderCalc, calcLoading, calcError, fetchOrderCalc,
     fulfillmentMethods, checkoutTip, displayTotal, fmtCents,
     checkoutPromoCode, promoInput, setPromoInput, handleApplyPromo, handleRemovePromo, promoError,
-    tipMode, handleTipChange, TIP_OPTIONS, customTip, setCustomTip, handleCustomTipBlur,
+    tipMode, handleTipChange, TIP_PERCENTAGES, customTip, setCustomTip, handleCustomTipBlur, subtotalCents,
+    selectedLocation, addressFields,
+    selectedShippingRate: shippingRates.find(r => r.id === selectedShippingTierId) || null,
   };
 
   // ─── Confirmation ───
-  if (checkoutConfirmation) {
+  if (checkoutConfirmation && !showOverlay) {
     return (
       <Box sx={{ maxWidth: 520, mx: 'auto', p: 3, textAlign: 'center' }}>
-        <CheckCircleIcon sx={{ fontSize: 64, color: '#4caf50', mb: 2 }} />
+        <CheckCircleIcon sx={{ fontSize: 64, color: '#2e7d32', mb: 2 }} />
         <Typography variant="h5" fontWeight={700} gutterBottom>Order Confirmed!</Typography>
         <Typography color="text.secondary" sx={{ mb: 3 }}>
           Receipt #{checkoutConfirmation.receiptNumber || checkoutConfirmation.orderId?.slice(-8)}
@@ -1047,7 +1837,7 @@ export default function CheckoutPage() {
               <Typography>{fmtCents(checkoutConfirmation.subtotal || 0)}</Typography>
             </Box>
             {checkoutConfirmation.discount > 0 && (
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', color: '#4caf50' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', color: '#2e7d32' }}>
                 <Typography>Discount</Typography>
                 <Typography>-{fmtCents(checkoutConfirmation.discount)}</Typography>
               </Box>
@@ -1079,10 +1869,28 @@ export default function CheckoutPage() {
             Delivery to <strong>{addressFields.address1}, {addressFields.city}</strong>
           </Typography>
         )}
-        {fulfillmentMethods.includes('shipping') && (
+        {fulfillmentMethods.includes('shipping') && !requiresSplitShipping && (
           <Typography color="text.secondary" sx={{ mb: 2 }}>
             Shipping to <strong>{addressFields.address1}, {addressFields.city}, {addressFields.provinceCode} {addressFields.zip}</strong>
           </Typography>
+        )}
+        {requiresSplitShipping && multiOriginRates?.originRates && (
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, textAlign: 'left' }}>
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+              Shipping from {multiOriginRates.originRates.length} locations
+            </Typography>
+            {multiOriginRates.originRates.map(origin => (
+              <Box key={origin.locationId} sx={{ mb: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>{origin.locationName}</strong>
+                  {selectedRatesByOrigin[origin.locationId] && ` — ${selectedRatesByOrigin[origin.locationId].name}`}
+                </Typography>
+              </Box>
+            ))}
+            <Typography variant="body2" color="text.secondary">
+              To: {addressFields.address1}, {addressFields.city}, {addressFields.provinceCode} {addressFields.zip}
+            </Typography>
+          </Paper>
         )}
         {checkoutConfirmation.receiptUrl && (
           <Button variant="outlined" href={checkoutConfirmation.receiptUrl} target="_blank" sx={{ mb: 2 }}>
@@ -1099,14 +1907,14 @@ export default function CheckoutPage() {
                 <FormControlLabel
                   control={<Checkbox checked={saveNewAddress} onChange={e => setSaveNewAddress(e.target.checked)} size="small" />}
                   label={
-                    <Typography sx={{ fontSize: '1.4rem' }}>
+                    <Typography sx={{ fontSize: '1.6rem' }}>
                       Save address ({addressFields.address1}, {addressFields.city})
                     </Typography>
                   }
                 />
                 {saveNewAddress && (
                   <TextField
-                    size="small" placeholder="Label (e.g. Home, Work)"
+                    size="small" label="Label (e.g. Home, Work)"
                     value={newAddressLabel}
                     onChange={e => setNewAddressLabel(e.target.value)}
                     sx={{ ml: 4, mt: 0.5, width: 200, '& .MuiOutlinedInput-root': { height: 36 } }}
@@ -1151,8 +1959,78 @@ export default function CheckoutPage() {
     <Box sx={{ flex: 1, minWidth: 0 }}>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-      {/* Contact */}
-      <Typography variant="h2">Contact</Typography>
+      {/* Admin concierge nudge — surfaced when an admin sends a stall-rescue message */}
+      {wsActiveNudge && (
+        <Alert
+          severity="info"
+          variant="filled"
+          sx={{ mb: 2, bgcolor: 'primary.main' }}
+          onClose={() => wsDismissNudge()}
+          action={wsActiveNudge.cta?.label ? (
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => {
+                if (wsActiveNudge.cta?.action === 'apply_promo' && wsActiveNudge.cta?.code) {
+                  setCheckoutPromoCode(wsActiveNudge.cta.code);
+                  setPromoInput(wsActiveNudge.cta.code);
+                }
+                if (wsActiveNudge.nudgeId) wsSendNudgeAction(wsActiveNudge.nudgeId, 'clicked');
+                wsDismissNudge();
+              }}
+            >
+              {wsActiveNudge.cta.label}
+            </Button>
+          ) : null}
+        >
+          {wsActiveNudge.title && (
+            <Typography variant="subtitle2" fontWeight={700}>{wsActiveNudge.title}</Typography>
+          )}
+          {wsActiveNudge.body && (
+            <Typography variant="body2">{wsActiveNudge.body}</Typography>
+          )}
+        </Alert>
+      )}
+
+      {/* Express Checkout — Apple Pay / Google Pay */}
+      {!checkoutConfirmation && !paymentProcessing && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h2">Express Checkout</Typography>
+          <Box sx={{ height: 16 }} />
+          <PaymentForm
+            applicationId={paymentConfig?.squareAppId || SQUARE_APP_ID}
+            locationId={paymentConfig?.squareLocationId || SQUARE_LOCATION_ID}
+            cardTokenizeResponseReceived={handleWalletPayment}
+            createPaymentRequest={() => ({
+              countryCode: 'US',
+              currencyCode: 'USD',
+              total: {
+                amount: (displayTotal / 100).toFixed(2),
+                label: 'Surreal Creamery',
+              },
+              requestBillingContact: true,
+              requestShippingContact: true,
+            })}
+          >
+            <Box sx={{ display: 'flex', gap: 1, '& > div': { flex: 1, height: 48, '& > *': { height: '100% !important', width: '100%' } } }}>
+              <Box><ApplePay /></Box>
+              <Box><GooglePay buttonSizeMode="fill" /></Box>
+            </Box>
+          </PaymentForm>
+          <Divider sx={{ mt: 3 }}>
+            <Typography variant="caption" color="text.secondary">or pay with credit card below</Typography>
+          </Divider>
+        </Box>
+      )}
+
+      {/* Contact — title adapts to fulfillment type */}
+      <Typography variant="h2">
+        {[
+          fulfillmentMethods.includes('pickup') && 'Pickup For',
+          fulfillmentMethods.includes('delivery') && 'Delivery To',
+          fulfillmentMethods.includes('shipping') && 'Shipping To',
+        ].filter(Boolean).join(' & ')}
+      </Typography>
       <Box sx={{ height: 16 }} />
       {contactVerified ? (
         <Box sx={{ mb: 3 }}>
@@ -1179,7 +2057,7 @@ export default function CheckoutPage() {
                 <>
                   <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
                     <LockIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                    <Typography sx={{ fontSize: '1.4rem', fontWeight: 500 }}>
+                    <Typography sx={{ fontSize: '1.6rem', fontWeight: 500 }}>
                       Sign in to use saved addresses and payment methods
                     </Typography>
                   </Stack>
@@ -1187,13 +2065,13 @@ export default function CheckoutPage() {
                     <Button
                       variant="contained" size="small"
                       onClick={handleSendOtp}
-                      sx={{ bgcolor: '#000', '&:hover': { bgcolor: '#222' }, textTransform: 'none', fontSize: '1.3rem' }}
+                      sx={{ bgcolor: '#000', '&:hover': { bgcolor: '#222' }, textTransform: 'none', fontSize: '1.6rem' }}
                     >
                       Send Code to {email.trim()}
                     </Button>
                     <Button
                       size="small" onClick={handleSkipOtp}
-                      sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '1.3rem' }}
+                      sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '1.6rem' }}
                     >
                       Skip
                     </Button>
@@ -1202,15 +2080,15 @@ export default function CheckoutPage() {
               )}
               {otpStep === 'sending' && (
                 <Stack direction="row" alignItems="center" spacing={1.5}>
-                  <CircularProgress size={18} />
-                  <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Sending code...</Typography>
+                  <CircularProgress size={18} aria-label="Sending verification code" />
+                  <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>Sending code...</Typography>
                 </Stack>
               )}
               {(otpStep === 'input' || otpStep === 'verifying') && (
                 <>
                   <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
                     <EmailIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
                       Enter the 6-digit code sent to {email.trim()}
                     </Typography>
                   </Stack>
@@ -1219,6 +2097,7 @@ export default function CheckoutPage() {
                     <TextField
                       value={otpCode}
                       onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      label="Verification code"
                       placeholder="000000"
                       inputProps={{ maxLength: 6, style: { textAlign: 'center', letterSpacing: 8, fontSize: 18, fontWeight: 600 } }}
                       sx={{ width: 160, '& .MuiOutlinedInput-root': { height: 44 } }}
@@ -1228,13 +2107,13 @@ export default function CheckoutPage() {
                       variant="contained" size="small"
                       onClick={handleVerifyOtp}
                       disabled={otpStep === 'verifying' || otpCode.length !== 6}
-                      sx={{ bgcolor: '#000', '&:hover': { bgcolor: '#222' }, textTransform: 'none', fontSize: '1.3rem', height: 36 }}
+                      sx={{ bgcolor: '#000', '&:hover': { bgcolor: '#222' }, textTransform: 'none', fontSize: '1.6rem', height: 36 }}
                     >
-                      {otpStep === 'verifying' ? <CircularProgress size={18} color="inherit" /> : 'Verify'}
+                      {otpStep === 'verifying' ? <CircularProgress size={18} color="inherit" aria-label="Verifying code" /> : 'Verify'}
                     </Button>
                     <Button
                       size="small" onClick={handleSkipOtp}
-                      sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '1.3rem', minWidth: 0 }}
+                      sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '1.6rem', minWidth: 0 }}
                     >
                       Skip
                     </Button>
@@ -1242,7 +2121,7 @@ export default function CheckoutPage() {
                   <Button
                     size="small" onClick={handleSendOtp}
                     disabled={otpCooldown > 0}
-                    sx={{ mt: 1, textTransform: 'none', color: '#1976d2', fontSize: '1.2rem', p: 0, minWidth: 0, '&:hover': { bgcolor: 'transparent', textDecoration: 'underline' } }}
+                    sx={{ mt: 1, textTransform: 'none', color: '#1976d2', fontSize: '1.6rem', p: 0, minWidth: 0, '&:hover': { bgcolor: 'transparent', textDecoration: 'underline' } }}
                   >
                     {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : 'Resend code'}
                   </Button>
@@ -1252,8 +2131,8 @@ export default function CheckoutPage() {
           )}
           {otpStep === 'verified' && (
             <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1.5 }}>
-              <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
-              <Typography sx={{ fontSize: '1.3rem', color: '#4caf50', fontWeight: 500 }}>
+              <CheckCircleIcon sx={{ fontSize: 18, color: '#2e7d32' }} />
+              <Typography sx={{ fontSize: '1.6rem', color: '#2e7d32', fontWeight: 500 }}>
                 Signed in — saved data loaded
               </Typography>
             </Stack>
@@ -1263,78 +2142,127 @@ export default function CheckoutPage() {
         <>
           <Stack spacing={2} sx={{ mb: 2, '& .MuiOutlinedInput-root': { height: 50 } }}>
             <Stack direction="row" spacing={2}>
-              <TextField placeholder="First name" fullWidth value={firstName}
-                onChange={e => setFirstName(e.target.value)} required />
-              <TextField placeholder="Last name" fullWidth value={lastName}
-                onChange={e => setLastName(e.target.value)} required />
+              <TextField label="First name" fullWidth value={firstName}
+                onChange={e => setFirstName(e.target.value)} required
+                onBlur={() => setFieldsTouched(prev => ({ ...prev, firstName: true }))}
+                error={fieldsTouched.firstName && !firstName.trim()}
+                helperText={fieldsTouched.firstName && !firstName.trim() ? 'First name is required' : ''}
+                inputProps={{ 'aria-invalid': fieldsTouched.firstName && !firstName.trim() }}
+              />
+              <TextField label="Last name" fullWidth value={lastName}
+                onChange={e => setLastName(e.target.value)} required
+                onBlur={() => setFieldsTouched(prev => ({ ...prev, lastName: true }))}
+                error={fieldsTouched.lastName && !lastName.trim()}
+                helperText={fieldsTouched.lastName && !lastName.trim() ? 'Last name is required' : ''}
+                inputProps={{ 'aria-invalid': fieldsTouched.lastName && !lastName.trim() }}
+              />
             </Stack>
-            <TextField placeholder="Email" type="email" fullWidth value={email}
-              onChange={e => setEmail(e.target.value)} required />
-            <TextField placeholder="Phone (optional)" fullWidth value={phone}
+            <TextField label="Email" type="email" fullWidth value={email}
+              onChange={e => setEmail(e.target.value)}
+              onBlur={() => { setFieldsTouched(prev => ({ ...prev, email: true })); trackCheckoutContactEntered(!!email, !!phone); }}
+              required
+              error={fieldsTouched.email && (!email.trim() || !/^\S+@\S+\.\S+$/.test(email.trim()))}
+              helperText={fieldsTouched.email && !email.trim() ? 'Email is required' : fieldsTouched.email && !/^\S+@\S+\.\S+$/.test(email.trim()) ? 'Please enter a valid email address' : ''}
+              inputProps={{ 'aria-invalid': fieldsTouched.email && (!email.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())) }}
+            />
+            <TextField label="Phone (optional)" fullWidth value={phone}
               onChange={e => setPhone(formatPhone(e.target.value))} />
           </Stack>
           <Button
-            variant="contained"
             fullWidth
+            variant="contained"
             size="large"
+            disabled={
+              customerLoading ||
+              !firstName.trim() ||
+              !lastName.trim() ||
+              !/^\S+@\S+\.\S+$/.test(email.trim())
+            }
             onClick={handleContactContinue}
-            disabled={customerLoading}
             sx={{
               mb: 3,
               bgcolor: '#000',
-              '&:hover': { bgcolor: '#222' },
-              fontSize: '16px',
+              color: '#fff',
+              textTransform: 'none',
+              fontSize: '1.8rem',
               fontWeight: 600,
-              height: 48,
+              height: 54,
+              '&:hover': { bgcolor: '#222' },
+              '&.Mui-disabled': { bgcolor: 'grey.300', color: 'grey.500' },
             }}
           >
-            {customerLoading ? <CircularProgress size={24} color="inherit" /> : 'Continue'}
+            {customerLoading ? <CircularProgress size={22} color="inherit" aria-label="Processing" /> : 'Continue'}
           </Button>
         </>
       )}
 
-      {/* Address + Payment: visible but disabled until contact verified */}
-      <Box sx={{ opacity: contactVerified ? 1 : 0.45, pointerEvents: contactVerified ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
-
+      {/* Everything below is gated on contactVerified */}
+      {contactVerified && (<>
       {/* Address Section (Delivery + Shipping unified) */}
       {needsAddress && (
         <>
-          <Typography variant="h2">
+          <Typography variant="h2" ref={needsAddress ? nextSectionRef : undefined} tabIndex={-1}>
             {needsDeliveryAddress && needsShippingAddress ? 'Delivery & Shipping Address'
               : needsDeliveryAddress ? 'Delivery Address' : 'Shipping Address'}
           </Typography>
           <Box sx={{ height: 16 }} />
 
           {/* Saved address selector */}
-          {savedAddresses.length > 0 && (
-            <Stack spacing={1} sx={{ mb: 2 }}>
-              {savedAddresses.map((addr) => (
+          {savedAddresses.length > 0 && (() => {
+            const addrItems = [...savedAddresses, null]; // null = "Use a new address"
+            const selectedAddrIdx = selectedSavedAddressId === null
+              ? addrItems.length - 1
+              : savedAddresses.findIndex(a => a.id === selectedSavedAddressId);
+            const focusableAddrIdx = selectedAddrIdx >= 0 ? selectedAddrIdx : 0;
+            const selectAddrByIndex = (idx) => {
+              const item = addrItems[idx];
+              if (item === null) {
+                setSelectedSavedAddressId(null);
+                setAddressFields({ address1: '', address2: '', city: '', provinceCode: '', zip: '' });
+                setAddressInput('');
+                setAddressValidated(false);
+              } else {
+                setSelectedSavedAddressId(item.id);
+                setAddressFields({
+                  address1: item.address1, address2: item.address2 || '',
+                  city: item.city, provinceCode: item.provinceCode, zip: item.zip,
+                });
+                setAddressInput(`${item.address1}, ${item.city}, ${item.provinceCode} ${item.zip}`);
+                setAddressValidated(true);
+                if (needsDeliveryAddress) checkDeliveryForAddress(item);
+              }
+            };
+            return (
+            <Stack spacing={1} sx={{ mb: 2 }} role="radiogroup" aria-label="Saved addresses">
+              {savedAddresses.map((addr, addrIdx) => {
+                const isSelected = selectedSavedAddressId === addr.id;
+                const selectAddr = () => selectAddrByIndex(addrIdx);
+                return (
                 <Paper
                   key={addr.id}
                   variant="outlined"
-                  onClick={() => {
-                    setSelectedSavedAddressId(addr.id);
-                    setAddressFields({
-                      address1: addr.address1, address2: addr.address2 || '',
-                      city: addr.city, provinceCode: addr.provinceCode, zip: addr.zip,
-                    });
-                    setAddressInput(`${addr.address1}, ${addr.city}, ${addr.provinceCode} ${addr.zip}`);
-                    setAddressValidated(true);
-                    if (needsDeliveryAddress) checkDeliveryForAddress(addr);
+                  role="radio"
+                  aria-checked={isSelected}
+                  tabIndex={addrIdx === focusableAddrIdx ? 0 : -1}
+                  onClick={selectAddr}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectAddr(); }
+                    else handleRadioGroupKeyDown(e, addrItems, addrIdx, selectAddrByIndex);
                   }}
                   sx={{
                     p: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2,
-                    borderColor: selectedSavedAddressId === addr.id ? '#000' : 'divider',
-                    borderWidth: selectedSavedAddressId === addr.id ? 2 : 1,
-                    bgcolor: selectedSavedAddressId === addr.id ? 'grey.50' : 'transparent',
+                    borderColor: isSelected ? '#000' : 'divider',
+                    borderWidth: isSelected ? 2 : 1,
+                    bgcolor: isSelected ? 'grey.50' : 'transparent',
                     '&:hover': { bgcolor: 'action.hover' },
+                    '&:focus': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
                   }}
                 >
-                  <Radio checked={selectedSavedAddressId === addr.id} sx={{ p: 0 }} />
+                  <Radio checked={isSelected} tabIndex={-1} sx={{ p: 0 }} />
                   <Box sx={{ flex: 1 }}>
                     <Stack direction="row" alignItems="center" spacing={1}>
                       <Typography variant="body2" fontWeight={600}>{addr.label || 'Address'}</Typography>
-                      {addr.isDefault && <Chip label="Default" size="small" sx={{ height: 20, fontSize: '1.1rem' }} />}
+                      {addr.isDefault && <Chip label="Default" size="small" sx={{ height: 20, fontSize: '1.6rem' }} />}
                     </Stack>
                     <Typography variant="body2" color="text.secondary">{addr.address1}</Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -1342,14 +2270,17 @@ export default function CheckoutPage() {
                     </Typography>
                   </Box>
                 </Paper>
-              ))}
+                );
+              })}
               <Paper
                 variant="outlined"
-                onClick={() => {
-                  setSelectedSavedAddressId(null);
-                  setAddressFields({ address1: '', address2: '', city: '', provinceCode: '', zip: '' });
-                  setAddressInput('');
-                  setAddressValidated(false);
+                role="radio"
+                aria-checked={selectedSavedAddressId === null}
+                tabIndex={focusableAddrIdx === addrItems.length - 1 ? 0 : -1}
+                onClick={() => selectAddrByIndex(addrItems.length - 1)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectAddrByIndex(addrItems.length - 1); }
+                  else handleRadioGroupKeyDown(e, addrItems, addrItems.length - 1, selectAddrByIndex);
                 }}
                 sx={{
                   p: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2,
@@ -1357,13 +2288,15 @@ export default function CheckoutPage() {
                   borderWidth: selectedSavedAddressId === null ? 2 : 1,
                   bgcolor: selectedSavedAddressId === null ? 'grey.50' : 'transparent',
                   '&:hover': { bgcolor: 'action.hover' },
+                  '&:focus': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
                 }}
               >
-                <Radio checked={selectedSavedAddressId === null} sx={{ p: 0 }} />
+                <Radio checked={selectedSavedAddressId === null} tabIndex={-1} sx={{ p: 0 }} />
                 <Typography variant="body2" fontWeight={600}>Use a new address</Typography>
               </Paper>
             </Stack>
-          )}
+            );
+          })()}
 
           {/* Show address form when no saved address is selected (or no saved addresses) */}
           {(savedAddresses.length > 0 && selectedSavedAddressId !== null) ? null : addressValidated && addressFields.address1 && !useManualAddress ? (
@@ -1386,6 +2319,7 @@ export default function CheckoutPage() {
           ) : !useManualAddress ? (
             <Box sx={{ mb: 2 }}>
               <TextField
+                label="Address"
                 placeholder="Start typing your address..."
                 fullWidth
                 value={addressInput}
@@ -1397,20 +2331,34 @@ export default function CheckoutPage() {
                     </InputAdornment>
                   ),
                 }}
+                inputProps={{
+                  role: 'combobox',
+                  'aria-expanded': addressSuggestions.length > 0,
+                  'aria-controls': 'address-suggestions-listbox',
+                  'aria-autocomplete': 'list',
+                }}
                 sx={{ '& .MuiOutlinedInput-root': { height: 50 } }}
               />
               {addressSuggestions.length > 0 && (
                 <Paper
                   variant="outlined"
+                  role="listbox"
+                  id="address-suggestions-listbox"
+                  aria-label="Address suggestions"
                   sx={{ mt: 0.5, maxHeight: 240, overflow: 'auto' }}
                 >
                   {addressSuggestions.map((s) => (
                     <Box
                       key={s.place_id}
+                      role="option"
+                      aria-selected={false}
+                      tabIndex={0}
                       onClick={() => handleSelectAddressSuggestion(s)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleSelectAddressSuggestion(s); }}
                       sx={{
                         px: 2, py: 1.5, cursor: 'pointer',
                         '&:hover': { bgcolor: 'action.hover' },
+                        '&:focus': { bgcolor: 'action.hover', outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 },
                         borderBottom: '1px solid', borderColor: 'divider',
                       }}
                     >
@@ -1422,18 +2370,18 @@ export default function CheckoutPage() {
             </Box>
           ) : (
             <Stack spacing={2} sx={{ mb: 2, '& .MuiOutlinedInput-root': { height: 50 } }}>
-              <TextField placeholder="Street address" fullWidth required value={addressFields.address1}
+              <TextField label="Street address" fullWidth required value={addressFields.address1}
                 onChange={e => { setAddressFields(prev => ({ ...prev, address1: e.target.value })); setAddressValidated(!!e.target.value); }} />
-              <TextField placeholder="Apt, suite, etc. (optional)" fullWidth value={addressFields.address2}
+              <TextField label="Apt, suite, etc. (optional)" fullWidth value={addressFields.address2}
                 onChange={e => setAddressFields(prev => ({ ...prev, address2: e.target.value }))} />
               <Stack direction="row" spacing={2}>
-                <TextField placeholder="City" fullWidth required value={addressFields.city}
+                <TextField label="City" fullWidth required value={addressFields.city}
                   onChange={e => setAddressFields(prev => ({ ...prev, city: e.target.value }))} />
-                <TextField placeholder="State" sx={{ width: 100 }} required value={addressFields.provinceCode}
+                <TextField label="State" sx={{ width: 100 }} required value={addressFields.provinceCode}
                   onChange={e => setAddressFields(prev => ({ ...prev, provinceCode: e.target.value.toUpperCase().slice(0, 2) }))}
                   inputProps={{ maxLength: 2 }} />
               </Stack>
-              <TextField placeholder="ZIP code" sx={{ width: 140 }} required value={addressFields.zip}
+              <TextField label="ZIP code" sx={{ width: 140 }} required value={addressFields.zip}
                 onChange={e => setAddressFields(prev => ({ ...prev, zip: e.target.value.slice(0, 5) }))}
                 inputProps={{ maxLength: 5 }} />
               {needsDeliveryAddress && addressFields.address1 && addressFields.city && addressFields.zip && (
@@ -1464,13 +2412,13 @@ export default function CheckoutPage() {
             <Box sx={{ mb: 3 }}>
               {deliveryChecking ? (
                 <Paper variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <CircularProgress size={20} />
+                  <CircularProgress size={20} aria-label="Checking delivery availability" />
                   <Typography variant="body2" color="text.secondary">Checking delivery availability...</Typography>
                 </Paper>
               ) : deliveryResult?.available ? (
-                <Paper variant="outlined" sx={{ p: 2, bgcolor: '#e8f5e9', borderColor: '#4caf50' }}>
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: '#e8f5e9', borderColor: '#2e7d32' }}>
                   <Stack direction="row" alignItems="center" spacing={1}>
-                    <CheckCircleIcon sx={{ color: '#4caf50', fontSize: 20 }} />
+                    <CheckCircleIcon sx={{ color: '#2e7d32', fontSize: 20 }} />
                     <Typography variant="body2" fontWeight={600} color="#2e7d32">Delivery Available</Typography>
                   </Stack>
                   {deliveryResult.switchedLocation && deliveryResult.storeName && (
@@ -1510,53 +2458,330 @@ export default function CheckoutPage() {
           {needsShippingAddress && addressValidated && (
             <Box sx={{ mb: 3 }}>
               <Typography variant="h2">Shipping Method</Typography>
-              {testModeEnabled && binPacking.length > 0 && (
-                <Suspense fallback={<Skeleton variant="rectangular" height={200} sx={{ borderRadius: 1, mt: 2 }} />}>
-                  <Box sx={{ mt: 2 }}>
-                    <PackageViewer3D binPacking={binPacking} />
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
-                      {binPacking.length} package{binPacking.length > 1 ? 's' : ''} {' \u2022 '}
-                      {binPacking.reduce((s, b) => s + b.usedWeightOz, 0).toFixed(1)} oz
-                    </Typography>
-                  </Box>
-                </Suspense>
+              {localStorage.getItem('testModeEnabled') === 'true' && (
+                <Box sx={{ mb: 1, p: 1, bgcolor: '#fff3cd', borderRadius: 1, fontFamily: 'monospace', fontSize: 11 }}>
+                  groups: {fulfillmentGroups.length} ({fulfillmentGroups.map(g => `${g.locationId || '_local'}:${g.fulfillmentMethod}:${g.items.length}items`).join(', ')})
+                  <br />shippingGroups: {fulfillmentGroups.filter(g => g.fulfillmentMethod === 'shipping').length}
+                  {' | '}multiOrigin: {multiOriginRates ? `yes(${multiOriginRates.originRates?.length || 0} origins)` : 'no'}
+                  {' | '}binPacking: {binPacking.length}
+                  {' | '}rates: {shippingRates.length}
+                  {' | '}loading: {String(shippingRatesLoading)}
+                </Box>
               )}
-              <Box sx={{ height: 16 }} />
               {shippingRatesLoading ? (
                 <Stack direction="row" alignItems="center" spacing={1.5} sx={{ py: 2 }}>
-                  <CircularProgress size={20} sx={{ color: 'text.secondary' }} />
+                  <CircularProgress size={20} sx={{ color: 'text.secondary' }} aria-label="Fetching shipping rates" />
                   <Typography variant="body2" color="text.secondary">Fetching shipping rates...</Typography>
                 </Stack>
-              ) : (shippingRates.length > 0 ? shippingRates : (paymentConfig?.shippingTiers || [])).length > 0 ? (
-                <Stack spacing={1}>
-                  {(shippingRates.length > 0 ? shippingRates : (paymentConfig?.shippingTiers || [])).map((tier) => (
-                    <Paper
-                      key={tier.id}
-                      variant="outlined"
-                      onClick={() => setSelectedShippingTierId(tier.id)}
-                      sx={{
-                        p: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2,
-                        borderColor: selectedShippingTierId === tier.id ? '#000' : 'divider',
-                        borderWidth: selectedShippingTierId === tier.id ? 2 : 1,
-                        bgcolor: selectedShippingTierId === tier.id ? 'grey.50' : 'transparent',
-                        '&:hover': { bgcolor: 'action.hover' },
-                      }}
-                    >
-                      <LocalShippingIcon sx={{ color: selectedShippingTierId === tier.id ? '#000' : 'text.secondary' }} />
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.2 }}>
-                          {tier.carrier ? `${tier.carrier} — ${tier.name}` : tier.name}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '1.6rem', lineHeight: 1.2 }}>{tier.estimatedDays}</Typography>
-                      </Box>
-                      <Typography variant="body2" fontWeight={700}>${parseFloat(tier.rate).toFixed(2)}</Typography>
-                    </Paper>
-                  ))}
-                </Stack>
+              ) : multiOriginRates && multiOriginRates.originRates?.length > 1 ? (
+                /* ── Multi-origin merged shipping UI ── */
+                (() => {
+                  // Merge rates across origins by carrier+name — customer sees one combined price
+                  const origins = multiOriginRates.originRates;
+                  const tierMap = {};
+                  for (const origin of origins) {
+                    for (const tier of (origin.rates || [])) {
+                      const key = `${(tier.carrier || '').toLowerCase()}|${(tier.name || '').toLowerCase()}`;
+                      if (!tierMap[key]) tierMap[key] = { carrier: tier.carrier, name: tier.name, perOrigin: {}, estimatedDays: tier.estimatedDays };
+                      tierMap[key].perOrigin[origin.locationId] = tier;
+                      // Use longest estimated delivery
+                      if (tier.estimatedDays && (!tierMap[key].estimatedDays || tier.estimatedDays > tierMap[key].estimatedDays)) {
+                        tierMap[key].estimatedDays = tier.estimatedDays;
+                      }
+                    }
+                  }
+                  // Only show tiers available from ALL origins
+                  const mergedTiers = Object.entries(tierMap)
+                    .filter(([, t]) => Object.keys(t.perOrigin).length === origins.length)
+                    .map(([key, t]) => ({
+                      key,
+                      carrier: t.carrier,
+                      name: t.name,
+                      estimatedDays: t.estimatedDays,
+                      combinedRate: Object.values(t.perOrigin).reduce((s, r) => s + parseFloat(r.rate || 0), 0),
+                      perOrigin: t.perOrigin,
+                    }))
+                    .sort((a, b) => a.combinedRate - b.combinedRate);
+                  // Track which merged tier is selected
+                  const selectedKey = mergedTiers.find(t =>
+                    Object.entries(t.perOrigin).every(([locId, r]) => selectedRatesByOrigin[locId]?.id === r.id)
+                  )?.key;
+
+                  return (
+                    <Stack spacing={2} sx={{ mt: 2 }}>
+                      <Alert severity="info" sx={{ '& .MuiAlert-message': { fontSize: '1.4rem' } }}>
+                        Your order ships from {origins.length} locations
+                      </Alert>
+                      {/* Test mode: per-origin bin packing + item breakdown */}
+                      {localStorage.getItem('testModeEnabled') === 'true' && origins.map((origin) => (
+                        <Paper key={origin.locationId} variant="outlined" sx={{ p: 1.5, bgcolor: '#fffde7' }}>
+                          <Typography variant="caption" fontWeight={700}>
+                            <LocalShippingIcon sx={{ fontSize: 14, verticalAlign: 'text-bottom', mr: 0.5 }} />
+                            {origin.locationName}
+                          </Typography>
+                          {origin.binPacking?.length > 0 && (
+                            <Suspense fallback={<Skeleton variant="rectangular" height={180} sx={{ borderRadius: 1, my: 1 }} />}>
+                              <Box sx={{ my: 1 }}>
+                                <PackageViewer3D binPacking={origin.binPacking} />
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 0.5 }}>
+                                  {origin.binPacking.length} pkg{origin.binPacking.length > 1 ? 's' : ''} {' \u2022 '}
+                                  {origin.binPacking.reduce((s, b) => s + b.usedWeightOz, 0).toFixed(1)} oz
+                                </Typography>
+                              </Box>
+                            </Suspense>
+                          )}
+                          <Box sx={{ pl: 1 }}>
+                            {fulfillmentGroups
+                              .filter(g => g.locationId === origin.locationId)
+                              .flatMap(g => g.items)
+                              .map(item => (
+                                <Typography key={item.id} variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  {item.name}{item.variantName && item.variantName !== 'Default Title' ? ` — ${item.variantName}` : ''} x{item.quantity}
+                                </Typography>
+                              ))
+                            }
+                          </Box>
+                        </Paper>
+                      ))}
+                      {/* Merged rate selector — customer sees one combined price */}
+                      {mergedTiers.length > 0 ? (() => {
+                        const selectedMergedIdx = mergedTiers.findIndex(t => t.key === selectedKey);
+                        const focusableMergedIdx = selectedMergedIdx >= 0 ? selectedMergedIdx : 0;
+                        const selectMergedByIndex = (idx) => {
+                          const tier = mergedTiers[idx];
+                          trackCheckoutShippingRateSelected(tier.carrier, tier.name, tier.combinedRate);
+                          setSelectedRatesByOrigin(tier.perOrigin);
+                        };
+                        return (
+                        <Stack spacing={1} role="radiogroup" aria-label="Shipping rate">
+                          {mergedTiers.map((merged, mergedIdx) => {
+                            const isSelected = selectedKey === merged.key;
+                            const selectMerged = () => selectMergedByIndex(mergedIdx);
+                            return (
+                              <Paper
+                                key={merged.key}
+                                variant="outlined"
+                                role="radio"
+                                aria-checked={isSelected}
+                                tabIndex={mergedIdx === focusableMergedIdx ? 0 : -1}
+                                onClick={selectMerged}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectMerged(); }
+                                  else handleRadioGroupKeyDown(e, mergedTiers, mergedIdx, selectMergedByIndex);
+                                }}
+                                sx={{
+                                  p: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2,
+                                  borderColor: isSelected ? '#000' : 'divider',
+                                  borderWidth: isSelected ? 2 : 1,
+                                  bgcolor: isSelected ? 'grey.50' : 'transparent',
+                                  '&:hover': { bgcolor: 'action.hover' },
+                                  '&:focus': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+                                }}
+                              >
+                                <LocalShippingIcon sx={{ color: isSelected ? '#000' : 'text.secondary' }} />
+                                <Box sx={{ flex: 1 }}>
+                                  <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.2 }}>
+                                    {merged.carrier ? `${merged.carrier} — ${merged.name}` : merged.name}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '1.6rem', lineHeight: 1.2 }}>{merged.estimatedDays}</Typography>
+                                </Box>
+                                <Typography variant="body2" fontWeight={700}>${merged.combinedRate.toFixed(2)}</Typography>
+                              </Paper>
+                            );
+                          })}
+                        </Stack>
+                        );
+                      })() : (
+                        <Typography variant="body2" color="text.secondary">No shipping options available for this address.</Typography>
+                      )}
+                    </Stack>
+                  );
+                })()
               ) : (
-                <Typography variant="body2" color="text.secondary">No shipping options available for this address.</Typography>
+                /* ── Single-origin shipping UI (existing) ── */
+                <>
+                  {localStorage.getItem('testModeEnabled') === 'true' && binPacking.length > 0 && (
+                    <Suspense fallback={<Skeleton variant="rectangular" height={200} sx={{ borderRadius: 1, mt: 2 }} />}>
+                      <Box sx={{ mt: 2 }}>
+                        <PackageViewer3D binPacking={binPacking} />
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
+                          {binPacking.length} package{binPacking.length > 1 ? 's' : ''} {' \u2022 '}
+                          {binPacking.reduce((s, b) => s + b.usedWeightOz, 0).toFixed(1)} oz
+                        </Typography>
+                      </Box>
+                    </Suspense>
+                  )}
+                  <Box sx={{ height: 16 }} />
+                  {(shippingRates.length > 0 ? shippingRates : (paymentConfig?.shippingTiers || [])).length > 0 ? (() => {
+                    const tierList = shippingRates.length > 0 ? shippingRates : (paymentConfig?.shippingTiers || []);
+                    const selectedTierIdx = tierList.findIndex(t => t.id === selectedShippingTierId);
+                    const focusableTierIdx = selectedTierIdx >= 0 ? selectedTierIdx : 0;
+                    const selectTierByIndex = (idx) => {
+                      const t = tierList[idx];
+                      trackCheckoutShippingRateSelected(t.carrier, t.name, t.rate);
+                      setSelectedShippingTierId(t.id);
+                    };
+                    return (
+                    <Stack spacing={1} role="radiogroup" aria-label="Shipping rate">
+                      {tierList.map((tier, tierIdx) => {
+                        const isTierSelected = selectedShippingTierId === tier.id;
+                        const selectTier = () => selectTierByIndex(tierIdx);
+                        return (
+                        <Paper
+                          key={tier.id}
+                          variant="outlined"
+                          role="radio"
+                          aria-checked={isTierSelected}
+                          tabIndex={tierIdx === focusableTierIdx ? 0 : -1}
+                          onClick={selectTier}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectTier(); }
+                            else handleRadioGroupKeyDown(e, tierList, tierIdx, selectTierByIndex);
+                          }}
+                          sx={{
+                            p: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2,
+                            borderColor: isTierSelected ? '#000' : 'divider',
+                            borderWidth: isTierSelected ? 2 : 1,
+                            bgcolor: isTierSelected ? 'grey.50' : 'transparent',
+                            '&:hover': { bgcolor: 'action.hover' },
+                            '&:focus': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+                          }}
+                        >
+                          <LocalShippingIcon sx={{ color: isTierSelected ? '#000' : 'text.secondary' }} />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.2 }}>
+                              {tier.carrier ? `${tier.carrier} — ${tier.name}` : tier.name}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '1.6rem', lineHeight: 1.2 }}>{tier.estimatedDays}</Typography>
+                          </Box>
+                          <Typography variant="body2" fontWeight={700}>${parseFloat(tier.rate).toFixed(2)}</Typography>
+                        </Paper>
+                        );
+                      })}
+                    </Stack>
+                    );
+                  })() : (
+                    <Typography variant="body2" color="text.secondary">No shipping options available for this address.</Typography>
+                  )}
+                </>
               )}
             </Box>
+          )}
+        </>
+      )}
+
+      {/* Billing Address */}
+      <Typography variant="h2" ref={!needsAddress ? nextSectionRef : undefined} tabIndex={-1}>Billing Address</Typography>
+      <Box sx={{ height: 16 }} />
+      {needsAddress && (
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={billingSameAsAddress}
+              onChange={e => setBillingSameAsAddress(e.target.checked)}
+              sx={{ '& .MuiSvgIcon-root': { fontSize: 24 } }}
+            />
+          }
+          label={`Same as ${needsDeliveryAddress && needsShippingAddress ? 'delivery & shipping' : needsDeliveryAddress ? 'delivery' : 'shipping'} address`}
+          sx={{ mb: 2, '& .MuiTypography-root': { fontSize: '1.6rem' } }}
+        />
+      )}
+      {(!needsAddress || !billingSameAsAddress) && (
+        <>
+          {billingValidated && billingFields.address1 && !useManualBillingAddress ? (
+            <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'grey.50', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Box>
+                <Typography variant="body2" fontWeight={600}>{billingFields.address1}{billingFields.address2 ? `, ${billingFields.address2}` : ''}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {billingFields.city}, {billingFields.provinceCode} {billingFields.zip}
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                onClick={() => { setBillingValidated(false); setBillingInput(''); setBillingSuggestions([]); }}
+                sx={{ textTransform: 'none', color: '#1976d2', fontSize: '1.6rem', minWidth: 0 }}
+              >
+                Edit
+              </Button>
+            </Paper>
+          ) : !useManualBillingAddress ? (
+            <Box sx={{ mb: 2 }}>
+              <TextField
+                label="Billing address"
+                placeholder="Start typing your billing address..."
+                fullWidth
+                value={billingInput}
+                onChange={e => handleBillingInputChange(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PlaceIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                inputProps={{
+                  role: 'combobox',
+                  'aria-expanded': billingSuggestions.length > 0,
+                  'aria-controls': 'billing-suggestions-listbox',
+                  'aria-autocomplete': 'list',
+                }}
+                sx={{ '& .MuiOutlinedInput-root': { height: 50 } }}
+              />
+              {billingSuggestions.length > 0 && (
+                <Paper
+                  variant="outlined"
+                  role="listbox"
+                  id="billing-suggestions-listbox"
+                  aria-label="Billing address suggestions"
+                  sx={{ mt: 0.5, maxHeight: 240, overflow: 'auto' }}
+                >
+                  {billingSuggestions.map((s) => (
+                    <Box
+                      key={s.place_id}
+                      role="option"
+                      aria-selected={false}
+                      tabIndex={0}
+                      onClick={() => handleSelectBillingSuggestion(s)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleSelectBillingSuggestion(s); }}
+                      sx={{
+                        px: 2, py: 1.5, cursor: 'pointer',
+                        '&:hover': { bgcolor: 'action.hover' },
+                        '&:focus': { bgcolor: 'action.hover', outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 },
+                        borderBottom: '1px solid', borderColor: 'divider',
+                      }}
+                    >
+                      <Typography variant="body2">{s.description}</Typography>
+                    </Box>
+                  ))}
+                </Paper>
+              )}
+            </Box>
+          ) : (
+            <Stack spacing={2} sx={{ mb: 2, '& .MuiOutlinedInput-root': { height: 50 } }}>
+              <TextField label="Street address" fullWidth required value={billingFields.address1}
+                onChange={e => { setBillingFields(prev => ({ ...prev, address1: e.target.value })); setBillingValidated(!!e.target.value); }} />
+              <TextField label="Apt, suite, etc. (optional)" fullWidth value={billingFields.address2}
+                onChange={e => setBillingFields(prev => ({ ...prev, address2: e.target.value }))} />
+              <Stack direction="row" spacing={2}>
+                <TextField label="City" fullWidth required value={billingFields.city}
+                  onChange={e => setBillingFields(prev => ({ ...prev, city: e.target.value }))} />
+                <TextField label="State" sx={{ width: 100 }} required value={billingFields.provinceCode}
+                  onChange={e => setBillingFields(prev => ({ ...prev, provinceCode: e.target.value.toUpperCase().slice(0, 2) }))}
+                  inputProps={{ maxLength: 2 }} />
+              </Stack>
+              <TextField label="ZIP code" sx={{ width: 140 }} required value={billingFields.zip}
+                onChange={e => setBillingFields(prev => ({ ...prev, zip: e.target.value.slice(0, 5) }))}
+                inputProps={{ maxLength: 5 }} />
+            </Stack>
+          )}
+          {(!billingValidated || useManualBillingAddress) && (
+            <Button
+              size="small"
+              onClick={() => setUseManualBillingAddress(!useManualBillingAddress)}
+              sx={{ mb: 2, textTransform: 'none', color: '#1976d2', fontSize: '1.6rem', justifyContent: 'flex-start', p: 0, minWidth: 0, '&:hover': { bgcolor: 'transparent', textDecoration: 'underline' } }}
+            >
+              {useManualBillingAddress ? 'Use address autocomplete' : 'Enter address manually'}
+            </Button>
           )}
         </>
       )}
@@ -1566,22 +2791,42 @@ export default function CheckoutPage() {
       <Box sx={{ height: 16 }} />
 
       {/* Saved payment method selector */}
-      {savedPaymentMethods.length > 0 && (
-        <Stack spacing={1} sx={{ mb: 2 }}>
-          {savedPaymentMethods.map((pm) => (
+      {savedPaymentMethods.length > 0 && (() => {
+        const pmItems = [...savedPaymentMethods, null]; // null = "Use a different card"
+        const selectedPmIdx = selectedSavedPaymentId === null
+          ? pmItems.length - 1
+          : savedPaymentMethods.findIndex(pm => pm.id === selectedSavedPaymentId);
+        const focusablePmIdx = selectedPmIdx >= 0 ? selectedPmIdx : 0;
+        const selectPmByIndex = (idx) => {
+          const item = pmItems[idx];
+          setSelectedSavedPaymentId(item === null ? null : item.id);
+        };
+        return (
+        <Stack spacing={1} sx={{ mb: 2 }} role="radiogroup" aria-label="Saved payment methods">
+          {savedPaymentMethods.map((pm, pmIdx) => {
+            const isPmSelected = selectedSavedPaymentId === pm.id;
+            return (
             <Paper
               key={pm.id}
               variant="outlined"
-              onClick={() => setSelectedSavedPaymentId(pm.id)}
+              role="radio"
+              aria-checked={isPmSelected}
+              tabIndex={pmIdx === focusablePmIdx ? 0 : -1}
+              onClick={() => selectPmByIndex(pmIdx)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPmByIndex(pmIdx); }
+                else handleRadioGroupKeyDown(e, pmItems, pmIdx, selectPmByIndex);
+              }}
               sx={{
                 p: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2,
-                borderColor: selectedSavedPaymentId === pm.id ? '#000' : 'divider',
-                borderWidth: selectedSavedPaymentId === pm.id ? 2 : 1,
-                bgcolor: selectedSavedPaymentId === pm.id ? 'grey.50' : 'transparent',
+                borderColor: isPmSelected ? '#000' : 'divider',
+                borderWidth: isPmSelected ? 2 : 1,
+                bgcolor: isPmSelected ? 'grey.50' : 'transparent',
                 '&:hover': { bgcolor: 'action.hover' },
+                '&:focus': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
               }}
             >
-              <Radio checked={selectedSavedPaymentId === pm.id} sx={{ p: 0 }} />
+              <Radio checked={isPmSelected} tabIndex={-1} sx={{ p: 0 }} />
               <CreditCardIcon sx={{ color: 'text.secondary' }} />
               <Box sx={{ flex: 1 }}>
                 <Typography variant="body2" fontWeight={600}>
@@ -1591,25 +2836,35 @@ export default function CheckoutPage() {
                   Exp {String(pm.expMonth).padStart(2, '0')}/{pm.expYear}
                 </Typography>
               </Box>
-              {pm.isDefault && <Chip label="Default" size="small" sx={{ height: 20, fontSize: '1.1rem' }} />}
+              {pm.isDefault && <Chip label="Default" size="small" sx={{ height: 20, fontSize: '1.6rem' }} />}
             </Paper>
-          ))}
+            );
+          })}
           <Paper
             variant="outlined"
-            onClick={() => setSelectedSavedPaymentId(null)}
+            role="radio"
+            aria-checked={selectedSavedPaymentId === null}
+            tabIndex={focusablePmIdx === pmItems.length - 1 ? 0 : -1}
+            onClick={() => selectPmByIndex(pmItems.length - 1)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPmByIndex(pmItems.length - 1); }
+              else handleRadioGroupKeyDown(e, pmItems, pmItems.length - 1, selectPmByIndex);
+            }}
             sx={{
               p: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2,
               borderColor: selectedSavedPaymentId === null ? '#000' : 'divider',
               borderWidth: selectedSavedPaymentId === null ? 2 : 1,
               bgcolor: selectedSavedPaymentId === null ? 'grey.50' : 'transparent',
               '&:hover': { bgcolor: 'action.hover' },
+              '&:focus': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
             }}
           >
-            <Radio checked={selectedSavedPaymentId === null} sx={{ p: 0 }} />
+            <Radio checked={selectedSavedPaymentId === null} tabIndex={-1} sx={{ p: 0 }} />
             <Typography variant="body2" fontWeight={600}>Use a different card</Typography>
           </Paper>
         </Stack>
-      )}
+        );
+      })()}
 
       {/* Saved card: Place Order button */}
       {selectedSavedPaymentId ? (
@@ -1627,37 +2882,35 @@ export default function CheckoutPage() {
             height: 48,
           }}
         >
-          {paymentProcessing ? <CircularProgress size={24} color="inherit" /> : 'Place Order'}
+          {paymentProcessing ? <CircularProgress size={24} color="inherit" aria-label="Submitting order" /> : 'Place Order'}
         </Button>
       ) : configLoading ? (
-        <CircularProgress size={32} sx={{ display: 'block', mx: 'auto', my: 4 }} />
+        <CircularProgress size={32} sx={{ display: 'block', mx: 'auto', my: 4 }} aria-label="Loading payment form" />
       ) : paymentConfig?.paymentMethod === 'stripe' ? (
         <StripeCardForm
           onCardData={handleCardPayment}
           isProcessing={paymentProcessing}
           stripePublishableKey={paymentConfig?.stripePublishableKey}
-        />
+        >
+          {saveCardCheckbox}
+        </StripeCardForm>
       ) : paymentConfig?.paymentMethod?.startsWith('evervault') ? (
-        <EvervaultCardForm onCardData={handleCardPayment} isProcessing={paymentProcessing} />
+        <EvervaultCardForm onCardData={handleCardPayment} isProcessing={paymentProcessing}>
+          {saveCardCheckbox}
+        </EvervaultCardForm>
       ) : (
         <PaymentCardForm
           onCardData={handleCardPayment}
           isProcessing={paymentProcessing}
           squareAppId={paymentConfig?.squareAppId}
           squareLocationId={paymentConfig?.squareLocationId}
-        />
+        >
+          {saveCardCheckbox}
+        </PaymentCardForm>
       )}
 
-      {/* Save card checkbox (for new cards when authenticated) */}
-      {otpSessionToken && selectedSavedPaymentId === null && (
-        <FormControlLabel
-          control={<Checkbox checked={saveNewCard} onChange={e => setSaveNewCard(e.target.checked)} size="small" />}
-          label={<Typography sx={{ fontSize: '1.4rem' }}>Save this card for future purchases</Typography>}
-          sx={{ mt: 1 }}
-        />
-      )}
-
-      </Box>
+      </>)}
+      {/* /contactVerified gate */}
     </Box>
   );
 
@@ -1678,15 +2931,21 @@ export default function CheckoutPage() {
   const mobileOrderBar = (
     <Box sx={{ mt: 3 }}>
       <Box
-        onClick={() => setMobileOrderExpanded(!mobileOrderExpanded)}
+        component="button"
+        type="button"
+        aria-expanded={mobileOrderExpanded}
+        aria-label="Order summary"
+        onClick={() => { trackOrderSummaryToggled(!mobileOrderExpanded); setMobileOrderExpanded(!mobileOrderExpanded); }}
         sx={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          cursor: 'pointer', py: 1.5,
+          cursor: 'pointer', py: 1.5, width: '100%',
           borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider',
+          background: 'none', border: 'none', borderTopStyle: 'solid', borderBottomStyle: 'solid',
+          padding: 0, paddingTop: 1.5, paddingBottom: 1.5, font: 'inherit', color: 'inherit',
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography fontWeight={600}>Total</Typography>
+          <Typography fontWeight={600}>{hasCalc ? 'Total' : 'Subtotal'}</Typography>
           <Typography variant="body2" color="text.secondary">· {totalItems} {totalItems === 1 ? 'item' : 'items'}</Typography>
           {mobileOrderExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
         </Box>
@@ -1701,20 +2960,29 @@ export default function CheckoutPage() {
   );
 
   return (
-    <Box sx={{ width: '100%', maxWidth: 960, mx: 'auto', p: { xs: 2, sm: 3 }, pb: 8 }}>
-      {isMobile ? (
-        // Mobile: single column with collapsible summary at bottom
-        <>
-          {leftColumn}
-          {mobileOrderBar}
-        </>
-      ) : (
-        // Desktop: two-column split
-        <Box sx={{ display: 'flex', gap: 0, alignItems: 'flex-start' }}>
-          {leftColumn}
-          {rightColumn}
-        </Box>
+    <>
+      {showOverlay && (
+        <ProcessingOverlay
+          confirmation={checkoutConfirmation}
+          onComplete={() => setShowOverlay(false)}
+        />
       )}
-    </Box>
+      <Box component="main" sx={{ width: '100%', maxWidth: 960, mx: 'auto', p: { xs: 2, sm: 3 }, pb: 8, boxSizing: 'border-box', minWidth: 0, overflowX: 'clip' }}>
+        <Typography variant="h6" component="h1" sx={{ mb: 2 }}>Checkout</Typography>
+        {isMobile ? (
+          // Mobile: single column with collapsible summary at bottom
+          <>
+            {leftColumn}
+            {mobileOrderBar}
+          </>
+        ) : (
+          // Desktop: two-column split
+          <Box sx={{ display: 'flex', gap: 0, alignItems: 'flex-start' }}>
+            {leftColumn}
+            {rightColumn}
+          </Box>
+        )}
+      </Box>
+    </>
   );
 }

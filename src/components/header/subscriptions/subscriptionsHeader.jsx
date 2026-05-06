@@ -4,12 +4,11 @@ import { Button, Box, Typography } from '@mui/material';
 import Logo from '@/assets/images/svg/dbc_logo.svg';
 import { LayoutContext } from '@/contexts/subscriptions/SubscriptionsLayoutContext';
 
-// Navigation items - same as other headers
+// Navigation items
 const NAV_ITEMS = [
-    { label: 'Shop', path: 'https://shop.surrealcreamery.com', external: true },
-    { label: 'Events', path: 'https://events.surrealcreamery.com', external: true },
-    { label: 'Subscriptions', path: '/', external: false, isCurrentApp: true },
-    { label: 'Catering', path: 'https://catering.surrealcreamery.com', external: true },
+    { label: 'Shop', path: '/', external: false },
+    { label: 'Events', path: '/events', external: false },
+    { label: 'Subscriptions', path: '/subscriptions', external: false, isCurrentApp: true },
 ];
 
 const Header = () => {
@@ -19,7 +18,7 @@ const Header = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const onRedeemPage = location.pathname === '/redeem';
+    const onRedeemPage = location.pathname === '/redeem' || location.pathname === '/subscriptions/redeem';
 
     console.log({
         source: '[Header] State received from context',
@@ -29,29 +28,30 @@ const Header = () => {
         currentPath: location.pathname
     });
     
+    // Detect if embedded in Commerce app (path starts with /subscriptions)
+    const isEmbedded = location.pathname.startsWith('/subscriptions');
+    const basePath = isEmbedded ? '/subscriptions' : '';
+
     const handleLogoClick = (e) => {
         e.preventDefault();
-        console.log('[Header] Logo clicked.');
         if (resetWizardFlow) {
             resetWizardFlow();
         }
-        navigate('/');
+        navigate(basePath || '/');
     };
-    
+
     const handleLogout = () => {
-        console.log('[Header] Logout button clicked.');
         if (logout) {
             logout();
         }
-        navigate('/');
+        navigate(basePath || '/');
     };
-    
+
     const handleNavClick = (item) => {
         if (item.external) {
             window.location.href = item.path;
         } else if (item.isCurrentApp) {
-            // Already on this app, navigate to root
-            navigate('/');
+            navigate(basePath || '/');
         } else {
             navigate(item.path);
         }
@@ -165,7 +165,7 @@ const Header = () => {
                                     if (showRedeemButton) {
                                         console.log('%c[Header] Decision: Rendering Redeem Button', 'color: green');
                                         return (
-                                            <Button variant="outlined" href="/redeem" sx={buttonStyles}>Redeem</Button>
+                                            <Button variant="outlined" href={`${basePath}/redeem`} sx={buttonStyles}>Redeem</Button>
                                         );
                                     }
                                     console.log('%c[Header] Decision: Rendering NO button.', 'color: red');

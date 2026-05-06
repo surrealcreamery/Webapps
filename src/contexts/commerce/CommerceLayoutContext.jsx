@@ -63,12 +63,6 @@ export const LayoutProvider = ({ children }) => {
     // This allows the current product's text color to be passed to header components
     const [activeTextColor, setActiveTextColor] = useState('black');
 
-    // ===== KIOSK CART COUNT (for header badge in paired kiosk mode) =====
-    const [kioskCartCount, setKioskCartCount] = useState(0);
-
-    // ===== KIOSK VIEW MODE (slideshow vs grid) =====
-    const [kioskViewMode, setKioskViewMode] = useState('slideshow');
-
     // ===== LOCAL CART COUNT (for header badge in normal web mode) =====
     const [cartCount, setCartCount] = useState(0);
 
@@ -77,6 +71,10 @@ export const LayoutProvider = ({ children }) => {
     // Always start false — Commerce.jsx will set it when entering product detail
     const [isProductDetail, setIsProductDetail] = useState(false);
     const [onCloseProductDetail, setOnCloseProductDetail] = useState(null);
+
+    // ===== KIOSK MODE =====
+    const [kioskCartCount, setKioskCartCount] = useState(0);
+    const [kioskViewMode, setKioskViewMode] = useState(null);
 
     // ===== EFFECTIVE PATH OVERRIDE =====
     // When set, header uses this instead of location.pathname for nav highlighting.
@@ -128,17 +126,15 @@ export const LayoutProvider = ({ children }) => {
         onCloseProductDetail,
         setOnCloseProductDetail,
 
-        // Kiosk cart count (for header badge)
-        kioskCartCount,
-        setKioskCartCount,
-
-        // Kiosk view mode (slideshow vs grid)
-        kioskViewMode,
-        setKioskViewMode,
-
         // Local cart count (for header badge in normal web mode)
         cartCount,
         setCartCount,
+
+        // Kiosk mode
+        kioskCartCount,
+        setKioskCartCount,
+        kioskViewMode,
+        setKioskViewMode,
 
         // Effective path override (for header nav when replaceState bypasses React Router)
         effectivePath,

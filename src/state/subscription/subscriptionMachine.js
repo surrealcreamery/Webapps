@@ -249,7 +249,7 @@ export const wizardMachine = setup({
                 throw new Error('Could not retrieve saved cards.');
             }
             const data = await response.json();
-            const rawCards = data.cards || [];
+            const rawCards = (Array.isArray(data) ? data[0]?.cards : data.cards) || [];
             return rawCards.map(c => ({
                 id: c['Card ID'] || c.id,
                 card_brand: c['Card Brand'] || c.card_brand || '',
@@ -813,6 +813,7 @@ export const wizardMachine = setup({
                 restoring: {
                     always: [
                         { target: 'summary', guard: ({ context }) => context.isComplete },
+                        { target: '#wizard.displayFlow.authenticationOrPayment.fetchingCardDetails', guard: ({ context }) => (context.currentStep === 'newCardEntry' || context.currentStep === 'selectCard') && context.isReauthenticated },
                         { target: '#wizard.displayFlow.authenticationOrPayment.payment.enterNewCard', guard: ({ context }) => context.currentStep === 'newCardEntry' },
                         { target: '#wizard.displayFlow.authenticationOrPayment.payment.confirmSavedCard', guard: ({ context }) => context.currentStep === 'selectCard' },
                         { target: '#wizard.displayFlow.authenticationOrPayment.authentication.enterCode', guard: ({ context }) => context.currentStep === 'otpEntry' },

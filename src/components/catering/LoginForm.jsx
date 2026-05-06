@@ -9,6 +9,7 @@ import {
     Stack
 } from '@mui/material';
 import { parsePhoneNumber } from 'react-phone-number-input';
+import { trackCateringLogin } from '@/services/analytics';
 
 export const LoginForm = ({ sendToCatering, onBack, error: machineError, cateringState }) => {
     
@@ -57,6 +58,7 @@ export const LoginForm = ({ sendToCatering, onBack, error: machineError, caterin
             return;
         }
 
+        trackCateringLogin();
         // Send event with email and mobileNumber - state machine will handle assignment
         sendToCatering({
             type: 'SUBMIT_LOGIN_CONTACT',

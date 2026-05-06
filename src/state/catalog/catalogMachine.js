@@ -1,7 +1,8 @@
 import { setup, assign, fromPromise } from 'xstate';
 import { fetchPublishedCatalog } from '@/services/catalogService';
 import {
-    buildShopifyGidLookup,
+    buildAllProducts,
+    buildCategoryHelpers,
     getMergedProductOrder,
     filterProductsByLocation,
     buildSubcategoriesFromCatalog,
@@ -12,12 +13,12 @@ const LOCATIONS_URL = 'https://data.surrealcreamery.com/locations.json';
 const initialContext = {
     catalog: null,
     storeLocations: [],
-    shopifyProducts: [],
-    shopifyGidLookup: {},
+    allProducts: [],
     subcategories: [],
     collectiblesSubcategories: [],
     mergedProductOrder: [],
     locationFilteredProducts: [],
+    categoryHelpers: {},
     selectedLocation: typeof window !== 'undefined'
         ? localStorage.getItem('selectedLocation') || null
         : null,
@@ -46,26 +47,38 @@ export const catalogMachine = setup({
         assignError: assign(({ event }) => ({
             error: event.error?.message || 'Unknown error',
         })),
-        assignShopifyProducts: assign(({ event }) => ({
-            shopifyProducts: event.shopifyProducts,
-        })),
         assignLocation: assign(({ event }) => ({
             selectedLocation: event.locationSlug,
         })),
         deriveAllData: assign(({ context }) => {
-            const { catalog, shopifyProducts, storeLocations, selectedLocation } = context;
-            const shopifyGidLookup = buildShopifyGidLookup(shopifyProducts);
+            const { catalog, storeLocations, selectedLocation } = context;
+            const allProducts = buildAllProducts(catalog);
+            const categoryHelpers = buildCategoryHelpers(catalog?.categories);
             const mergedProductOrder = getMergedProductOrder(catalog?.categories);
+
+            // Sort allProducts by mergedProductOrder (SKU-based), preserving natural order for unordered products
+            if (mergedProductOrder.length > 0) {
+                const orderMap = new Map(mergedProductOrder.map((sku, idx) => [sku.toUpperCase(), idx]));
+                allProducts.sort((a, b) => {
+                    const aidx = orderMap.get((a.sku || '').toUpperCase()) ?? Infinity;
+                    const bidx = orderMap.get((b.sku || '').toUpperCase()) ?? Infinity;
+                    if (aidx !== Infinity && bidx !== Infinity) return aidx - bidx;
+                    if (aidx !== Infinity) return -1;
+                    if (bidx !== Infinity) return 1;
+                    return 0;
+                });
+            }
+
             const locationFilteredProducts = filterProductsByLocation(
-                shopifyProducts, catalog, storeLocations, selectedLocation
+                allProducts, catalog, storeLocations, selectedLocation
             );
             const subcategories = buildSubcategoriesFromCatalog(
-                catalog, shopifyGidLookup, selectedLocation, 'desserts', storeLocations
+                catalog, {}, selectedLocation, 'desserts', storeLocations
             );
             const collectiblesSubcategories = buildSubcategoriesFromCatalog(
-                catalog, shopifyGidLookup, selectedLocation, 'collectibles', storeLocations
+                catalog, {}, selectedLocation, 'collectibles', storeLocations
             );
-            return { shopifyGidLookup, mergedProductOrder, locationFilteredProducts, subcategories, collectiblesSubcategories };
+            return { allProducts, categoryHelpers, mergedProductOrder, locationFilteredProducts, subcategories, collectiblesSubcategories };
         }),
     },
     guards: {
@@ -78,9 +91,6 @@ export const catalogMachine = setup({
 
     // Global events — accepted in ANY state so they're never dropped
     on: {
-        SHOPIFY_PRODUCTS_CHANGED: {
-            actions: 'assignShopifyProducts',
-        },
         LOCATION_CHANGED: {
             actions: 'assignLocation',
         },
@@ -109,11 +119,6 @@ export const catalogMachine = setup({
         },
         ready: {
             on: {
-                // In ready state, these also trigger re-derivation
-                SHOPIFY_PRODUCTS_CHANGED: {
-                    target: 'building',
-                    actions: 'assignShopifyProducts',
-                },
                 LOCATION_CHANGED: {
                     target: 'building',
                     actions: 'assignLocation',

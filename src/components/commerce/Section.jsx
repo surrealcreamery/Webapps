@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography, Container, Button } from '@mui/material';
 import { DiscountZonePlaceholder } from './DiscountZonePlaceholder';
+import { useCatalog } from '@/contexts/commerce/CatalogContext';
 
 /**
  * Section Component
@@ -121,8 +122,12 @@ export const Section = ({
         }
     };
 
+    const sectionTitleId = `section-title-${title?.toLowerCase().replace(/\s+/g, '-') || 'unnamed'}`;
+
     return (
         <Box
+            component="section"
+            aria-labelledby={sectionTitleId}
             sx={{
                 backgroundColor,
                 py: 4,
@@ -135,6 +140,7 @@ export const Section = ({
             <Container maxWidth="md" sx={{ overflow: 'hidden' }}>
                 {/* Section Header */}
                 <Typography
+                    id={sectionTitleId}
                     variant="h3"
                     component="h2"
                     sx={{
@@ -172,7 +178,16 @@ export const Section = ({
                             return (
                                 <Box
                                     key={containerName}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Jump to ${containerName}`}
                                     onClick={() => scrollToContainer(containerName)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            scrollToContainer(containerName);
+                                        }
+                                    }}
                                     sx={{
                                         display: 'inline-flex',
                                         flexDirection: 'column',
@@ -186,6 +201,10 @@ export const Section = ({
                                         '&:hover': {
                                             backgroundColor: 'grey.200',
                                             transform: 'translateY(-1px)'
+                                        },
+                                        '&:focus-visible': {
+                                            outline: '2px solid #1976d2',
+                                            outlineOffset: '2px'
                                         }
                                     }}
                                 >
@@ -282,6 +301,7 @@ export const Section = ({
                                 )}
                                 <Typography
                                     variant="h6"
+                                    component="h3"
                                     sx={{
                                         fontWeight: 600,
                                         mb: 2,
@@ -296,7 +316,16 @@ export const Section = ({
                                 {/* MYO Hero Area */}
                                 {myoProduct && (
                                     <Box
+                                        role="link"
+                                        tabIndex={0}
+                                        aria-label={`${myoProduct.name} - Create Your Own`}
                                         onClick={() => onProductClick(myoProduct.id)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                onProductClick(myoProduct.id);
+                                            }
+                                        }}
                                         sx={{
                                             position: 'relative',
                                             width: '100%',
@@ -307,6 +336,10 @@ export const Section = ({
                                             transition: 'transform 0.2s',
                                             '&:hover': {
                                                 transform: 'scale(1.01)',
+                                            },
+                                            '&:focus-visible': {
+                                                outline: '2px solid #1976d2',
+                                                outlineOffset: '2px'
                                             },
                                         }}
                                     >
@@ -371,7 +404,7 @@ export const Section = ({
                                                 <Typography
                                                     sx={{
                                                         color: 'rgba(255,255,255,0.9)',
-                                                        fontSize: { xs: '1.2rem', sm: '1.4rem' },
+                                                        fontSize: '1.6rem',
                                                         textAlign: 'center',
                                                         mb: 1.5,
                                                     }}
@@ -384,7 +417,7 @@ export const Section = ({
                                                         bgcolor: 'white',
                                                         color: '#333',
                                                         fontWeight: 700,
-                                                        fontSize: { xs: '1.3rem', sm: '1.5rem' },
+                                                        fontSize: '1.6rem',
                                                         px: { xs: 3, sm: 4 },
                                                         py: { xs: 1, sm: 1.25 },
                                                         borderRadius: 2,
@@ -467,9 +500,48 @@ export const Section = ({
  * Individual product card within a section
  */
 const ProductCard = ({ product, onClick, discountPercent, productDiscount, subcategoryName, allProducts, featured = false }) => {
+    const { storeLocations = [], selectedLocation } = useCatalog();
+    const selectedLocationId = selectedLocation || localStorage.getItem('selectedLocation');
+    const warehouseIds = storeLocations.filter(l => l.type === 'Warehouse').map(l => l.id);
+    const inv = product.inventory;
+    const isTracked = inv?.trackInventory;
+    const locations = inv?.byLocation || [];
+    const storeQty = isTracked && selectedLocationId
+        ? locations.find(l => l.locationId === selectedLocationId)?.quantity || 0
+        : null;
+    const warehouseQty = isTracked
+        ? locations.filter(l => warehouseIds.includes(l.locationId)).reduce((sum, l) => sum + Math.max(0, l.quantity || 0), 0)
+        : 0;
+    const otherRetailQty = isTracked
+        ? locations.filter(l => l.locationId && l.locationId !== selectedLocationId && !warehouseIds.includes(l.locationId)).reduce((sum, l) => sum + Math.max(0, l.quantity || 0), 0)
+        : 0;
+    const anyLocationHasStock = locations.some(l => (l.quantity || 0) > 0);
+    const allowsShipping = !product.fulfillmentMethods?.length || product.fulfillmentMethods.includes('shipping');
+    const canShipFromAnywhere = allowsShipping && locations.some(l => {
+        if ((l.quantity || 0) <= 0) return false;
+        const loc = storeLocations.find(sl => sl.id === l.locationId);
+        return loc && !loc.disableShipping;
+    });
+    const isSoldOut = isTracked && (!anyLocationHasStock || (storeQty != null && storeQty <= 0 && !canShipFromAnywhere));
+    const hasLocalStock = !isTracked || (storeQty != null && storeQty > 0);
+    const fm = product.fulfillmentMethods?.length > 0 ? product.fulfillmentMethods : ['pickup', 'delivery', 'shipping'];
+    const pickupOk = hasLocalStock && fm.includes('pickup');
+    const deliveryOk = hasLocalStock && fm.includes('delivery');
+    const shippingOk = canShipFromAnywhere;
+    const showFulfillment = isTracked && !isSoldOut;
+
     return (
         <Box
+            role="button"
+            tabIndex={0}
+            aria-label={`${product.name}${isSoldOut ? ', sold out' : ''}`}
             onClick={onClick}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onClick();
+                }
+            }}
             sx={{
                 cursor: 'pointer',
                 transition: 'transform 0.2s',
@@ -478,15 +550,28 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                 flexDirection: 'column',
                 '&:hover': {
                     transform: 'scale(1.02)'
+                },
+                '&:focus-visible': {
+                    outline: '2px solid #1976d2',
+                    outlineOffset: '2px'
                 }
             }}
         >
+            {/* Sold Out Banner — above image */}
+            {isSoldOut && (
+                <Box sx={{ bgcolor: 'rgba(180, 30, 30, 1)', py: 0.5, textAlign: 'center', borderRadius: '8px 8px 0 0' }}>
+                    <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.4rem', letterSpacing: 2, textTransform: 'uppercase' }}>
+                        Sold Out
+                    </Typography>
+                </Box>
+            )}
+
             {/* Product Image */}
             <Box
                 sx={{
                     position: 'relative',
                     paddingTop: featured ? '60%' : '100%', // Wider aspect ratio for featured
-                    borderRadius: 2,
+                    borderRadius: isSoldOut ? '0 0 8px 8px' : 2,
                     overflow: 'hidden',
                     backgroundColor: featured ? 'primary.light' : 'grey.200',
                     mb: 1,
@@ -499,8 +584,8 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
             >
                 <img
                     src={product.imageUrl || 'https://placehold.co/400x400/e0e0e0/666666?text=Product'}
-                    srcSet={product.pwa ? `${product.pwa.sm} 480w, ${product.pwa.md} 960w, ${product.pwa.lg} 1440w` : undefined}
-                    sizes={product.pwa ? "(max-width: 600px) 50vw, (max-width: 960px) 50vw, 300px" : undefined}
+                    srcSet={product.pwa ? `${product.pwa.xs || product.pwa.sm} 320w, ${product.pwa.sm} 480w, ${product.pwa.md} 960w, ${product.pwa.lg} 1440w` : undefined}
+                    sizes={product.pwa ? "(max-width: 600px) 45vw, (max-width: 960px) 33vw, 300px" : undefined}
                     alt={product.imageAlt || product.name}
                     style={{
                         position: 'absolute',
@@ -508,7 +593,8 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                         left: 0,
                         width: '100%',
                         height: '100%',
-                        objectFit: 'cover'
+                        objectFit: 'cover',
+                        ...(isSoldOut ? { filter: 'grayscale(100%)' } : {})
                     }}
                 />
 
@@ -526,7 +612,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
             <Typography
                 variant="body1"
                 sx={{
-                    fontWeight: featured ? 700 : 600,
+                    fontWeight: featured ? 600 : 400,
                     mb: 0.5,
                     fontSize: featured ? '1.8rem' : '1.6rem',
                     textAlign: 'center'
@@ -539,7 +625,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
             {featured && (
                 <Typography
                     sx={{
-                        fontSize: '1.4rem',
+                        fontSize: '1.6rem',
                         color: 'primary.main',
                         fontWeight: 600,
                         mb: 0.5,
@@ -578,6 +664,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                                                 fontWeight: 600
                                             }}
                                         >
+                                            <span style={{ position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px', overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', borderWidth: 0 }}>Sale: </span>
                                             ${discountedPrice.toFixed(2)}
                                         </Typography>
                                         <Typography
@@ -620,6 +707,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                                     fontWeight: 600
                                 }}
                             >
+                                <span style={{ position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px', overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', borderWidth: 0 }}>Sale: </span>
                                 ${discountedPrice.toFixed(2)}
                             </Typography>
                             <Typography
@@ -652,6 +740,14 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                 subcategoryName={subcategoryName}
                 products={allProducts}
             />
+
+            {showFulfillment && (
+                <Box sx={{ mt: 0.5, textAlign: 'center' }}>
+                    {shippingOk && <Typography variant="caption" sx={{ display: 'block', color: 'success.main', fontWeight: 700 }}>Shipping</Typography>}
+                    {pickupOk && <Typography variant="caption" sx={{ display: 'block', color: 'success.main', fontWeight: 700 }}>Pickup</Typography>}
+                    {deliveryOk && <Typography variant="caption" sx={{ display: 'block', color: 'success.main', fontWeight: 700 }}>Delivery</Typography>}
+                </Box>
+            )}
         </Box>
     );
 };

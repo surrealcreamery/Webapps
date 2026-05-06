@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { Helmet } from 'react-helmet-async';
 import {
     Box,
     Typography,
@@ -25,13 +26,15 @@ import { parsePhoneNumber } from 'react-phone-number-input';
 import { LayoutContext } from '@/contexts/subscriptions/SubscriptionsLayoutContext';
 import CardBrandIcon from '@/components/subscription/cardBrandIcon';
 import SquarePaymentForm from '@/components/subscription/squarePaymentForm';
+import { trackRedemptionCodeEntered, trackRedemptionClaimed } from '@/services/analytics';
 
 const modalStyle = {
   position: 'absolute',
   top: '50%',
   left: '50%',
   transform: 'translate(-50%, -50%)',
-  width: 400,
+  width: '90vw',
+  maxWidth: 400,
   bgcolor: 'background.paper',
   border: '2px solid #000',
   boxShadow: 24,
@@ -192,7 +195,7 @@ const AddNewCard = ({ customerId, onCardAdded, onCancel }) => {
         <Box>
             <Typography variant="h2" gutterBottom>Add a New Card</Typography>
             <Divider sx={{ my: 2 }} />
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            {error && <Alert severity="error" role="alert" sx={{ mb: 2 }}>{error}</Alert>}
             <SquarePaymentForm
                 isProcessing={isLoading}
                 onNonceReceived={handleSaveNewCard}
@@ -244,7 +247,7 @@ const ConfirmNewPaymentMethod = ({ subscription, newCard, onConfirmSuccess, onBa
         <Box>
             <Typography variant="h2" gutterBottom>Confirm Payment Method</Typography>
             <Divider sx={{ my: 2 }} />
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            {error && <Alert severity="error" role="alert" sx={{ mb: 2 }}>{error}</Alert>}
             <Typography variant="body1" sx={{ mb: 2 }}>
                 Please confirm you would like to use this card for your subscription.
             </Typography>
@@ -262,7 +265,7 @@ const ConfirmNewPaymentMethod = ({ subscription, newCard, onConfirmSuccess, onBa
             <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Button variant="grey-back" onClick={onBack} disabled={isLoading}>Back</Button>
                 <Button variant="contained" onClick={handleConfirm} disabled={isLoading}>
-                    {isLoading ? <CircularProgress size={24} /> : 'Confirm'}
+                    {isLoading ? <CircularProgress size={24} aria-label="Loading" /> : 'Confirm'}
                 </Button>
             </Box>
         </Box>
@@ -340,12 +343,13 @@ const UpdatePayment = ({ customerId, subscription, onBack, onNavigate }) => {
         <Box>
             <Typography variant="h2" gutterBottom>Update Payment Method</Typography>
             <Divider sx={{ my: 2 }}/>
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-            {isLoading ? <CircularProgress /> : (
+            {error && <Alert severity="error" role="alert" sx={{ mb: 2 }}>{error}</Alert>}
+            {isLoading ? <Box role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box> : (
                 <>
                     <Typography variant="h4" gutterBottom>Choose a payment method</Typography>
                     {cards.length > 0 ? (
                         <Box component="fieldset" sx={{ border: 'none', p: 0, m: 0, display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                            <legend style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Choose a payment method</legend>
                             {cards.map(card => (
                                 <Card key={card.id} variant="outlined" sx={{ '&:has(input:checked)': { borderColor: 'primary.main', borderWidth: 2 } }}>
                                     <CardContent component="label" sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', p: '16px !important' }}>
@@ -374,7 +378,7 @@ const UpdatePayment = ({ customerId, subscription, onBack, onNavigate }) => {
                     </Button>
 
                     <Button variant="contained" onClick={handleUpdatePayment} disabled={isLoading || !selectedCardId} sx={{ mt: 3 }}>
-                        {isLoading ? <CircularProgress size={24} /> : 'Confirm Update'}
+                        {isLoading ? <CircularProgress size={24} aria-label="Loading" /> : 'Confirm Update'}
                     </Button>
                 </>
             )}
@@ -442,19 +446,23 @@ const ManageSubscription = ({ subscription, onBack, onNavigate, successMessage }
             }
             setSuccess('Your subscription has been successfully canceled.');
             handleCloseModal();
-            setTimeout(() => onBack(), 3000);
         } catch (err) { setError(err.message); }
         finally { setIsLoading(false); }
     };
 
-    if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}><CircularProgress /></Box>; }
-    if (error) { return <Alert severity="error">{error}</Alert>; }
+    if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>; }
+    if (error) { return <Alert severity="error" role="alert">{error}</Alert>; }
     if (!detailedSubscription) { return <Typography>Could not load subscription details.</Typography> }
 
     return (
         <Box>
             <Typography variant="h2" gutterBottom>Manage Subscription</Typography>
-            {success && <Alert severity="success" sx={{ my: 2 }}>{success}</Alert>}
+            {success && (
+                <>
+                    <Alert severity="success" role="alert" sx={{ my: 2 }}>{success}</Alert>
+                    <Button variant="contained" onClick={onBack} sx={{ mb: 2 }}>Continue</Button>
+                </>
+            )}
             <Divider sx={{ my: 2 }} />
             <Box sx={{ mt: 2, mb: 4 }}>
                 <Box>
@@ -489,15 +497,15 @@ const ManageSubscription = ({ subscription, onBack, onNavigate, successMessage }
                     </CardActions>
                 </Card>
             </Box>
-            <Modal open={isModalOpen} onClose={handleCloseModal}>
+            <Modal open={isModalOpen} onClose={handleCloseModal} aria-labelledby="cancel-modal-title">
                 <Box sx={modalStyle}>
-                    <Typography variant="h2" component="h2">Confirm Cancellation</Typography>
+                    <Typography id="cancel-modal-title" variant="h2" component="h2">Confirm Cancellation</Typography>
                     <Typography sx={{ mt: 2 }}>Are you sure you want to cancel your subscription?</Typography>
                     <Typography sx={{ mt: 2, fontWeight: 'bold' }}>Your subscription will remain active until {formatDate(detailedSubscription['Subscription End Date'])}.</Typography>
-                    {error && <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>}
+                    {error && <Alert severity="error" role="alert" sx={{ my: 2 }}>{error}</Alert>}
                     <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
                         <Button variant="text" onClick={handleCloseModal} disabled={isLoading}>Go Back</Button>
-                        <Button variant="contained" color="error" onClick={handleConfirmCancel} disabled={isLoading}>{isLoading ? <CircularProgress size={24} /> : 'Confirm'}</Button>
+                        <Button variant="contained" color="error" onClick={handleConfirmCancel} disabled={isLoading}>{isLoading ? <CircularProgress size={24} aria-label="Loading" /> : 'Confirm'}</Button>
                     </Box>
                 </Box>
             </Modal>
@@ -605,6 +613,7 @@ const Redeem = () => {
     }, [isAuthenticated, customerIdFromContext]);
 
     const handleSendOtp = async () => {
+        trackRedemptionCodeEntered();
         setError(''); let channel = ''; let contactToSend = contactInfo;
         const emailRegex = /^\S+@\S+\.\S+$/;
         if (emailRegex.test(contactInfo)) { channel = 'email'; } 
@@ -650,7 +659,8 @@ const Redeem = () => {
                 throw new Error("No account associated with this contact was found.");
             }
             
-            if (customerInfoResult.length === 1) { 
+            if (customerInfoResult.length === 1) {
+                trackRedemptionClaimed(customerInfoResult[0].id);
                 if (login) login(customerInfoResult[0].id);
             } else {
                 const accountsWithSubCounts = await Promise.all(
@@ -789,17 +799,17 @@ const Redeem = () => {
 
     const renderContent = () => {
         if (isLoading || step === 'checkingAuth') {
-            return <Box sx={{ display: 'flex', justifyContent: 'center', my: 8 }}><CircularProgress /></Box>;
+            return <Box sx={{ display: 'flex', justifyContent: 'center', my: 8 }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
         }
         switch (step) {
             case 'enterContact':
                 return (
                     <>
                         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>Please enter the email address or phone number associated with your subscription.</Typography>
-                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                        {error && <Alert severity="error" role="alert" sx={{ mb: 2 }}>{error}</Alert>}
                         <TextField label="Email or Phone Number" variant="outlined" fullWidth value={contactInfo} onChange={(e) => setContactInfo(e.target.value)} sx={{ mb: 2 }} />
                         <Button variant="contained" onClick={handleSendOtp} disabled={isLoading} fullWidth sx={{ py: 1.5 }}>
-                            {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Continue'}
+                            {isLoading ? <CircularProgress size={24} color="inherit" aria-label="Loading" /> : 'Continue'}
                         </Button>
                     </>
                 );
@@ -807,12 +817,12 @@ const Redeem = () => {
                 return (
                     <>
                         <Typography sx={{ mb: 2 }}>A 6-digit code was sent to {formattedContact}. Please enter it below.</Typography>
-                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                        {error && <Alert severity="error" role="alert" sx={{ mb: 2 }}>{error}</Alert>}
                         <OtpInput value={otpCode} onCodeChange={setOtpCode} onSubmit={handleVerifyOtp} />
                         <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <MuiLink component="button" variant="body2" onClick={() => { setStep('enterContact'); setError(''); }}>Use another method</MuiLink>
                             <Button variant="contained" onClick={handleVerifyOtp} disabled={isLoading || otpCode.length !== 6}>
-                                {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Verify'}
+                                {isLoading ? <CircularProgress size={24} color="inherit" aria-label="Loading" /> : 'Verify'}
                             </Button>
                         </Box>
                     </>
@@ -821,8 +831,9 @@ const Redeem = () => {
                 return (
                     <>
                         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>We found multiple accounts. Please select which one you'd like to use.</Typography>
-                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                        {error && <Alert severity="error" role="alert" sx={{ mb: 2 }}>{error}</Alert>}
                         <Box component="fieldset" sx={{ border: 'none', p: 0, m: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <legend style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Select an account</legend>
                             {potentialAccounts.map((account) => (
                                 <Card key={account.id} variant="outlined" sx={{ '&:has(input:checked)': { borderColor: 'primary.main', borderWidth: 2 } }}>
                                     <CardContent component="label" sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', width: '100%', p: '16px !important' }}>
@@ -841,7 +852,7 @@ const Redeem = () => {
                             ))}
                         </Box>
                         <Button variant="contained" onClick={handleAccountSelected} disabled={isLoading || !selectedCid} fullWidth sx={{ mt: 3, py: 1.5 }}>
-                            {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Continue'}
+                            {isLoading ? <CircularProgress size={24} color="inherit" aria-label="Loading" /> : 'Continue'}
                         </Button>
                     </>
                 );
@@ -849,7 +860,7 @@ const Redeem = () => {
                 return (
                     <>
                         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>Please complete your profile to continue.</Typography>
-                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                        {error && <Alert severity="error" role="alert" sx={{ mb: 2 }}>{error}</Alert>}
                         
                         {!initialProfile?.firstName && <TextField label="First Name" fullWidth margin="dense" value={profile.firstName} onChange={(e) => setProfile(p => ({...p, firstName: e.target.value}))} />}
                         {!initialProfile?.lastName && <TextField label="Last Name" fullWidth margin="dense" value={profile.lastName} onChange={(e) => setProfile(p => ({...p, lastName: e.target.value}))} />}
@@ -880,13 +891,13 @@ const Redeem = () => {
                         )}
 
                         <Button variant="contained" onClick={handleUpdateProfile} disabled={isLoading} fullWidth sx={{ mt: 2, py: 1.5 }}>
-                            {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Save Profile'}
+                            {isLoading ? <CircularProgress size={24} color="inherit" aria-label="Loading" /> : 'Save Profile'}
                         </Button>
                     </>
                 );
             case 'success':
                 if (error) {
-                    return <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>;
+                    return <Alert severity="error" role="alert" sx={{ my: 2 }}>{error}</Alert>;
                 }
                 if (manageState.view) {
                     if (manageState.view === 'confirmPayment') {
@@ -963,7 +974,7 @@ const Redeem = () => {
                         <Card sx={{ backgroundColor: 'black', color: 'white', mb: 4, boxShadow: 'none', border: '1px solid', borderColor: 'grey.400' }}>
                             <CardContent>
                                 <Typography variant="h3" component="div">{profile.firstName} {profile.lastName}</Typography>
-                                <Typography sx={{ mt: 1.5 }} color="rgba(255, 255, 255, 0.7)">{contactInfo}</Typography>
+                                <Typography sx={{ mt: 1.5, color: 'rgba(255, 255, 255, 0.87)' }}>{contactInfo}</Typography>
                             </CardContent>
                         </Card>
 
@@ -997,17 +1008,13 @@ const Redeem = () => {
                                                                 <Typography variant="body2" color="text.secondary" sx={{mb: 1}}>
                                                                     {label} {displayDate}
                                                                 </Typography>
-
-                                                                <Typography variant="body2" color="text.secondary" sx={{mb: 1}}>
-                                                                    {label} {displayDate}
-                                                                </Typography>
                                                                 
                                                                 {sub.entitlements.length > 0 && (
                                                                     <Box sx={{ mt: 2.5, pl: 2, borderLeft: '3px solid', borderColor: 'grey.200' }}>
                                                                         <Typography variant="h4" sx={{ mb: 1.5 }}>Use Code To Redeem</Typography>
-                                                                        <Box sx={{ display: 'flex', gap: 0.75, mb: 2 }}>
+                                                                        <Box sx={{ display: 'flex', gap: 0.75, mb: 2 }} aria-label={`Redemption code: ${codeDigits.join('')}`}>
                                                                             {codeDigits.map((digit, idx) => (
-                                                                                <Typography key={idx} sx={{ backgroundColor: 'black', color: 'white', borderRadius: '8px', width: { xs: '35px', sm: '40px' }, height: { xs: '45px', sm: '50px' }, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: { xs: '1.2rem', sm: '1.5rem' }, fontWeight: 'bold' }}>
+                                                                                <Typography key={idx} aria-hidden="true" sx={{ backgroundColor: 'black', color: 'white', borderRadius: '8px', width: { xs: '35px', sm: '40px' }, height: { xs: '45px', sm: '50px' }, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: { xs: '1.2rem', sm: '1.5rem' }, fontWeight: 'bold' }}>
                                                                                     {digit}
                                                                                 </Typography>
                                                                             ))}
@@ -1021,7 +1028,7 @@ const Redeem = () => {
                                                                     </Box>
                                                                 )}
                                                             </CardContent>
-                                                            
+
                                                             {sub['Square Subscription ID'] && sub['Square Subscription ID'] !== 'Complimentary' && (
                                                                 <>
                                                                     <Divider />
@@ -1061,13 +1068,11 @@ const Redeem = () => {
 
                                                                 <Typography variant="body2" color="text.secondary" sx={{mb: 1}}>Expires on: {formatDate(safeEndDate)}</Typography>
                                                                 
-                                                                <Typography variant="body2" color="text.secondary" sx={{mb: 1}}>Expires on: {formatDate(safeEndDate)}</Typography>
-                                                                
                                                                 <Box sx={{ mt: 2.5, pl: 2, borderLeft: '3px solid', borderColor: 'grey.200' }}>
                                                                     <Typography variant="h4" sx={{ mb: 1.5 }}>Use Code To Redeem</Typography>
-                                                                    <Box sx={{ display: 'flex', gap: 0.75, mb: 2 }}>
+                                                                    <Box sx={{ display: 'flex', gap: 0.75, mb: 2 }} aria-label={`Redemption code: ${codeDigits.join('')}`}>
                                                                         {codeDigits.map((digit, idx) => (
-                                                                            <Typography key={idx} sx={{ backgroundColor: 'black', color: 'white', borderRadius: '8px', width: { xs: '35px', sm: '40px' }, height: { xs: '45px', sm: '50px' }, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: { xs: '1.2rem', sm: '1.5rem' }, fontWeight: 'bold' }}>
+                                                                            <Typography key={idx} aria-hidden="true" sx={{ backgroundColor: 'black', color: 'white', borderRadius: '8px', width: { xs: '35px', sm: '40px' }, height: { xs: '45px', sm: '50px' }, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: { xs: '1.2rem', sm: '1.5rem' }, fontWeight: 'bold' }}>
                                                                                     {digit}
                                                                                 </Typography>
                                                                             ))}
@@ -1082,7 +1087,7 @@ const Redeem = () => {
                                                             </CardContent>
                                                             <Divider />
                                                             <CardActions>
-                                                                <Button disabled>Managed by Primary Account Holder</Button>
+                                                                <Typography variant="body2" sx={{ px: 1, py: 0.75, color: 'text.secondary' }}>Managed by Primary Account Holder</Typography>
                                                             </CardActions>
                                                         </Card>
                                                     )
@@ -1122,7 +1127,8 @@ const Redeem = () => {
     };
 
     return (
-        <Box sx={{ maxWidth: 'sm', width: '100%', mx: 'auto', pt: 0, pb: 3, px: 3, display: 'flex', flexDirection: 'column', flexGrow: 1, }}>
+        <Box component="main" sx={{ maxWidth: 'sm', width: '100%', mx: 'auto', pt: 0, pb: 3, px: 3, display: 'flex', flexDirection: 'column', flexGrow: 1, }}>
+           <Helmet><title>Redeem | Surreal Creamery</title></Helmet>
            {renderHeader()}
            {renderContent()}
         </Box>

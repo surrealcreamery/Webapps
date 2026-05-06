@@ -4,12 +4,11 @@ import { Button, Box, Typography } from '@mui/material';
 import Logo from '@/assets/images/svg/logo.svg';
 import { LayoutContext } from '@/contexts/events/EventsLayoutContext';
 
-// Navigation items - same as commerce header
+// Navigation items - cross-app nav
 const NAV_ITEMS = [
-    // { label: 'Shop', path: 'https://shop.surrealcreamery.com', external: true },
+    { label: 'Shop', path: 'https://www.surrealcreamery.com', external: true },
     { label: 'Events', path: '/', external: false, isCurrentApp: true },
     { label: 'Subscriptions', path: 'https://www.dollarbobaclub.com', external: true },
-    // { label: 'Catering', path: 'https://catering.surrealcreamery.com', external: true },
 ];
 
 const Header = () => {
@@ -69,8 +68,8 @@ const Header = () => {
             `}</style>
             
             <header className="header" role="banner" aria-label="Site header">
-                {/* Navigation Bar - Hidden for now */}
-                {/* <Box
+                {/* Navigation Bar */}
+                <Box
                     component="nav"
                     role="navigation"
                     aria-label="Main navigation"
@@ -78,7 +77,10 @@ const Header = () => {
                         backgroundColor: '#000',
                         width: '100vw',
                         marginLeft: 'calc(-50vw + 50%)',
-                        py: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        height: 40,
                         px: 2,
                     }}
                 >
@@ -89,24 +91,22 @@ const Header = () => {
                             display: 'flex',
                             justifyContent: 'center',
                             gap: 0.5,
-                            flexWrap: 'wrap',
+                            flexWrap: 'nowrap',
                         }}
                     >
                         {NAV_ITEMS.map((item) => {
                             const isActive = item.isCurrentApp;
                             return (
-                                <Button
+                                <Box
                                     key={item.path}
                                     onClick={() => handleNavClick(item)}
                                     sx={{
-                                        color: isActive ? '#000' : '#fff',
+                                        display: 'flex',
+                                        alignItems: 'center',
                                         backgroundColor: isActive ? '#fff' : 'transparent',
-                                        textTransform: 'none',
-                                        px: 1.5,
-                                        py: 0.5,
-                                        minWidth: 'auto',
-                                        fontWeight: isActive ? 600 : 400,
-                                        borderRadius: 1,
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        p: '2px',
                                         '&:hover': {
                                             backgroundColor: isActive ? '#fff' : 'rgba(255,255,255,0.1)',
                                         },
@@ -114,17 +114,22 @@ const Header = () => {
                                 >
                                     <Typography
                                         sx={{
-                                            fontSize: '1.6rem !important',
-                                            fontWeight: 'inherit',
+                                            fontSize: '1.6rem',
+                                            fontWeight: isActive ? 600 : 400,
+                                            lineHeight: 1.2,
+                                            whiteSpace: 'nowrap',
+                                            px: 1.5,
+                                            py: 0.5,
+                                            color: isActive ? '#000' : '#fff',
                                         }}
                                     >
                                         {item.label}
                                     </Typography>
-                                </Button>
+                                </Box>
                             );
                         })}
                     </Box>
-                </Box> */}
+                </Box>
                 
                 {/* Logo and Actions Row */}
                 <div className="shell">

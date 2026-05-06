@@ -9,5 +9,8 @@ export default defineConfig({
 			"@": "/src",
 		},
 	},
+	esbuild: {
+		drop: ['console', 'debugger'],
+	},
 })
 

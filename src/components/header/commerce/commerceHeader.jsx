@@ -6,6 +6,7 @@ import ShoppingBagIcon from '@mui/icons-material/ShoppingBag';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import StorefrontIcon from '@mui/icons-material/Storefront';
 import CloseIcon from '@mui/icons-material/Close';
 import Logo from '@/assets/images/svg/logo.svg';
 import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
@@ -13,17 +14,17 @@ import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext
 import { LayoutContext as EventsLayoutContext } from '@/contexts/events/EventsLayoutContext';
 import { LocationModal } from '@/components/commerce/LocationModal';
 import { MenuDrawer } from '@/components/commerce/MenuDrawer';
-import { getDefaultLocations } from '@/components/commerce/shopifyLocations';
-import { initializeLocationSelection } from '@/components/commerce/geolocation';
+import { initializeLocationSelection, getLocationFromIP } from '@/components/commerce/geolocation';
+import { setGeoData } from '@/services/eventTracker';
+import { trackMenuOpened, trackLogoClicked, trackLocationSelectorOpened, trackLocationChanged, trackCartButtonClicked, trackAccountButtonClicked, trackNavItemClicked, trackBackButtonClicked, trackEventsLoginClicked, trackLogout } from '@/services/analytics';
 
 const LOCATIONS_URL = 'https://data.surrealcreamery.com/locations.json';
+const COMMERCE_CONFIG_URL = 'https://data.surrealcreamery.com/commerce-config.json';
 
 // Navigation items
 const NAV_ITEMS = [
     { label: 'Shop', path: '/shop', external: false },
     { label: 'Events', path: '/events', external: false },
-    { label: 'Subscriptions', path: '/subscriptions', external: false },
-    { label: 'Catering', path: '/catering', external: false },
 ];
 
 // Helper function to get initials from contact info
@@ -44,8 +45,8 @@ const Header = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Fetch locations from published JSON
-    const [locations, setLocations] = useState(() => getDefaultLocations());
+    // Fetch locations from published JSON (no fallback — run publishLocations from admin if empty)
+    const [locations, setLocations] = useState([]);
     const [locationsLoaded, setLocationsLoaded] = useState(false);
     useEffect(() => {
         fetch(LOCATIONS_URL)
@@ -57,9 +58,20 @@ const Header = () => {
                 setLocationsLoaded(true);
             })
             .catch(err => {
-                console.warn('[Header] Failed to fetch locations, using defaults:', err.message);
+                console.warn('[Header] Failed to fetch locations:', err.message);
                 setLocationsLoaded(true);
             });
+    }, []);
+
+    // Fetch commerce config (store locator distance threshold)
+    const [commerceConfig, setCommerceConfig] = useState(null);
+    const [configLoaded, setConfigLoaded] = useState(false);
+    useEffect(() => {
+        fetch(COMMERCE_CONFIG_URL)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => { if (data) setCommerceConfig(data); })
+            .catch(() => {})
+            .finally(() => setConfigLoaded(true));
     }, []);
 
     // Commerce context (always available)
@@ -149,29 +161,32 @@ const Header = () => {
         return activeItem?.path || null;
     };
 
-    // Auto-detect location on first visit (only after real locations are fetched)
+    // Auto-detect location on first visit (only after real locations and config are fetched)
+    const retailLocations = locations.filter(l => l.type !== 'Warehouse');
     useEffect(() => {
-        if (!locationsLoaded || !locations.length) return;
+        if (!locationsLoaded || !retailLocations.length || !configLoaded || !commerceConfig) return;
         const detectLocation = async () => {
             if (localStorage.getItem('selectedLocation')) return;
             try {
-                console.log('[Header] Auto-detecting location...', locations.length, 'stores available');
-                const nearestStore = await initializeLocationSelection(locations);
-                const storeId = nearestStore?.id || locations[0].id;
-                console.log('[Header] Selected store:', storeId, nearestStore?.distance ? `(${nearestStore.distanceText} away)` : '(fallback)');
-                localStorage.setItem('selectedLocation', storeId);
-                setSelectedLocation(storeId);
-                window.dispatchEvent(new CustomEvent('locationChanged', { detail: { locationId: storeId } }));
+                const maxDistance = commerceConfig?.storeLocatorDistanceMiles || 25;
+                console.log('[Header] Auto-detecting location...', retailLocations.length, 'stores available, maxDistance:', maxDistance);
+                const nearestStore = await initializeLocationSelection(retailLocations, maxDistance);
+                if (nearestStore) {
+                    console.log('[Header] Selected store:', nearestStore.id, `(${nearestStore.distanceText} away)`);
+                    localStorage.setItem('selectedLocation', nearestStore.id);
+                    setSelectedLocation(nearestStore.id);
+                    window.dispatchEvent(new CustomEvent('locationChanged', { detail: { locationId: nearestStore.id } }));
+                } else {
+                    console.log('[Header] No nearby store found — showing "Find a Store"');
+                }
             } catch (err) {
-                console.error('[Header] Auto-detect failed, using first location:', err);
-                const fallbackId = locations[0].id;
-                localStorage.setItem('selectedLocation', fallbackId);
-                setSelectedLocation(fallbackId);
-                window.dispatchEvent(new CustomEvent('locationChanged', { detail: { locationId: fallbackId } }));
+                console.error('[Header] Auto-detect failed:', err);
             }
         };
         detectLocation();
-    }, [locationsLoaded, locations]);
+        // Feed cached geo into event tracker for analytics
+        getLocationFromIP().then(loc => { if (loc) setGeoData(loc); });
+    }, [locationsLoaded, locations, configLoaded, commerceConfig]);
 
     // Calculate cart item counts
     const commerceCartCount = kioskCartCount > 0 ? kioskCartCount : cartCount;
@@ -214,18 +229,21 @@ const Header = () => {
 
     const handleLogoClick = (e) => {
         e.preventDefault();
+        trackLogoClicked();
         if (isEventsMode && sendToEvents) {
             sendToEvents({ type: 'RESET' });
             navigate('/events');
         } else if (isCateringMode && sendToCatering) {
             sendToCatering({ type: 'GO_TO_BROWSING' });
         } else {
+            sessionStorage.removeItem('addedToCart');
             sendToCommerce({ type: 'RESET' });
             navigate('/');
         }
     };
 
     const handleCartClick = () => {
+        trackCartButtonClicked(totalItems);
         if (isCateringMode && sendToCatering) {
             sendToCatering({ type: 'VIEW_CART' });
         } else {
@@ -234,6 +252,7 @@ const Header = () => {
     };
 
     const handleBackClick = () => {
+        trackBackButtonClicked(location.pathname);
         if (isCateringMode && sendToCatering) {
             sendToCatering({ type: 'GO_BACK' });
         } else {
@@ -242,28 +261,33 @@ const Header = () => {
     };
 
     const handleAccountClick = () => {
+        trackAccountButtonClicked();
         if (isCateringMode && sendToCatering) {
             sendToCatering({ type: 'VIEW_ACCOUNT' });
         }
     };
 
     const handleLogOut = () => {
+        trackLogout();
         if (sendToCatering) {
             sendToCatering({ type: 'RESET' });
         }
     };
 
     const handleLocationClick = () => {
+        trackLocationSelectorOpened();
         setLocationModalOpen(true);
     };
 
     const handleLocationChange = (locationId) => {
+        trackLocationChanged(locationId, locations.find(l => l.id === locationId)?.name);
         setSelectedLocation(locationId);
         localStorage.setItem('selectedLocation', locationId);
         window.dispatchEvent(new CustomEvent('locationChanged', { detail: { locationId } }));
     };
 
     const handleNavClick = (item) => {
+        trackNavItemClicked(item.label, item.path);
         if (item.external) {
             window.location.href = item.path;
         } else {
@@ -277,6 +301,13 @@ const Header = () => {
             } else {
                 navigate(item.path);
             }
+        }
+    };
+
+    const handleKeyDown = (e, callback) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            callback();
         }
     };
 
@@ -316,7 +347,7 @@ const Header = () => {
                     sx={{
                         backgroundColor: '#000',
                         width: '100vw',
-                        display: (isProductDetail || isEventsMode || isCheckoutPage || isAccountPage) ? 'none' : 'flex',
+                        display: (isProductDetail || isSubscriptionsMode || isCheckoutPage || isAccountPage) ? 'none' : 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         marginLeft: 'calc(-50vw + 50%)',
@@ -338,7 +369,11 @@ const Header = () => {
                     >
                         {/* Shop pill — expands to contain toggle group when in subcategory */}
                         <Box
+                            role={!isShopSubcategory ? 'button' : undefined}
+                            tabIndex={!isShopSubcategory ? 0 : -1}
+                            aria-label={!isShopSubcategory ? 'Shop' : undefined}
                             onClick={() => !isShopSubcategory && handleNavClick({ label: 'Shop', path: '/shop', external: false })}
+                            onKeyDown={(e) => !isShopSubcategory && handleKeyDown(e, () => handleNavClick({ label: 'Shop', path: '/shop', external: false }))}
                             sx={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -351,12 +386,16 @@ const Header = () => {
                                 '&:hover': !isShopSubcategory ? {
                                     backgroundColor: activeNavPath === '/shop' ? '#fff' : 'rgba(255,255,255,0.1)',
                                 } : {},
+                                '&:focus-visible': !isShopSubcategory ? {
+                                    outline: '2px solid #1976d2',
+                                    outlineOffset: '2px',
+                                } : {},
                             }}
                         >
                             <Typography
                                 onClick={(e) => { if (isShopSubcategory) { e.stopPropagation(); navigate('/desserts'); } }}
                                 sx={{
-                                    fontSize: { xs: '1.4rem', sm: '1.6rem' },
+                                    fontSize: '1.6rem',
                                     fontWeight: 600,
                                     lineHeight: 1.2,
                                     whiteSpace: 'nowrap',
@@ -405,7 +444,7 @@ const Header = () => {
                                                         py: '3px',
                                                         minHeight: 0,
                                                         lineHeight: 1.2,
-                                                        fontSize: { xs: '1.4rem', sm: '1.6rem' },
+                                                        fontSize: '1.6rem',
                                                         whiteSpace: 'nowrap',
                                                         borderRadius: '3px !important',
                                                         '&.Mui-selected': {
@@ -440,7 +479,11 @@ const Header = () => {
                                         style={{ overflow: 'hidden', flexShrink: 0 }}
                                     >
                                         <Box
+                                            role="button"
+                                            tabIndex={0}
+                                            aria-label={item.label}
                                             onClick={() => handleNavClick(item)}
+                                            onKeyDown={(e) => handleKeyDown(e, () => handleNavClick(item))}
                                             sx={{
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -451,10 +494,14 @@ const Header = () => {
                                                 '&:hover': {
                                                     backgroundColor: isActive ? '#fff' : 'rgba(255,255,255,0.1)',
                                                 },
+                                                '&:focus-visible': {
+                                                    outline: '2px solid #1976d2',
+                                                    outlineOffset: '2px',
+                                                },
                                             }}
                                         >
                                             <Typography sx={{
-                                                fontSize: { xs: '1.4rem', sm: '1.6rem' },
+                                                fontSize: '1.6rem',
                                                 fontWeight: isActive ? 600 : 400,
                                                 lineHeight: 1.2,
                                                 whiteSpace: 'nowrap',
@@ -482,7 +529,7 @@ const Header = () => {
                                 {!isCateringMode && !isEventsMode && !isCheckoutPage && !isAccountPage && (
                                     isProductDetail ? null : (
                                         <Button
-                                            onClick={() => setMenuDrawerOpen(true)}
+                                            onClick={() => { trackMenuOpened(); setMenuDrawerOpen(true); }}
                                             variant="outlined"
                                             sx={{
                                                 color: `${activeTextColor} !important`,
@@ -491,7 +538,7 @@ const Header = () => {
                                                 textTransform: 'none',
                                                 fontFamily: 'Outfit, sans-serif',
                                                 fontWeight: 600,
-                                                fontSize: '1.4rem',
+                                                fontSize: '1.6rem',
                                                 px: 2,
                                                 py: 0.5,
                                                 borderRadius: 2,
@@ -520,7 +567,7 @@ const Header = () => {
                                                 alt="Surreal Creamery Logo"
                                                 style={{
                                                     display: 'block',
-                                                    height: '128px',
+                                                    height: 'clamp(88px, 18vw, 128px)',
                                                     width: 'auto',
                                                     filter: (activeTextColor === 'white' || activeTextColor === '#ffffff') ? 'brightness(0) invert(1)' : 'none',
                                                     transition: 'filter 0.4s ease'
@@ -535,7 +582,7 @@ const Header = () => {
                                                 aria-label={`Change store location. Currently: ${selectedLocation ? locations.find(loc => loc.id === selectedLocation)?.name : 'none selected'}`}
                                                 aria-haspopup="dialog"
                                                 sx={{
-                                                    mt: -3,
+                                                    mt: -1.5,
                                                     display: 'flex',
                                                     justifyContent: 'center',
                                                     cursor: 'pointer',
@@ -549,9 +596,18 @@ const Header = () => {
                                                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleLocationClick(); } }}
                                             >
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                    <Typography variant="body1" sx={{ fontWeight: 600, whiteSpace: 'nowrap', fontSize: '1.6rem', color: activeTextColor, transition: 'color 0.4s ease' }}>
-                                                        {(selectedLocation && locations.find(loc => loc.id === selectedLocation)?.name) || 'Select a Location'}
-                                                    </Typography>
+                                                    {selectedLocation && locations.find(loc => loc.id === selectedLocation) ? (
+                                                        <Typography variant="body1" sx={{ fontWeight: 600, whiteSpace: 'nowrap', fontSize: '1.6rem', color: activeTextColor, transition: 'color 0.4s ease' }}>
+                                                            {locations.find(loc => loc.id === selectedLocation).name}
+                                                        </Typography>
+                                                    ) : (
+                                                        <>
+                                                            <StorefrontIcon sx={{ fontSize: 20, color: activeTextColor, transition: 'color 0.4s ease' }} />
+                                                            <Typography variant="body1" sx={{ fontWeight: 600, whiteSpace: 'nowrap', fontSize: '1.6rem', color: activeTextColor, transition: 'color 0.4s ease' }}>
+                                                                Store Locator
+                                                            </Typography>
+                                                        </>
+                                                    )}
                                                     <KeyboardArrowDownIcon aria-hidden="true" sx={{ fontSize: 22, color: activeTextColor === 'white' || activeTextColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'text.secondary', transition: 'color 0.4s ease' }} />
                                                 </Box>
                                             </Box>
@@ -566,7 +622,7 @@ const Header = () => {
                                 {/* Events: Login button */}
                                 {isEventsMode && showEventsLoginButton && (
                                     <Button
-                                        onClick={() => sendToEvents?.({ type: 'LOGIN_START' })}
+                                        onClick={() => { trackEventsLoginClicked(); sendToEvents?.({ type: 'LOGIN_START' }); }}
                                         variant="outlined"
                                         sx={{
                                             color: `${activeTextColor} !important`,
@@ -575,7 +631,7 @@ const Header = () => {
                                             textTransform: 'none',
                                             fontFamily: 'Outfit, sans-serif',
                                             fontWeight: 600,
-                                            fontSize: '1.4rem',
+                                            fontSize: '1.6rem',
                                             px: 2,
                                             py: 0.5,
                                             borderRadius: 2,
@@ -618,7 +674,7 @@ const Header = () => {
                                 {isEventsMode && showEventsLogoutButton && (
                                     <Button
                                         variant="outlined"
-                                        onClick={eventsLogout}
+                                        onClick={() => { trackLogout(); eventsLogout(); }}
                                         sx={{
                                             color: 'black',
                                             borderColor: 'black',
@@ -684,6 +740,7 @@ const Header = () => {
                                     <Button
                                         variant="outlined"
                                         onClick={() => {
+                                            trackLogout();
                                             sessionStorage.removeItem('accountSession');
                                             window.dispatchEvent(new CustomEvent('accountLogout'));
                                         }}
@@ -700,11 +757,17 @@ const Header = () => {
                                 {/* Account Icon (commerce - shop pages) */}
                                 {showCommerceAccountButton && (
                                     <IconButton
-                                        onClick={() => navigate('/account')}
+                                        onClick={() => { trackAccountButtonClicked(); navigate('/account'); }}
                                         aria-label="Account"
-                                        sx={{ color: activeTextColor, transition: 'color 0.4s ease' }}
+                                        sx={{
+                                            backgroundColor: 'black',
+                                            color: 'white',
+                                            width: 36,
+                                            height: 36,
+                                            '&:hover': { backgroundColor: '#333' },
+                                        }}
                                     >
-                                        <AccountCircleIcon sx={{ fontSize: 32 }} />
+                                        <AccountCircleIcon sx={{ fontSize: 28, color: 'white' }} />
                                     </IconButton>
                                 )}
 
@@ -744,7 +807,7 @@ const Header = () => {
                             onClose={() => setLocationModalOpen(false)}
                             selectedLocationId={selectedLocation}
                             onSelectLocation={handleLocationChange}
-                            locations={locations}
+                            locations={locations.filter(l => l.type !== 'Warehouse')}
                         />
 
                         {/* Menu Drawer - for Shop pages */}

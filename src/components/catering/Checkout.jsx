@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { 
-    Box, Typography, Button, Radio, RadioGroup, FormControlLabel, 
-    FormControl, Divider, CircularProgress, Alert 
+import {
+    Box, Typography, Button, Radio, RadioGroup, FormControlLabel,
+    FormControl, Divider, CircularProgress, Alert
 } from '@mui/material';
 import { format } from 'date-fns';
 import { CREATE_INVOICE, PROCESS_INVOICE_URL, SQUARE_APP_ID, SQUARE_LOCATION_ID } from '@/constants/catering/cateringConstants';
+import { trackCateringOrderSubmitted } from '@/services/analytics';
 
 // Helper function to format phone number to E.164
 const formatPhoneNumberE164 = (mobileNumber) => {
@@ -170,6 +171,7 @@ export const Checkout = ({ sendToCatering, cateringState }) => {
 
     // Handle Place Order
     const handlePlaceOrder = async () => {
+        trackCateringOrderSubmitted(total, paymentMethod);
         setError(null);
         setIsProcessing(true);
 

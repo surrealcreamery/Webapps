@@ -41,6 +41,7 @@
     "framer-motion": "^12.24.0",
     "minimal-shared": "^1.1.5",
     "mui-one-time-password-input": "^5.0.0",
+    "posthog-js": "^1.364.7",
     "react": "^18.2.0",
     "react-apexcharts": "^1.9.0",
     "react-datepicker": "^7.5.0",

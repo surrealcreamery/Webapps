@@ -143,25 +143,35 @@ export const getProductBySku = async (sku) => {
  * @returns {Array} Sorted products array
  */
 export const sortProductsByOrder = (products, productOrder = [], catalogProducts = []) => {
-  // Build a map from SKU to product name using catalog products
+  // Build order map: SKU → position index (primary match)
+  const skuOrderMap = new Map();
+  productOrder.forEach((sku, idx) => {
+    skuOrderMap.set(sku.toUpperCase(), idx);
+  });
+
+  // Build name order map as fallback (for products whose SKU changed)
   const skuToName = new Map();
   catalogProducts.forEach(p => {
     if (p.sku && p.name) {
       skuToName.set(p.sku.toUpperCase(), p.name.toLowerCase());
     }
   });
-
-  // Build order map using product names
   const nameOrderMap = new Map();
   productOrder.forEach((sku, idx) => {
     const name = skuToName.get(sku.toUpperCase());
-    if (name) {
+    if (name && !nameOrderMap.has(name)) {
       nameOrderMap.set(name, idx);
     }
   });
 
   // Helper to find a product's position in the order
   const getOrderIndex = (product) => {
+    // Try SKU match first (most reliable)
+    if (product.sku) {
+      const idx = skuOrderMap.get(product.sku.toUpperCase());
+      if (idx !== undefined) return idx;
+    }
+    // Fallback to name match
     if (product.name) {
       const idx = nameOrderMap.get(product.name.toLowerCase());
       if (idx !== undefined) return idx;
@@ -175,7 +185,7 @@ export const sortProductsByOrder = (products, productOrder = [], catalogProducts
     if (aIdx !== Infinity && bIdx !== Infinity) return aIdx - bIdx;
     if (aIdx !== Infinity) return -1;
     if (bIdx !== Infinity) return 1;
-    return (a.name || a.id || '').localeCompare(b.name || b.id || '');
+    return (a.name || a.sku || '').localeCompare(b.name || b.sku || '');
   });
 };
 

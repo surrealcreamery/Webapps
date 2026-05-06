@@ -15,16 +15,13 @@ const SkipToContent = () => {
 	 */
 	const handleSkipToContent = (event) => {
 		const targetSection = document.getElementById('skip-to-content');
-		const skipToContentButton = skipToContentButtonRef.current;
 
-		if (targetSection && skipToContentButton) {
+		if (targetSection) {
 			window.scrollTo({
 				top: targetSection.offsetTop,
-				left: 0,		
+				left: 0,
 				behavior: 'smooth',
 			});
-
-			skipToContentButton.blur();
 
 			const focusableElements = targetSection.querySelectorAll(
 				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -32,6 +29,11 @@ const SkipToContent = () => {
 
 			if (focusableElements.length > 0) {
 				focusableElements[0].focus();
+			} else {
+				if (!targetSection.hasAttribute('tabindex')) {
+					targetSection.setAttribute('tabindex', '-1');
+				}
+				targetSection.focus();
 			}
 		}
 

@@ -8,7 +8,6 @@ import {
     CardContent,
     CardActions,
     CircularProgress,
-    FormHelperText,
     Alert
 } from '@mui/material';
 import PhoneInputComponent from './phoneInput.jsx';
@@ -126,7 +125,7 @@ const StepContactInfo = ({
             {!isEditing && submittedCustomers.map((customer, index) => (
                 <Card variant="outlined" sx={{ my: 2, backgroundColor: '#f9f9f9' }} key={index}>
                     <CardContent>
-                        <Typography variant="h6" gutterBottom>
+                        <Typography variant="h6" component="h2" gutterBottom>
                             {getTitle(index)}
                         </Typography>
                         <Typography><b>Name:</b> {customerForms[index].firstName} {customerForms[index].lastName}</Typography>
@@ -200,9 +199,9 @@ const StepContactInfo = ({
                             onChange={e => handleFieldChange('phone', e.target.value)}
                             InputProps={{ inputComponent: PhoneInputComponent }}
                             error={!!errors.phone}
+                            helperText={errors.phone || ' '}
                             autoComplete="tel"
                         />
-                        {errors.phone && <FormHelperText error>{errors.phone}</FormHelperText>}
                     </Box>
                 </Box>
             )}
@@ -216,6 +215,8 @@ const StepContactInfo = ({
                     variant="contained"
                     onClick={handleMainClick}
                     disabled={isSubmitting || (!allFormsSubmitted && Object.values(activeForm).every(v => v === ''))}
+                    aria-label={isSubmitting ? "Submitting, please wait" : undefined}
+                    aria-busy={isSubmitting}
                 >
                     {isSubmitting
                         ? <CircularProgress size={24} color="inherit" />

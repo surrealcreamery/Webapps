@@ -6,10 +6,10 @@ import { FaLeaf, FaRecycle } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext';
 import { getLocationFromIP, calculateDistance } from '@/components/commerce/geolocation';
-import { getDefaultLocations } from '@/components/commerce/shopifyLocations';
 import { LocalizationProvider, DateCalendar, PickersDay } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { isBefore, startOfToday, isToday, isTomorrow, addDays, format } from 'date-fns';
+import { trackCateringCategorySelected, trackCateringItemViewed } from '@/services/analytics';
 
 const PLACEHOLDER_IMAGE = 'https://placehold.co/300x300/e0e0e0/666666?text=Category';
 
@@ -37,11 +37,19 @@ const STORE_HOURS = {
     },
 };
 
-// Merge locations from shared source with hours
-const STORE_LOCATIONS = getDefaultLocations().map(loc => ({
-    ...loc,
-    hours: STORE_HOURS[loc.id] || STORE_HOURS['kips-bay'], // fallback to kips-bay hours
-}));
+// Merge locations from CDN with hours
+let STORE_LOCATIONS = [];
+fetch('https://data.surrealcreamery.com/locations.json')
+    .then(r => r.json())
+    .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+            STORE_LOCATIONS = data.map(loc => ({
+                ...loc,
+                hours: STORE_HOURS[loc.id] || STORE_HOURS['kips-bay'],
+            }));
+        }
+    })
+    .catch(() => {});
 
 // Lead times in minutes
 const PICKUP_LEAD_TIME = 60; // 1 hour
@@ -1078,7 +1086,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                     alignItems: 'center',
                                     gap: 0.5,
                                     color: '#1976d2',
-                                    fontSize: '1.4rem',
+                                    fontSize: '1.6rem',
                                     fontWeight: 600,
                                     flexShrink: 0,
                                     '&:hover': { opacity: 0.7 },
@@ -1098,13 +1106,13 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                         {jar.glutenFree && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <GlutenFreeBadge size="medium" />
-                                <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Gluten-Free</Typography>
+                                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>Gluten-Free</Typography>
                             </Box>
                         )}
                         {jar.vegan && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <VeganBadge size="medium" />
-                                <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Vegan</Typography>
+                                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>Vegan</Typography>
                             </Box>
                         )}
                     </Box>
@@ -1116,7 +1124,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                             {/* Quantity Selector - Cart Style */}
                             <Box sx={{ mb: 3 }}>
                                 <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 1.5 }}>
-                                    Quantity {availableSlots > 0 && <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary', fontSize: '1.4rem' }}>({availableSlots} slots available)</Typography>}
+                                    Quantity {availableSlots > 0 && <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary', fontSize: '1.6rem' }}>({availableSlots} slots available)</Typography>}
                                 </Typography>
                                 <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
                                     <Box
@@ -1128,7 +1136,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                             height: 44,
                                             border: 'none',
                                             backgroundColor: 'transparent',
-                                            fontSize: '1.5rem',
+                                            fontSize: '1.6rem',
                                             fontWeight: 700,
                                             cursor: quantity <= 1 ? 'not-allowed' : 'pointer',
                                             opacity: quantity <= 1 ? 0.4 : 1,
@@ -1149,7 +1157,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                             height: 44,
                                             border: 'none',
                                             backgroundColor: 'transparent',
-                                            fontSize: '1.5rem',
+                                            fontSize: '1.6rem',
                                             fontWeight: 700,
                                             cursor: (quantity >= availableSlots || availableSlots <= 0) ? 'not-allowed' : 'pointer',
                                             opacity: (quantity >= availableSlots || availableSlots <= 0) ? 0.4 : 1,
@@ -1166,7 +1174,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                 <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 1.5 }}>
                                     Ingredients
                                 </Typography>
-                                <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', lineHeight: 1.6 }}>
+                                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.6 }}>
                                     {jar.ingredients?.join(', ') || 'No ingredients listed'}
                                 </Typography>
                             </Box>
@@ -1187,7 +1195,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                                     backgroundColor: '#fff3e0',
                                                     border: '1px solid #ffcc80',
                                                     borderRadius: 2,
-                                                    fontSize: '1.3rem',
+                                                    fontSize: '1.6rem',
                                                     fontWeight: 500,
                                                     color: '#e65100',
                                                 }}
@@ -1227,7 +1235,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                     {(
                                         <Box sx={{ mb: 3 }}>
                                             <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 1.5 }}>
-                                                Quantity {availableSlots > 0 && <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary', fontSize: '1.4rem' }}>({availableSlots} slots available)</Typography>}
+                                                Quantity {availableSlots > 0 && <Typography component="span" sx={{ fontWeight: 400, color: 'text.secondary', fontSize: '1.6rem' }}>({availableSlots} slots available)</Typography>}
                                             </Typography>
                                             <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
                                                 <Box
@@ -1239,7 +1247,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                                         height: 44,
                                                         border: 'none',
                                                         backgroundColor: 'transparent',
-                                                        fontSize: '1.5rem',
+                                                        fontSize: '1.6rem',
                                                         fontWeight: 700,
                                                         cursor: quantity <= 1 ? 'not-allowed' : 'pointer',
                                                         opacity: quantity <= 1 ? 0.4 : 1,
@@ -1260,7 +1268,7 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                                         height: 44,
                                                         border: 'none',
                                                         backgroundColor: 'transparent',
-                                                        fontSize: '1.5rem',
+                                                        fontSize: '1.6rem',
                                                         fontWeight: 700,
                                                         cursor: (quantity >= availableSlots || availableSlots <= 0) ? 'not-allowed' : 'pointer',
                                                         opacity: (quantity >= availableSlots || availableSlots <= 0) ? 0.4 : 1,
@@ -1296,10 +1304,10 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                                 />
                                             )}
                                         </Box>
-                                        <Typography sx={{ fontWeight: 600, fontSize: '1.4rem', color: 'text.secondary' }}>
+                                        <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', color: 'text.secondary' }}>
                                             {isCustomCookie ? 'Cookie' : isCustomCupcake ? 'Cupcake' : 'Cake'}
                                         </Typography>
-                                        <Typography sx={{ fontSize: '1.4rem' }}>
+                                        <Typography sx={{ fontSize: '1.6rem' }}>
                                             {displayCake}
                                         </Typography>
                                     </Box>
@@ -1327,10 +1335,10 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                                 />
                                             )}
                                         </Box>
-                                        <Typography sx={{ fontWeight: 600, fontSize: '1.4rem', color: 'text.secondary' }}>
+                                        <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', color: 'text.secondary' }}>
                                             Frosting
                                         </Typography>
-                                        <Typography sx={{ fontSize: '1.4rem' }}>
+                                        <Typography sx={{ fontSize: '1.6rem' }}>
                                             {displayFrostings.length > 0 ? displayFrostings[0] : 'None'}
                                         </Typography>
                                     </Box>
@@ -1360,13 +1368,13 @@ const JarPreviewModal = ({ open, onClose, jar, onCustomize, onAddToBox, onDelete
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                 />
                                             ) : (
-                                                <Typography sx={{ fontSize: '1.2rem', color: 'text.secondary' }}>—</Typography>
+                                                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>—</Typography>
                                             )}
                                         </Box>
-                                        <Typography sx={{ fontWeight: 600, fontSize: '1.4rem', color: 'text.secondary' }}>
+                                        <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', color: 'text.secondary' }}>
                                             Topping
                                         </Typography>
-                                        <Typography sx={{ fontSize: '1.4rem' }}>
+                                        <Typography sx={{ fontSize: '1.6rem' }}>
                                             {displayToppings.length > 0 ? displayToppings[0] : 'None'}
                                         </Typography>
                                     </Box>
@@ -1728,13 +1736,13 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                         {jar.glutenFree && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <GlutenFreeBadge size="medium" />
-                                <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Gluten-Free</Typography>
+                                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>Gluten-Free</Typography>
                             </Box>
                         )}
                         {jar.vegan && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <VeganBadge size="medium" />
-                                <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Vegan</Typography>
+                                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>Vegan</Typography>
                             </Box>
                         )}
                     </Box>
@@ -1757,10 +1765,10 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 }}
                             >
                                 <Box>
-                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Cake</Typography>
+                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>Cake</Typography>
                                     <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>{selectedCake}</Typography>
                                 </Box>
-                                <Typography sx={{ fontSize: '1.4rem', color: 'primary.main' }}>Edit</Typography>
+                                <Typography sx={{ fontSize: '1.6rem', color: 'primary.main' }}>Edit</Typography>
                             </Box>
                         ) : (
                         <>
@@ -1830,7 +1838,7 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                     <Typography
                                         sx={{
                                             mt: 1,
-                                            fontSize: '1.4rem',
+                                            fontSize: '1.6rem',
                                             fontWeight: selectedCake === cake.name ? 600 : 500,
                                             textAlign: 'center',
                                             color: selectedCake === cake.name ? 'black' : 'text.secondary',
@@ -1887,10 +1895,10 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 }}
                             >
                                 <Box>
-                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Frosting</Typography>
+                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>Frosting</Typography>
                                     <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>{selectedFrostings.join(', ')}</Typography>
                                 </Box>
-                                <Typography sx={{ fontSize: '1.4rem', color: 'primary.main' }}>Edit</Typography>
+                                <Typography sx={{ fontSize: '1.6rem', color: 'primary.main' }}>Edit</Typography>
                             </Box>
                         ) : (
                         <>
@@ -1968,7 +1976,7 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                     <Typography
                                         sx={{
                                             mt: 1,
-                                            fontSize: '1.4rem',
+                                            fontSize: '1.6rem',
                                             fontWeight: selectedFrostings.includes(frosting.name) ? 600 : 500,
                                             textAlign: 'center',
                                             color: selectedFrostings.includes(frosting.name) ? 'black' : 'text.secondary',
@@ -2026,10 +2034,10 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 }}
                             >
                                 <Box>
-                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Toppings</Typography>
+                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>Toppings</Typography>
                                     <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>{selectedToppings.length > 0 ? selectedToppings.join(', ') : 'None'}</Typography>
                                 </Box>
-                                <Typography sx={{ fontSize: '1.4rem', color: 'primary.main' }}>Edit</Typography>
+                                <Typography sx={{ fontSize: '1.6rem', color: 'primary.main' }}>Edit</Typography>
                             </Box>
                         ) : (
                         <>
@@ -2145,10 +2153,10 @@ const JarCustomizationModal = ({ open, onClose, jar, onSave }) => {
                                 }}
                             >
                                 <Box>
-                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>Cookies</Typography>
+                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>Cookies</Typography>
                                     <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>{selectedCookies.length > 0 ? selectedCookies.join(', ') : 'None'}</Typography>
                                 </Box>
-                                <Typography sx={{ fontSize: '1.4rem', color: 'primary.main' }}>Edit</Typography>
+                                <Typography sx={{ fontSize: '1.6rem', color: 'primary.main' }}>Edit</Typography>
                             </Box>
                         ) : (
                         <>
@@ -2786,7 +2794,7 @@ const AnimatedPackaging = ({ item, onSelect, isSelected, isHighlighted }) => {
                     mt: 1,
                     fontWeight: isHighlighted ? 700 : 500,
                     textAlign: 'center',
-                    fontSize: '1.4rem',
+                    fontSize: '1.6rem',
                     transition: 'font-weight 0.3s',
                 }}
             >
@@ -3951,6 +3959,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
     const featuredProducts = allProducts.slice(0, 6);
 
     const handleProductClick = (item) => {
+        trackCateringItemViewed(item['Item Name'] || item.categoryName);
         // First select the category
         sendToCatering({ type: 'SELECT_CATEGORY', category: item.categoryName });
 
@@ -4332,7 +4341,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     </Box>
                                     <Typography
                                         sx={{
-                                            fontSize: '1.4rem',
+                                            fontSize: '1.6rem',
                                             color: 'text.secondary',
                                             mt: 0.5,
                                         }}
@@ -4693,7 +4702,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                             {item.glutenFree && (
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                                     <GlutenFreeBadge size="small" />
-                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
                                                         Gluten Free
                                                     </Typography>
                                                 </Box>
@@ -4701,7 +4710,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                             {item.vegan && (
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                                     <VeganBadge size="small" />
-                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
                                                         Vegan
                                                     </Typography>
                                                 </Box>
@@ -4801,7 +4810,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                             const currentEditingIndex = cateringBoxItems.findIndex(item => item.id === editingCartItemId);
                                             return (
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2, flexWrap: 'wrap' }}>
-                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
                                                         {selectedPackaging?.name === 'Cookie Tray' ? 'Cookie Trays:' :
                                                          isCookiePackaging ? 'Cookie Boxes:' :
                                                          isCupcakePackaging ? 'Cupcake Boxes:' :
@@ -4838,7 +4847,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                                 cursor: 'pointer',
-                                                                fontSize: '1.4rem',
+                                                                fontSize: '1.6rem',
                                                                 fontWeight: 600,
                                                                 backgroundColor: cartItem.id === editingCartItemId ? 'black' : 'transparent',
                                                                 color: cartItem.id === editingCartItemId ? 'white' : 'text.primary',
@@ -4871,7 +4880,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             color: 'black',
                                                             border: '1px solid black',
                                                             borderRadius: 1,
-                                                            fontSize: '1.3rem',
+                                                            fontSize: '1.6rem',
                                                             fontWeight: 600,
                                                             cursor: 'pointer',
                                                             whiteSpace: 'nowrap',
@@ -4896,7 +4905,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                             const newBoxNumber = cateringBoxItems.length + 1;
                                             return (
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2, flexWrap: 'wrap' }}>
-                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
                                                         {selectedPackaging?.name === 'Cookie Tray' ? 'Cookie Trays:' :
                                                          isCookiePackaging ? 'Cookie Boxes:' :
                                                          isCupcakePackaging ? 'Cupcake Boxes:' :
@@ -4930,7 +4939,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
                                                                 cursor: 'pointer',
-                                                                fontSize: '1.4rem',
+                                                                fontSize: '1.6rem',
                                                                 fontWeight: 600,
                                                                 backgroundColor: 'transparent',
                                                                 color: 'text.primary',
@@ -4953,7 +4962,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             display: 'flex',
                                                             alignItems: 'center',
                                                             justifyContent: 'center',
-                                                            fontSize: '1.4rem',
+                                                            fontSize: '1.6rem',
                                                             fontWeight: 600,
                                                             backgroundColor: 'black',
                                                             color: 'white',
@@ -4974,7 +4983,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 color: 'black',
                                                                 border: '1px solid black',
                                                                 borderRadius: 1,
-                                                                fontSize: '1.3rem',
+                                                                fontSize: '1.6rem',
                                                                 fontWeight: 600,
                                                                 cursor: 'pointer',
                                                                 whiteSpace: 'nowrap',
@@ -5002,7 +5011,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                     {/* Box label - show box number above slots */}
                                     {completedBoxes.length === 0 && (
                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                                            <Typography sx={{ fontSize: '1.2rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
                                                 {(() => {
                                                     // Get cart items that match the CURRENT packaging type only
                                                     const getItemIdPrefix = () => {
@@ -5026,7 +5035,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 })()}
                                             </Typography>
                                             {minimumBoxesRequired > 1 && selectedCustomizations.length > 0 && (
-                                                <Typography sx={{ fontSize: '1.1rem', color: 'text.secondary', textAlign: 'right' }}>
+                                                <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', textAlign: 'right' }}>
                                                     {(() => {
                                                         // Get the customization option labels for display
                                                         const customizationLabels = selectedCustomizations.map(id => {
@@ -5058,7 +5067,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 }}
                                             >
                                                 {/* Slot number */}
-                                                <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: 'text.secondary', minWidth: 30 }}>
+                                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'text.secondary', minWidth: 30 }}>
                                                     {slotIndex + 1}.
                                                 </Typography>
 
@@ -5172,7 +5181,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             );
                                                         })()}
                                                         <Box sx={{ flex: 1 }}>
-                                                            <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                                                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>
                                                                 {flavorInSlot.displayName || flavorInSlot.name}
                                                             </Typography>
                                                         </Box>
@@ -5186,7 +5195,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 border: '1px solid',
                                                                 borderColor: 'grey.400',
                                                                 backgroundColor: 'white',
-                                                                fontSize: '1.4rem',
+                                                                fontSize: '1.6rem',
                                                                 cursor: 'pointer',
                                                                 display: 'flex',
                                                                 alignItems: 'center',
@@ -5234,19 +5243,19 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 display: 'flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
-                                                                fontSize: '1.5rem',
+                                                                fontSize: '1.6rem',
                                                                 color: '#666',
                                                             }}
                                                         >
                                                             +
                                                         </Box>
-                                                        <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: '#666' }}>
+                                                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: '#666' }}>
                                                             {isCookiePackaging ? 'Add a Cookie' : isCupcakePackaging ? 'Add a Cupcake' : 'Add a Cake Jar'}
                                                         </Typography>
                                                     </Box>
                                                 ) : (
                                                     /* Remaining empty slots - just show as empty */
-                                                    <Typography sx={{ fontSize: '1.4rem', color: 'text.disabled', py: 1.5 }}>
+                                                    <Typography sx={{ fontSize: '1.6rem', color: 'text.disabled', py: 1.5 }}>
                                                         —
                                                     </Typography>
                                                 )}
@@ -5274,7 +5283,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                          isCupcakePackaging ? 'Cupcake Box' :
                                                          'Cake Jar Box'}?
                                         </Typography>
-                                        <Typography sx={{ color: 'text.secondary', mb: 4, fontSize: '1.4rem' }}>
+                                        <Typography sx={{ color: 'text.secondary', mb: 4, fontSize: '1.6rem' }}>
                                             Your {selectedPackaging?.name === 'Cookie Tray' ? 'cookie tray' :
                                                    isCookiePackaging ? 'cookie box' :
                                                    isCupcakePackaging ? 'cupcake box' :
@@ -5644,7 +5653,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             >
                                                                 <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                             </Box>
-                                                            <Typography sx={{ fontSize: '1.4rem', mt: 1, textAlign: 'center' }}>{item.name}</Typography>
+                                                            <Typography sx={{ fontSize: '1.6rem', mt: 1, textAlign: 'center' }}>{item.name}</Typography>
                                                         </Box>
                                                     ))}
                                                 </Box>
@@ -5721,7 +5730,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                         />
                                                                     )}
                                                                 </Box>
-                                                                <Typography sx={{ fontSize: '1.4rem', mt: 1, textAlign: 'center' }}>{frosting.name}</Typography>
+                                                                <Typography sx={{ fontSize: '1.6rem', mt: 1, textAlign: 'center' }}>{frosting.name}</Typography>
                                                             </Box>
                                                         );
                                                     })}
@@ -5751,7 +5760,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 borderRadius: 2,
                                                                 backgroundColor: makeYourOwnSelections.topping === topping.name ? '#f5f5f5' : 'white',
                                                                 cursor: 'pointer',
-                                                                fontSize: '1.4rem',
+                                                                fontSize: '1.6rem',
                                                                 textAlign: 'left',
                                                             }}
                                                         >
@@ -5786,7 +5795,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 borderRadius: 2,
                                                                 backgroundColor: makeYourOwnSelections.cookie === cookieName ? '#f5f5f5' : 'white',
                                                                 cursor: 'pointer',
-                                                                fontSize: '1.4rem',
+                                                                fontSize: '1.6rem',
                                                                 textAlign: 'left',
                                                             }}
                                                         >
@@ -5819,7 +5828,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 borderRadius: 2,
                                                                 backgroundColor: makeYourOwnSelections.syrup === syrup ? '#f5f5f5' : 'white',
                                                                 cursor: 'pointer',
-                                                                fontSize: '1.4rem',
+                                                                fontSize: '1.6rem',
                                                                 textAlign: 'left',
                                                             }}
                                                         >
@@ -5941,13 +5950,13 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                 >
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                         <GlutenFreeBadge size="small" />
-                                        <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
                                             Gluten Free
                                         </Typography>
                                     </Box>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                         <VeganBadge size="small" />
-                                        <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
                                             Vegan
                                         </Typography>
                                     </Box>
@@ -5969,7 +5978,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 px: 3,
                                                 py: 1,
                                                 textTransform: 'none',
-                                                fontSize: '1.4rem',
+                                                fontSize: '1.6rem',
                                                 fontWeight: 500,
                                                 border: '1px solid',
                                                 borderColor: 'grey.300',
@@ -5999,7 +6008,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                 px: 3,
                                                 py: 1,
                                                 textTransform: 'none',
-                                                fontSize: '1.4rem',
+                                                fontSize: '1.6rem',
                                                 fontWeight: 500,
                                                 border: '1px solid',
                                                 borderColor: 'grey.300',
@@ -6066,7 +6075,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                     />
                                                 </Box>
-                                                <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>
                                                     {isCookiePackaging ? 'Make Your Own Cookie' : isCupcakePackaging ? 'Make Your Own Cupcake' : 'Make Your Own Cake Jar'}
                                                 </Typography>
                                             </Box>
@@ -6184,7 +6193,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                             );
                                                         })()}
                                                         <Box sx={{ flex: 1 }}>
-                                                            <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                                                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>
                                                                 {item.displayName || item.name}
                                                             </Typography>
                                                         </Box>
@@ -6282,7 +6291,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                                                                 )}
                                                             </Box>
                                                             <Box sx={{ flex: 1 }}>
-                                                                <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                                                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>
                                                                     {flavor.name}
                                                                 </Typography>
                                                                 {ingredientDesc && (
@@ -6335,7 +6344,7 @@ export const CategoryListView = ({ menu, sendToCatering, editingCakeJarBox, onCl
                         return (
                             <Box
                                 key={categoryName}
-                                onClick={() => sendToCatering({ type: 'SELECT_CATEGORY', category: categoryName })}
+                                onClick={() => { trackCateringCategorySelected(categoryName); sendToCatering({ type: 'SELECT_CATEGORY', category: categoryName }); }}
                                 sx={{
                                     cursor: 'pointer',
                                     width: 'calc(50% - 8px)',

@@ -90,6 +90,7 @@
 // /src/pages/Home.jsx
 
 import React, { useMemo, useState, useEffect, useCallback, useContext } from 'react';
+import { Helmet } from 'react-helmet-async';
 import {
     Box,
     Typography,
@@ -114,6 +115,7 @@ import 'react-phone-number-input/style.css';
 
 // The shared context that provides access to the XState state machine instance.
 import { LayoutContext } from '@/contexts/subscriptions/SubscriptionsLayoutContext';
+import { trackSubscriptionPlanViewed } from '@/services/analytics';
 
 // Import all the individual step components that this page will render.
 import StepModelSelection from '@/components/subscription/stepModelSelection.jsx';
@@ -176,8 +178,8 @@ export default function Home() {
     
     if (!wizardState) {
         return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, flexGrow: 1 }}>
-                <CircularProgress />
+            <Box component="main" sx={{ display: 'flex', justifyContent: 'center', p: 4, flexGrow: 1 }} role="status" aria-live="polite" aria-busy="true">
+                <CircularProgress aria-label="Loading" />
             </Box>
         );
     }
@@ -295,13 +297,14 @@ export default function Home() {
             return <StepLocationSelection send={sendToWizard} model={selectedModel} locationId={context.locationId} availableLocations={availableLocations} getPriceForModel={getPriceForModel} currentFlowType={context.currentFlowType} onViewAllDrinks={openDrinksModal} />;
         }
         if (wizardState.hasTag('showsPlanSelection')) {
+            trackSubscriptionPlanViewed(context.planId);
             return <StepPlanSelection send={sendToWizard} planId={context.planId} availablePlans={availablePlans} currentFlowType={context.currentFlowType} onViewAllDrinks={openDrinksModal} />;
         }
         if (wizardState.hasTag('showsPlanSummary')) {
             if (!selectedPlan || !selectedModel || !selectedLocation) {
                 return (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, flexGrow: 1, width: '100%' }}>
-                        <CircularProgress />
+                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, flexGrow: 1, width: '100%' }} role="status" aria-live="polite" aria-busy="true">
+                        <CircularProgress aria-label="Loading" />
                     </Box>
                 );
             }
@@ -353,6 +356,7 @@ export default function Home() {
 
     return (
         <Box
+            component="main"
             sx={{
                 maxWidth: 'sm',
                 width: '100%',
@@ -365,18 +369,20 @@ export default function Home() {
                 flexGrow: 1,
             }}
         >
-            <ViewAllDrinksModal 
-                open={drinksModalConfig.open} 
-                handleClose={() => setDrinksModalConfig({ open: false, section: null })} 
+            <Helmet><title>Subscribe | Surreal Creamery</title></Helmet>
+            <Typography variant="h1" component="h1" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Subscribe</Typography>
+            <ViewAllDrinksModal
+                open={drinksModalConfig.open}
+                handleClose={() => setDrinksModalConfig({ open: false, section: null })}
                 section={drinksModalConfig.section}
             />
             
             {wizardState.matches('fetchingData') ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, flexGrow: 1, width: '100%' }}>
-                    <CircularProgress />
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, flexGrow: 1, width: '100%' }} role="status" aria-live="polite" aria-busy="true">
+                    <CircularProgress aria-label="Loading" />
                 </Box>
             ) : wizardState.matches('failure') ? (
-                <Alert severity="error" sx={{ flexGrow: 1, width: '100%' }}>{wizardState.context.error}</Alert>
+                <Alert severity="error" role="alert" sx={{ flexGrow: 1, width: '100%' }}>{wizardState.context.error}</Alert>
             ) : (
                 <Box sx={{ flexGrow: 1, width: '100%' }}>
                     {renderContent()}
@@ -385,11 +391,11 @@ export default function Home() {
 
             <Snackbar
                 open={snackbar.open}
-                autoHideDuration={6000}
+                autoHideDuration={snackbar.severity === 'error' ? null : 20000}
                 onClose={() => setSnackbar(s => ({ ...s, open: false }))}
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
             >
-                <Alert onClose={() => setSnackbar(s => ({ ...s, open: false }))} severity={snackbar.severity} sx={{ width: '100%' }}>
+                <Alert onClose={() => setSnackbar(s => ({ ...s, open: false }))} severity={snackbar.severity} role="alert" sx={{ width: '100%' }}>
                     {snackbar.message}
                 </Alert>
             </Snackbar>

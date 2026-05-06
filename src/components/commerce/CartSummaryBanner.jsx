@@ -26,6 +26,8 @@ export function CartSummaryBanner({ onClose }) {
 
   return (
     <Box
+      role="status"
+      aria-live="polite"
       sx={{
         bgcolor: 'white',
         borderBottom: 2,
@@ -44,6 +46,7 @@ export function CartSummaryBanner({ onClose }) {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative' }}>
           {/* Close Button - top right */}
           <IconButton
+            aria-label="Dismiss cart notification"
             onClick={() => sendToCommerce({ type: 'CLOSE_CART_BANNER' })}
             sx={{
               position: 'absolute',

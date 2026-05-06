@@ -12,9 +12,12 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { GoogleAddressAutocomplete } from '@/components/catering/GoogleAddressAutocomplete';
 import StorefrontIcon from '@mui/icons-material/Storefront';
-import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import AddIcon from '@mui/icons-material/Add';
 import { useCatalog } from '@/contexts/commerce/CatalogContext';
+import { getMaxQuantityAtLocation } from '@/utils/fulfillmentRouter';
 import { BlindBoxProgressIndicator } from '@/components/commerce/BlindBoxProgressIndicator';
+import { trackCartViewed, trackRemovedFromCart, trackCheckoutStarted, trackCartClosed, trackCartQuantityChanged, trackPromoCodeApplied, trackPromoCodeRemoved, trackPromoCodeError, trackBlindBoxAdded, trackRewardSelected, trackFulfillmentSelected, trackCrossSellShown, trackCrossSellProductClicked, trackCrossSellAddedToCart } from '@/services/analytics';
 const TERMINAL_API_URL = 'https://oquxxk2q56me3ve7mk7nz2gav40apced.lambda-url.us-east-1.on.aws';
 const CHECKOUT_API_URL = 'https://viif6favb73jr3pm2ph6qcten40ethnp.lambda-url.us-east-1.on.aws';
 const SHIPPING_API_URL = 'https://thugumzwi4445lq5q7qhnjfwoe0mrwjl.lambda-url.us-east-1.on.aws';
@@ -26,11 +29,11 @@ const TERMINAL_TIMEOUT = 120000; // 2 minutes
 // Placeholder image
 const PLACEHOLDER_IMAGE = 'https://placehold.co/80x80/e0e0e0/666666?text=No+Image';
 
-const CartQuantitySelector = ({ value, onIncrement, onDecrement }) => (
-  <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
-    <Button sx={{ minWidth: '40px' }} onClick={onDecrement} disabled={value <= 1}>-</Button>
+const CartQuantitySelector = ({ value, onIncrement, onDecrement, maxQuantity }) => (
+  <Box role="group" aria-label="Quantity" sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
+    <Button aria-label="Decrease quantity" sx={{ minWidth: '40px' }} onClick={onDecrement} disabled={value <= 1}>-</Button>
     <Typography sx={{ px: 2, fontWeight: 'bold', minWidth: '20px', textAlign: 'center' }}>{value}</Typography>
-    <Button sx={{ minWidth: '40px' }} onClick={onIncrement}>+</Button>
+    <Button aria-label="Increase quantity" sx={{ minWidth: '40px' }} onClick={onIncrement} disabled={maxQuantity != null && value >= maxQuantity}>+</Button>
   </Box>
 );
 
@@ -65,9 +68,12 @@ const RewardOption = ({ option, isSelected, isLocked, onSelect, showBorder = tru
         || PLACEHOLDER_IMAGE;
     
     return (
-        <Box 
+        <Box
             onClick={() => !isLocked && onSelect?.(option.id)}
-            sx={{ 
+            role={!isLocked ? "button" : undefined}
+            tabIndex={!isLocked ? 0 : undefined}
+            onKeyDown={!isLocked ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(option.id); } } : undefined}
+            sx={{
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 1.5,
@@ -150,18 +156,18 @@ export function CartDrawer({
     onSelectReward,
     orderDiscounts = [],
     onAddBlindBox,
-    kioskTerminal = null,
-    kioskCart = [],
-    onKioskCartChange,
-    isKioskPaired = false,
-    kioskRemoteCheckout = null,
-    kioskSendForward,
     localCart,
+    crossSellProducts = [],
+    crossSellTriggerProductId = null,
+    isPairedKiosk = false,
+    isKioskMode = false,
+    kioskCart = [],
+    kioskSendForward,
+    onKioskCartChange,
+    kioskTerminal,
+    kioskRemoteCheckout,
 }) {
-  const isKioskMode = !!kioskTerminal;
-  const isPairedKiosk = isKioskMode && isKioskPaired;
-  const { products } = useShopify();
-  const { storeLocations, selectedLocation } = useCatalog();
+  const { allProducts: products, storeLocations, selectedLocation } = useCatalog();
   const navigate = useNavigate();
 
   // Terminal payment state (kiosk mode)
@@ -175,10 +181,32 @@ export function CartDrawer({
   const cartItems = localCart?.cart || [];
   const localSubtotal = localCart?.getSubtotal?.() || 0;
 
+  // Compute max quantity per cart item based on fulfillment location inventory
+  const maxQtyByItemId = useMemo(() => {
+    const map = {};
+    for (const item of cartItems) {
+      if (!item.fulfillmentLocationId) { map[item.id] = Infinity; continue; }
+      const product = products?.find(p => p.id === item.productId || p.sku === item.productId);
+      const variant = product?.variants?.find(v => v.sku === item.variantSku || v.id === item.variantId);
+      map[item.id] = variant ? getMaxQuantityAtLocation(variant, item.fulfillmentLocationId) : Infinity;
+    }
+    return map;
+  }, [cartItems, products]);
+
   const stopPolling = useCallback(() => {
     if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
     if (timeoutTimer.current) { clearTimeout(timeoutTimer.current); timeoutTimer.current = null; }
   }, []);
+
+  // Analytics: track cart view when drawer opens
+  useEffect(() => {
+    if (open && cartItems.length > 0) trackCartViewed(cartItems, localSubtotal);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Analytics: track cross-sell shown when products are displayed
+  useEffect(() => {
+    if (open && crossSellProducts.length > 0) trackCrossSellShown(crossSellProducts.map(p => p.id));
+  }, [open, crossSellProducts.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clean up polling on unmount or drawer close
   useEffect(() => {
@@ -372,11 +400,20 @@ export function CartDrawer({
     ? kioskCart.reduce((sum, item) => sum + item.quantity, 0)
     : localCart?.getCartCount?.() || 0;
   
-  // Calculate total savings — free gift items contribute their full price as savings
+  // Calculate total savings — free gifts + cross-sell discounts
   const totalSavings = useMemo(() => {
     return cartItems.reduce((total, item) => {
       if (item.isFreeGift) {
         return total + item.unitPrice * item.quantity;
+      }
+      if (item.crossSellDiscount) {
+        const csd = item.crossSellDiscount;
+        const modTotal = (item.modifiers || []).reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
+        const unitWithMods = item.unitPrice + modTotal;
+        const saving = csd.valueType === 'PERCENTAGE'
+          ? unitWithMods * (csd.value / 100)
+          : csd.value / 100;
+        return total + Math.min(saving, unitWithMods) * item.quantity;
       }
       return total;
     }, 0);
@@ -477,7 +514,9 @@ export function CartDrawer({
       try {
         const selectedLocation = localStorage.getItem('selectedLocation') || '';
         const methods = new Set(cartItems.map(i => i.fulfillmentMethod || 'pickup'));
-        const fulfillmentMethods = [...methods];
+        // Exclude shipping from bag calc — shipping cost is determined at checkout after address entry
+        methods.delete('shipping');
+        const fulfillmentMethods = methods.size > 0 ? [...methods] : ['pickup'];
 
         const res = await fetch(CHECKOUT_API_URL, {
           method: 'POST',
@@ -545,6 +584,8 @@ export function CartDrawer({
           discountId: item.discountId || null,
           image: item.image,
           fulfillmentMethod: item.fulfillmentMethod || null,
+          fulfillmentLocationId: item.fulfillmentLocationId || null,
+          fulfillmentLocationName: item.fulfillmentLocationName || null,
         })),
         pickupLocation: selectedLocationSlug,
         cartSessionId: localCart?.cartId,
@@ -609,13 +650,20 @@ export function CartDrawer({
         return;
       }
 
+      if (result.available && result.deliveryFee === 0) {
+        setDeliveryError('Delivery is not available for this address at this time.');
+        return;
+      }
+
       if (result.available) {
-        setDeliveryAddress({
+        const validated = {
           ...addressToValidate,
           shipdayDeliveryFee: result.deliveryFee,
           estimatedMinutes: result.estimatedMinutes,
           services: result.services,
-        });
+        };
+        setDeliveryAddress(validated);
+        localStorage.setItem('deliveryAddress', JSON.stringify(validated));
         setShowDeliveryModal(false);
       } else {
         setDeliveryError(result.message || 'Delivery is not available to this address.');
@@ -634,10 +682,26 @@ export function CartDrawer({
     } else {
       const hasDelivery = cartItems.some(i => i.fulfillmentMethod === 'delivery');
       if (hasDelivery && !deliveryAddress) {
-        // Prompt for delivery address validation first
+        // Try to load from localStorage first
+        try {
+          const saved = localStorage.getItem('deliveryAddress');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed.address1 && parsed.city) {
+              // Re-validate the saved address silently
+              setDeliveryAddress(parsed);
+              trackCheckoutStarted(cartItems, localSubtotal);
+              onClose();
+              navigate('/checkout');
+              return;
+            }
+          }
+        } catch { /* ignore */ }
+        // No saved address — prompt for entry
         setShowDeliveryModal(true);
         return;
       }
+      trackCheckoutStarted(cartItems, localSubtotal);
       onClose();
       navigate('/checkout');
     }
@@ -650,7 +714,8 @@ export function CartDrawer({
     <Drawer
       anchor="right"
       open={open}
-      onClose={onClose}
+      onClose={() => { trackCartClosed(cartItems.length); onClose(); }}
+      aria-label="Shopping cart"
       sx={{
         '& .MuiDrawer-paper': {
           width: { xs: '100%', sm: 400 },
@@ -676,7 +741,7 @@ export function CartDrawer({
           <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
             Your Bag ({totalItems})
           </Typography>
-          <IconButton onClick={onClose}>
+          <IconButton aria-label="Close cart" onClick={() => { trackCartClosed(cartItems.length); onClose(); }}>
             <CloseIcon />
           </IconButton>
         </Box>
@@ -725,7 +790,7 @@ export function CartDrawer({
                     allDiscounts.push({
                       id: discount.id,
                       type: 'order',
-                      title: `${displayValue} Off Your Order${thresholdLabel}`,
+                      title: `Off Your Order${thresholdLabel}`,
                       shortTitle: `${displayValue} Off`,
                       threshold,
                       current,
@@ -828,9 +893,14 @@ export function CartDrawer({
                               {discount.type === 'order' && (
                                 <>
                                   {/* Horizontal Progress Bar */}
-                                  <Box sx={{ 
-                                    height: 8, 
-                                    bgcolor: 'grey.200', 
+                                  <Box
+                                    role="progressbar"
+                                    aria-valuenow={Math.round(discount.progress)}
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    sx={{
+                                    height: 8,
+                                    bgcolor: 'grey.200',
                                     borderRadius: 4,
                                     overflow: 'hidden',
                                     mb: 1
@@ -966,6 +1036,17 @@ export function CartDrawer({
                                             onClick={() => {
                                               onSelectReward(discount.threshold, option.id);
                                               onSelectReward(`${discount.threshold}_showOptions`, false);
+                                              trackRewardSelected(option.id, option.freeProducts?.[0]?.id || option.freeProduct?.id);
+                                            }}
+                                            role="button"
+                                            tabIndex={0}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                onSelectReward(discount.threshold, option.id);
+                                                onSelectReward(`${discount.threshold}_showOptions`, false);
+                                                trackRewardSelected(option.id, option.freeProducts?.[0]?.id || option.freeProduct?.id);
+                                              }
                                             }}
                                             sx={{ cursor: 'pointer' }}
                                           >
@@ -1070,6 +1151,7 @@ export function CartDrawer({
                               <Button
                                 color="primary"
                                 onClick={() => handleKioskRemoveItem(item.sku, item.variantSku)}
+                                aria-label={`Remove ${item.name} from cart`}
                                 sx={{ padding: 0, minWidth: 'auto', ml: 1, fontSize: '1.6rem' }}
                               >
                                 Remove
@@ -1115,7 +1197,8 @@ export function CartDrawer({
                 ) : (
                   /* Local Cart Items — grouped by fulfillment method */
                   (() => {
-                    const locationObj = storeLocations?.find(loc => loc.id === selectedLocation) || storeLocations?.[0];
+                    const retailLocations = storeLocations?.filter(l => l.type !== 'Warehouse') || [];
+                    const locationObj = retailLocations.find(loc => loc.id === selectedLocation);
                     const locationName = locationObj?.name || '';
                     const methodOrder = ['pickup', 'delivery', 'shipping'];
                     const grouped = {};
@@ -1147,8 +1230,20 @@ export function CartDrawer({
                         {grouped[method].map((item, itemIdx) => {
                           const modTotal = (item.modifiers || []).reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
                           const unitWithMods = item.unitPrice + modTotal;
-                          const lineTotal = unitWithMods * item.quantity;
                           const isFreeGift = item.isFreeGift;
+
+                          // Cross-sell discount
+                          const csd = item.crossSellDiscount;
+                          const discountedUnit = csd
+                            ? Math.max(0, csd.valueType === 'PERCENTAGE'
+                              ? unitWithMods * (1 - csd.value / 100)
+                              : unitWithMods - csd.value / 100)
+                            : null;
+                          const effectiveUnit = discountedUnit != null ? discountedUnit : unitWithMods;
+                          const lineTotal = effectiveUnit * item.quantity;
+                          const discountLabel = csd
+                            ? (csd.valueType === 'PERCENTAGE' ? `${csd.value}% off` : `$${(csd.value / 100).toFixed(2)} off`)
+                            : null;
 
                           return (
                             <React.Fragment key={item.id}>
@@ -1169,7 +1264,8 @@ export function CartDrawer({
                                       <Typography variant="body1" sx={{ fontWeight: 500, fontSize: '1.6rem' }}>
                                         {item.name}
                                       </Typography>
-                                      <Button color="primary" onClick={() => localCart.removeFromCart(item.id)}
+                                      <Button color="primary" onClick={() => { trackRemovedFromCart(item); localCart.removeFromCart(item.id); }}
+                                        aria-label={`Remove ${item.name} from cart`}
                                         sx={{ padding: 0, minWidth: 'auto', ml: 1, fontSize: '1.6rem' }}>
                                         Remove
                                       </Button>
@@ -1177,6 +1273,17 @@ export function CartDrawer({
                                     {item.variantName && item.variantName !== 'Default Title' && (
                                       <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5, fontSize: '1.6rem' }}>
                                         {item.variantName}
+                                      </Typography>
+                                    )}
+                                    {item.fulfillmentLocationName && item.fulfillmentLocationId !== selectedLocation && (
+                                      <Typography variant="caption" sx={{ color: 'info.main', mt: 0.25, display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '1.2rem' }}>
+                                        <LocalShippingIcon sx={{ fontSize: 14 }} />
+                                        Ships from {item.fulfillmentLocationName}
+                                      </Typography>
+                                    )}
+                                    {maxQtyByItemId[item.id] !== Infinity && maxQtyByItemId[item.id] > 0 && item.quantity >= maxQtyByItemId[item.id] && (
+                                      <Typography variant="caption" sx={{ color: 'warning.main', fontSize: '1.2rem' }}>
+                                        Max available
                                       </Typography>
                                     )}
                                     {item.modifiers?.length > 0 && (
@@ -1188,19 +1295,39 @@ export function CartDrawer({
                                         ))}
                                       </Box>
                                     )}
-                                    <Typography variant="body1" sx={{ mt: 0.5, fontSize: '1.6rem' }}>
-                                      {isFreeGift ? (
-                                        <span style={{ color: '#2e7d32', fontWeight: 600 }}>FREE</span>
-                                      ) : (
-                                        `$${unitWithMods.toFixed(2)}`
-                                      )}
-                                    </Typography>
+                                    {isFreeGift ? (
+                                      <Typography variant="body1" sx={{ mt: 0.5, fontSize: '1.6rem', color: '#2e7d32', fontWeight: 600 }}>
+                                        FREE
+                                      </Typography>
+                                    ) : discountedUnit != null ? (
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.5, flexWrap: 'wrap' }}>
+                                        <Typography variant="body1" sx={{ fontSize: '1.6rem', textDecoration: 'line-through', color: 'text.secondary' }}>
+                                          ${unitWithMods.toFixed(2)}
+                                        </Typography>
+                                        <Typography variant="body1" sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'error.main' }}>
+                                          ${effectiveUnit.toFixed(2)}
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ fontSize: '1.3rem', color: 'error.main', fontWeight: 500 }}>
+                                          {discountLabel}
+                                        </Typography>
+                                      </Box>
+                                    ) : (
+                                      <Typography variant="body1" sx={{ mt: 0.5, fontSize: '1.6rem' }}>
+                                        ${unitWithMods.toFixed(2)}
+                                      </Typography>
+                                    )}
                                     <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                       {!isFreeGift && (
                                         <CartQuantitySelector
                                           value={item.quantity}
-                                          onIncrement={() => localCart.updateQuantity(item.id, item.quantity + 1)}
-                                          onDecrement={() => localCart.updateQuantity(item.id, item.quantity - 1)}
+                                          maxQuantity={maxQtyByItemId[item.id] !== Infinity ? maxQtyByItemId[item.id] : undefined}
+                                          onIncrement={() => {
+                                            const max = maxQtyByItemId[item.id];
+                                            if (max !== Infinity && item.quantity >= max) return;
+                                            trackCartQuantityChanged(item.sku, item.variantSku, item.quantity, item.quantity + 1);
+                                            localCart.updateQuantity(item.id, item.quantity + 1);
+                                          }}
+                                          onDecrement={() => { trackCartQuantityChanged(item.sku, item.variantSku, item.quantity, item.quantity - 1); localCart.updateQuantity(item.id, item.quantity - 1); }}
                                         />
                                       )}
                                       <Typography variant="body1" sx={{ fontWeight: 'bold', color: isFreeGift ? 'success.main' : 'inherit' }}>
@@ -1219,15 +1346,91 @@ export function CartDrawer({
                 )}
               </Stack>
               
-              {/* Continue Shopping - Inside scrollable area */}
+              {/* Cross-sell recommendations or Continue Shopping */}
               <Box sx={{ mt: 3, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                <Button
-                  variant="grey-back"
-                  fullWidth
-                  onClick={onClose}
-                >
-                  Continue Shopping
-                </Button>
+                {crossSellProducts.length > 0 ? (
+                  <>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                      <AutoAwesomeIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>Things You Might Also Like</Typography>
+                    </Box>
+                    {crossSellProducts.map((product, idx) => {
+                      const firstVariant = product.variants?.[0];
+                      const originalPrice = parseFloat(firstVariant?.price || product.price || 0);
+                      const discount = product.crossSellDiscount;
+                      const discountedPrice = discount
+                        ? (discount.valueType === 'PERCENTAGE' ? originalPrice * (1 - discount.value / 100) : originalPrice - discount.value / 100)
+                        : null;
+                      const displayPrice = discountedPrice != null ? Math.max(0, discountedPrice) : originalPrice;
+                      const image = product.imageUrl || product.images?.[0]?.url || product.image;
+
+                      const handleAdd = () => {
+                        trackCrossSellAddedToCart(product.id, firstVariant?.id, displayPrice);
+                        localCart.addToCart(product, firstVariant, 1, [], {
+                          crossSellDiscount: discount ? { id: discount.id, valueType: discount.valueType, value: discount.value } : null,
+                          triggerProductId: crossSellTriggerProductId,
+                        });
+                      };
+
+                      return (
+                        <React.Fragment key={product.id}>
+                          {idx > 0 && <Divider />}
+                          <Box sx={{ py: 1 }}>
+                            <Box sx={{ display: 'flex', gap: 2 }}>
+                              <Box sx={{ width: 80, height: 80, flexShrink: 0, borderRadius: 2, overflow: 'hidden', bgcolor: 'grey.100', position: 'relative' }}>
+                                {image ? (
+                                  <img src={image} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                  <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'grey.200' }}>
+                                    <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>No image</Typography>
+                                  </Box>
+                                )}
+                              </Box>
+                              <Box sx={{ flex: 1 }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                  <Typography variant="body1" sx={{ fontWeight: 500, fontSize: '1.6rem' }}>
+                                    {product.name}
+                                  </Typography>
+                                  <Button color="primary" onClick={handleAdd}
+                                    aria-label={`Add ${product.name} to cart`}
+                                    sx={{ padding: 0, minWidth: 'auto', ml: 1, fontSize: '1.6rem' }}>
+                                    Add
+                                  </Button>
+                                </Box>
+                                {originalPrice > 0 && (
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.5 }}>
+                                    {discountedPrice != null ? (
+                                      <>
+                                        <Typography variant="body1" sx={{ fontSize: '1.6rem', textDecoration: 'line-through', color: 'text.secondary' }}>
+                                          ${originalPrice.toFixed(2)}
+                                        </Typography>
+                                        <Typography variant="body1" sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'error.main' }}>
+                                          ${displayPrice.toFixed(2)}
+                                        </Typography>
+                                      </>
+                                    ) : (
+                                      <Typography variant="body1" sx={{ fontSize: '1.6rem' }}>
+                                        ${originalPrice.toFixed(2)}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                )}
+                              </Box>
+                            </Box>
+                          </Box>
+                        </React.Fragment>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <Button
+                    variant="grey-back"
+                    fullWidth
+                    onClick={onClose}
+                  >
+                    Continue Shopping
+                  </Button>
+                )}
               </Box>
               
             </Box>
@@ -1299,6 +1502,7 @@ export function CartDrawer({
                 fullWidth
                 onClick={handleCheckout}
                 disabled={isCheckoutDisabled}
+                aria-busy={webCheckoutLoading || undefined}
               >
                 {webCheckoutLoading ? (
                   <CircularProgress size={20} sx={{ color: 'white' }} />
@@ -1307,7 +1511,7 @@ export function CartDrawer({
                 )}
               </Button>
               {webCheckoutError && (
-                <Alert severity="error" sx={{ mt: 1, '& .MuiAlert-message': { fontSize: '1.4rem' } }}>
+                <Alert severity="error" sx={{ mt: 1, '& .MuiAlert-message': { fontSize: '1.6rem' } }}>
                   {webCheckoutError}
                 </Alert>
               )}
@@ -1321,87 +1525,120 @@ export function CartDrawer({
           onClose={() => setShowDeliveryModal(false)}
           maxWidth="sm"
           fullWidth
+          aria-labelledby="delivery-address-dialog-title"
           PaperProps={{ sx: { mx: 2 } }}
         >
-          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
-            <LocalShippingIcon />
+          <DialogTitle id="delivery-address-dialog-title" sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
+            <LocalShippingIcon aria-hidden="true" />
             Delivery Address
           </DialogTitle>
           <DialogContent>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Enter your delivery address to confirm availability in our delivery zone.
-            </Typography>
-
-            {!useManualEntry ? (
-              <Box sx={{ mb: 2 }}>
-                <GoogleAddressAutocomplete
-                  value={null}
-                  sendToCatering={({ type, address, field, value }) => {
-                    if (type === 'SET_FULL_DELIVERY_ADDRESS' && address) {
-                      setManualAddress({
-                        address1: address.street,
-                        city: address.city,
-                        provinceCode: address.state,
-                        zip: address.zip,
-                      });
-                    } else if (type === 'UPDATE_DELIVERY_ADDRESS' && field === 'street') {
-                      setManualAddress(prev => ({ ...prev, address1: value }));
-                    } else if (type === 'CLEAR_DELIVERY_ADDRESS') {
-                      setManualAddress({ address1: '', city: '', provinceCode: '', zip: '' });
-                    }
-                  }}
-                  onAddressSelected={(success) => {
-                    if (!success) {
-                      setUseManualEntry(true);
-                    }
-                  }}
-                />
-              </Box>
-            ) : (
-              <Stack spacing={2} sx={{ mb: 2 }}>
-                <TextField
-                  label="Street Address"
-                  value={manualAddress.address1}
-                  onChange={(e) => setManualAddress(prev => ({ ...prev, address1: e.target.value }))}
-                  fullWidth
-                  size="small"
-                />
-                <TextField
-                  label="City"
-                  value={manualAddress.city}
-                  onChange={(e) => setManualAddress(prev => ({ ...prev, city: e.target.value }))}
-                  fullWidth
-                  size="small"
-                />
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                  <TextField
-                    label="State"
-                    value={manualAddress.provinceCode}
-                    onChange={(e) => setManualAddress(prev => ({ ...prev, provinceCode: e.target.value.toUpperCase().slice(0, 2) }))}
-                    sx={{ width: 100 }}
-                    size="small"
-                    inputProps={{ maxLength: 2 }}
-                  />
-                  <TextField
-                    label="ZIP Code"
-                    value={manualAddress.zip}
-                    onChange={(e) => setManualAddress(prev => ({ ...prev, zip: e.target.value }))}
-                    sx={{ flex: 1 }}
-                    size="small"
-                    inputProps={{ maxLength: 10 }}
-                  />
+            {/* If we have a saved address, show confirmation view */}
+            {deliveryAddress?.address1 && !deliveryError ? (
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Confirm your delivery address:
+                </Typography>
+                <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, mb: 2 }}>
+                  <Typography sx={{ fontWeight: 600 }}>{deliveryAddress.address1}</Typography>
+                  <Typography>{deliveryAddress.city}, {deliveryAddress.provinceCode} {deliveryAddress.zip}</Typography>
+                  {deliveryAddress.shipdayDeliveryFee != null && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      Delivery fee: ${deliveryAddress.shipdayDeliveryFee.toFixed(2)}
+                    </Typography>
+                  )}
                 </Box>
                 <Button
                   variant="text"
                   size="small"
                   onClick={() => {
-                    setUseManualEntry(false);
+                    setDeliveryAddress(null);
+                    localStorage.removeItem('deliveryAddress');
                     setManualAddress({ address1: '', city: '', provinceCode: '', zip: '' });
+                    setUseManualEntry(false);
                   }}
                 >
-                  Use address search instead
+                  Use a different address
                 </Button>
-              </Stack>
+              </Box>
+            ) : (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Enter your delivery address to confirm availability in our delivery zone.
+                </Typography>
+
+                {!useManualEntry ? (
+                  <Box sx={{ mb: 2 }}>
+                    <GoogleAddressAutocomplete
+                      value={null}
+                      sendToCatering={({ type, address, field, value }) => {
+                        if (type === 'SET_FULL_DELIVERY_ADDRESS' && address) {
+                          setManualAddress({
+                            address1: address.street,
+                            city: address.city,
+                            provinceCode: address.state,
+                            zip: address.zip,
+                          });
+                        } else if (type === 'UPDATE_DELIVERY_ADDRESS' && field === 'street') {
+                          setManualAddress(prev => ({ ...prev, address1: value }));
+                        } else if (type === 'CLEAR_DELIVERY_ADDRESS') {
+                          setManualAddress({ address1: '', city: '', provinceCode: '', zip: '' });
+                        }
+                      }}
+                      onAddressSelected={(success) => {
+                        if (!success) {
+                          setUseManualEntry(true);
+                        }
+                      }}
+                    />
+                  </Box>
+                ) : (
+                  <Stack spacing={2} sx={{ mb: 2 }}>
+                    <TextField
+                      label="Street Address"
+                      value={manualAddress.address1}
+                      onChange={(e) => setManualAddress(prev => ({ ...prev, address1: e.target.value }))}
+                      fullWidth
+                      size="small"
+                    />
+                    <TextField
+                      label="City"
+                      value={manualAddress.city}
+                      onChange={(e) => setManualAddress(prev => ({ ...prev, city: e.target.value }))}
+                      fullWidth
+                      size="small"
+                    />
+                    <Box sx={{ display: 'flex', gap: 2 }}>
+                      <TextField
+                        label="State"
+                        value={manualAddress.provinceCode}
+                        onChange={(e) => setManualAddress(prev => ({ ...prev, provinceCode: e.target.value.toUpperCase().slice(0, 2) }))}
+                        sx={{ width: 100 }}
+                        size="small"
+                        inputProps={{ maxLength: 2 }}
+                      />
+                      <TextField
+                        label="ZIP Code"
+                        value={manualAddress.zip}
+                        onChange={(e) => setManualAddress(prev => ({ ...prev, zip: e.target.value }))}
+                        sx={{ flex: 1 }}
+                        size="small"
+                        inputProps={{ maxLength: 10 }}
+                      />
+                    </Box>
+                    <Button
+                      variant="text"
+                      size="small"
+                      onClick={() => {
+                        setUseManualEntry(false);
+                        setManualAddress({ address1: '', city: '', provinceCode: '', zip: '' });
+                      }}
+                    >
+                      Use address search instead
+                    </Button>
+                  </Stack>
+                )}
+              </>
             )}
 
             {deliveryError && (
@@ -1414,19 +1651,33 @@ export function CartDrawer({
             <Button onClick={() => setShowDeliveryModal(false)} color="inherit">
               Cancel
             </Button>
-            <Button
-              variant="contained"
-              onClick={() => handleValidateDeliveryAddress(manualAddress)}
-              disabled={deliveryValidating || !manualAddress.address1 || !manualAddress.city || !manualAddress.provinceCode || !manualAddress.zip}
-            >
-              {deliveryValidating ? <CircularProgress size={20} sx={{ color: 'white' }} /> : 'Confirm Address'}
-            </Button>
+            {deliveryAddress?.address1 && !deliveryError ? (
+              <Button
+                variant="contained"
+                onClick={() => {
+                  setShowDeliveryModal(false);
+                  trackCheckoutStarted(cartItems, localSubtotal);
+                  onClose();
+                  navigate('/checkout');
+                }}
+              >
+                Confirm &amp; Checkout
+              </Button>
+            ) : (
+              <Button
+                variant="contained"
+                onClick={() => handleValidateDeliveryAddress(manualAddress)}
+                disabled={deliveryValidating || !manualAddress.address1 || !manualAddress.city || !manualAddress.provinceCode || !manualAddress.zip}
+              >
+                {deliveryValidating ? <CircularProgress size={20} sx={{ color: 'white' }} /> : 'Confirm Address'}
+              </Button>
+            )}
           </DialogActions>
         </Dialog>
 
         {/* Terminal Payment Overlay (Kiosk Mode) */}
         {isKioskMode && terminalStatus !== 'idle' && (
-          <Box sx={{
+          <Box aria-live="assertive" sx={{
             position: 'absolute',
             inset: 0,
             bgcolor: 'rgba(255,255,255,0.97)',

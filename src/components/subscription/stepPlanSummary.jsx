@@ -90,15 +90,15 @@ const StepPlanSummary = ({ send, plan, model, location, numberOfSubscriptions, c
                     </CardActions>
                 </Card>
             ) : (
-                <Card variant="outlined" sx={{ mt: 3, p: 2, textAlign: 'center' }}>
-                    <CircularProgress size={24} />
+                <Card variant="outlined" sx={{ mt: 3, p: 2, textAlign: 'center' }} role="status" aria-live="polite">
+                    <CircularProgress size={24} aria-label="Loading" />
                     <Typography sx={{ mt: 1 }} color="text.secondary">Loading details...</Typography>
                 </Card>
             )}
             
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3, mb: 1 }}>
-                <Typography variant="body1">Number of Subscriptions</Typography>
-                <QuantityInput value={numberOfSubscriptions} onChange={(newValue) => send({ type: 'SET_QUANTITY', value: newValue })} />
+                <Typography variant="body1" id="quantity-label">Number of Subscriptions</Typography>
+                <QuantityInput value={numberOfSubscriptions} onChange={(newValue) => send({ type: 'SET_QUANTITY', value: newValue })} aria-labelledby="quantity-label" />
             </Box>
 
             <FormControlLabel

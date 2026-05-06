@@ -10,7 +10,7 @@ let isAddingGifts = false;
  * Auto-adds free gifts when conditions are met
  * @param {Object} localCart - useCart hook instance { cart, addToCart, removeByVariantId, isInCart, getSubtotal }
  * @param {Object} selectedRewards - User's selected rewards { [threshold]: discountId }
- * @param {Array} products - Shopify products array (for identifying blind boxes)
+ * @param {Array} products - Catalog products array (for identifying blind boxes)
  */
 export const useDiscounts = (localCart, selectedRewards = {}, products = []) => {
     const [discounts, setDiscounts] = useState(null);
@@ -262,11 +262,11 @@ export const useDiscounts = (localCart, selectedRewards = {}, products = []) => 
                         // Look up full product data for the local cart entry
                         const matchedProduct = products.find(p =>
                             p.id === freeProduct.id ||
-                            p.shopifyId === freeProduct.id ||
-                            p.variants?.some(v => v.id === freeProduct.variantId)
+                            p.sku === freeProduct.sku ||
+                            p.variants?.some(v => v.sku === freeProduct.variantSku || v.sku === freeProduct.sku)
                         );
-                        const matchedVariant = matchedProduct?.variants?.find(v => v.id === freeProduct.variantId)
-                            || { id: freeProduct.variantId, title: freeProduct.title, price: { amount: '0' } };
+                        const matchedVariant = matchedProduct?.variants?.find(v => v.sku === freeProduct.variantSku || v.sku === freeProduct.sku)
+                            || { sku: freeProduct.variantSku || freeProduct.sku, title: freeProduct.title, price: { amount: '0' } };
                         localCart.addToCart(
                             matchedProduct || { id: freeProduct.id, title: freeProduct.title },
                             matchedVariant,

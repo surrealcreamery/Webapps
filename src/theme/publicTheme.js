@@ -12,13 +12,13 @@ const publicTypographyScale = {
   h4: { fontSize: '1.6rem', fontWeight: 700 },
   h5: { fontSize: '1.6rem', fontWeight: 700 },
   h6: { fontSize: '1.6rem', fontWeight: 700 },
-  subtitle1: { fontSize: '1.3rem' },
-  subtitle2: { fontSize: '1.3rem' },
+  subtitle1: { fontSize: '1.6rem' },
+  subtitle2: { fontSize: '1.6rem' },
   body1: { fontSize: '1.8rem', fontFamily: 'Outfit', fontWeight: 'light' },
   body2: { fontSize: '1.8rem', fontFamily: 'Outfit' },
   button: { fontSize: '1.6rem' },
-  caption: { fontSize: '0.75rem' },
-  overline: { fontSize: '0.625rem' }
+  caption: { fontSize: '1.6rem' },
+  overline: { fontSize: '1.6rem' }
 };
 
 // Public theme: uses publicTypographyScale + component overrides
@@ -95,8 +95,7 @@ let publicTheme = createTheme(baseTheme, {
     MuiStepContent: {
       styleOverrides: {
         root: {
-          width: '100%',
-          minWidth: '100%',
+          maxWidth: '100%',
           flexShrink: 0,
           boxSizing: 'border-box'
         }
@@ -105,8 +104,7 @@ let publicTheme = createTheme(baseTheme, {
     MuiStepper: {
       styleOverrides: {
         root: {
-          width: '100%',
-          minWidth: '100%',
+          maxWidth: '100%',
           boxSizing: 'border-box'
         }
       }

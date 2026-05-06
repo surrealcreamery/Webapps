@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { Box, Container, Typography } from '@mui/material';
-import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
+import { useCatalog } from '@/contexts/commerce/CatalogContext';
 import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
 import { useCart } from '@/hooks/useCart';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Section } from '@/components/commerce/Section';
 import { ProductModal } from '@/components/commerce/ProductModal';
 import { CartDrawer } from '@/components/commerce/CartDrawer';
-import { fetchPublishedCatalog, sortProductsByOrder } from '@/services/catalogService';
+import { sortProductsByOrder } from '@/services/catalogService';
 
 /**
  * CategoryCard - Clickable category card with image
@@ -17,10 +17,20 @@ const CategoryCard = ({ category, onClick }) => {
 
     return (
         <Box
+            role="button"
+            tabIndex={0}
+            aria-label={`View ${category.name}`}
             onClick={onClick}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onClick();
+                }
+            }}
             sx={{
                 cursor: 'pointer',
                 '&:hover': { opacity: 0.85, transform: 'scale(1.02)' },
+                '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: '2px' },
                 transition: 'all 0.2s'
             }}
         >
@@ -61,7 +71,7 @@ const CategoryCard = ({ category, onClick }) => {
  * Main product catalog organized by desserts and merchandise
  */
 export const Directory = () => {
-    const { products, loading } = useShopify();
+    const { allProducts: products, catalog, isLoading: loading, storeLocations } = useCatalog();
     const localCart = useCart();
     const { commerceState, sendToCommerce } = useContext(LayoutContext);
     const location = useLocation();
@@ -73,18 +83,6 @@ export const Directory = () => {
     const showCartDrawer = commerceState.context.showCartDrawer;
 
     const isInternalNavigation = useRef(false);
-
-    // Catalog for product ordering
-    const [catalog, setCatalog] = useState(null);
-
-    // Fetch published catalog for product ordering
-    useEffect(() => {
-        fetchPublishedCatalog().then(data => {
-            console.log('[Directory] Loaded catalog:', data ? 'success' : 'null');
-            console.log('[Directory] Categories:', data?.categories?.map(c => ({ name: c.name, id: c.id, parentId: c.parentId, hasImage: !!c.image })));
-            setCatalog(data);
-        });
-    }, []);
 
     // Build category lookup and tree from catalog
     const { categoryMap, categoryChildren } = useMemo(() => {
@@ -281,14 +279,14 @@ export const Directory = () => {
 
     if (loading) {
         return (
-            <Container maxWidth="md" sx={{ py: 4, textAlign: 'center' }}>
+            <Container maxWidth="md" sx={{ py: 4, textAlign: 'center' }} role="status" aria-busy="true">
                 <Typography>Loading products...</Typography>
             </Container>
         );
     }
 
     return (
-        <Box sx={{ minHeight: '100vh', backgroundColor: 'white' }}>
+        <Box component="main" sx={{ minHeight: '100vh', backgroundColor: 'white' }}>
             {/* Category Grid - at top */}
             <Container maxWidth="md" sx={{ pt: 3, pb: 2 }}>
                 <Box 
@@ -304,15 +302,26 @@ export const Directory = () => {
                     }}
                 >
                     {/* Desserts */}
-                    <Box 
+                    <Box
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Jump to Desserts"
                         onClick={() => {
                             const element = document.getElementById('desserts-section');
                             element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }}
-                        sx={{ 
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                const element = document.getElementById('desserts-section');
+                                element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        }}
+                        sx={{
                             cursor: 'pointer',
                             width: 'calc(50% - 8px)',
-                            '&:hover': { opacity: 0.8 }
+                            '&:hover': { opacity: 0.8 },
+                            '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: '2px' }
                         }}
                     >
                         <Box
@@ -347,14 +356,25 @@ export const Directory = () => {
 
                     {/* Collectibles */}
                     <Box
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Jump to Collectibles"
                         onClick={() => {
                             const element = document.getElementById('merchandise-section');
                             element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                const element = document.getElementById('merchandise-section');
+                                element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        }}
                         sx={{
                             cursor: 'pointer',
                             width: 'calc(50% - 8px)',
-                            '&:hover': { opacity: 0.8 }
+                            '&:hover': { opacity: 0.8 },
+                            '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: '2px' }
                         }}
                     >
                         <Box
@@ -517,6 +537,7 @@ export const Directory = () => {
                             sendToCommerce({ type: 'HIDE_CART_BANNER' });
                         }, 3000);
                     }}
+                    storeLocations={storeLocations}
                 />
             )}
 

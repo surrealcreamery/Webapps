@@ -8,7 +8,7 @@ const TypeToggleGroup = ({ value, onChange }) => (
       variant="subtitle2" 
       sx={{ 
         fontWeight: 'bold', 
-        fontSize: '0.875rem', 
+        fontSize: '1.6rem',
         mb: 1, 
         textTransform: 'uppercase' 
       }}

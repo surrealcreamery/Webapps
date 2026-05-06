@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography, Divider, Button, IconButton } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import HeroImage from '@/assets/images/Surreal Creamery/Hero.png';
+import { trackSubscriptionModelSelected } from '@/services/analytics';
 
 // A sub-component for displaying the main offer details.
 const OfferDetails = ({ onViewAllDrinks }) => {
@@ -59,7 +60,7 @@ const StepModelSelection = ({ send, modelId, availableModels, getPriceForModel, 
                         key={model.id}
                         variant="outlined"
                         fullWidth
-                        onClick={() => send({ type: 'SELECT_MODEL', value: model.id })}
+                        onClick={() => { trackSubscriptionModelSelected(model.id); send({ type: 'SELECT_MODEL', value: model.id }); }}
                         sx={{
                             display: 'flex',
                             justifyContent: 'space-between',

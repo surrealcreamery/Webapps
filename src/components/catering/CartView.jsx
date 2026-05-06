@@ -322,16 +322,16 @@ export const CartView = ({ cart, sendToCatering, cateringState }) => {
                                                 if (customizationInfo.details.length === 0) return null;
                                                 return (
                                                     <Box sx={{ mt: 1, pt: 1, borderTop: '1px dashed', borderColor: 'grey.300' }}>
-                                                        <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '1.4rem', mb: 0.5 }}>
+                                                        <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '1.6rem', mb: 0.5 }}>
                                                             Customizations:
                                                         </Typography>
                                                         {customizationInfo.details.map((detail, idx) => (
                                                             <Box key={idx} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '1.4rem' }}>
+                                                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>
                                                                     + {detail.label}
                                                                     {detail.perUnit && ` (${detail.count} × ${detail.perUnit})`}
                                                                 </Typography>
-                                                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '1.4rem' }}>
+                                                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>
                                                                     +${detail.charge.toFixed(2)}
                                                                 </Typography>
                                                             </Box>

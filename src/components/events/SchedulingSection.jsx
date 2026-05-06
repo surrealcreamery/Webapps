@@ -3,6 +3,7 @@ import { Box, Typography, Button, Stack, ToggleButtonGroup, ToggleButton } from 
 import { LocalizationProvider, DateCalendar, PickersDay } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { isBefore, startOfToday, isToday, format, parse, isValid } from 'date-fns';
+import { trackEventDateSelected, trackEventTimeSelected } from '@/services/analytics';
 
 // Helper function to format time slots like "15:00 - 19:00" to "3:00pm - 7:00pm"
 const formatTimeSlot = (slot) => {
@@ -96,7 +97,7 @@ export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selected
                 <DateCalendar
                     key={currentEvent.id}
                     value={selectedDate ? new Date(selectedDate) : null}
-                    onChange={onDateChange}
+                    onChange={(date) => { trackEventDateSelected(date); onDateChange(date); }}
                     defaultCalendarMonth={initialMonth}
                     disablePast
                     shouldDisableDate={shouldDisableDate}
@@ -170,7 +171,7 @@ export const TimePickerSection = ({ currentEvent, selectedDate, selectedTime, on
                     <Button
                         key={timeSlot}
                         variant={selectedTime === timeSlot ? "contained" : "outlined"}
-                        onClick={() => onTimeChange(timeSlot)}
+                        onClick={() => { trackEventTimeSelected(timeSlot); onTimeChange(timeSlot); }}
                         fullWidth
                     >
                         {formatTimeSlot(timeSlot)}

@@ -2,6 +2,13 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 
 const CheckoutContext = createContext();
 
+function loadConfirmation() {
+  try {
+    const raw = sessionStorage.getItem('checkoutConfirmation');
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
 export function CheckoutProvider({ children }) {
   const [showOrderScreen, setShowOrderScreen] = useState(false);
 
@@ -11,7 +18,16 @@ export function CheckoutProvider({ children }) {
   const [checkoutOrderCalc, setCheckoutOrderCalc] = useState(null);
   const [checkoutPromoCode, setCheckoutPromoCode] = useState('');
   const [checkoutTip, setCheckoutTip] = useState(0);
-  const [checkoutConfirmation, setCheckoutConfirmation] = useState(null);
+  const [checkoutConfirmation, _setCheckoutConfirmation] = useState(loadConfirmation);
+
+  const setCheckoutConfirmation = useCallback((val) => {
+    _setCheckoutConfirmation(val);
+    if (val) {
+      sessionStorage.setItem('checkoutConfirmation', JSON.stringify(val));
+    } else {
+      sessionStorage.removeItem('checkoutConfirmation');
+    }
+  }, []);
 
   // Authenticated checkout state (OTP sign-in)
   const [otpSessionToken, setOtpSessionToken] = useState(null);
@@ -33,7 +49,7 @@ export function CheckoutProvider({ children }) {
     setAuthenticatedCustomerId(null);
     setSavedAddresses([]);
     setSavedPaymentMethods([]);
-  }, []);
+  }, [setCheckoutConfirmation]);
 
   return (
     <CheckoutContext.Provider value={{

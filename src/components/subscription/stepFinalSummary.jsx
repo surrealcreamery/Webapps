@@ -4,9 +4,14 @@ import React, { useState, useEffect } from 'react';
 import { Box, Typography, Card, CardContent, Divider, Button, CircularProgress } from '@mui/material';
 import CardBrandIcon from './cardBrandIcon.jsx';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import { trackSubscriptionCompleted } from '@/services/analytics';
 
 const StepFinalSummary = ({ plan, savedCards, selectedSavedCardId, onNavigate }) => {
     const [isButtonLoading, setIsButtonLoading] = useState(true);
+
+    useEffect(() => {
+        trackSubscriptionCompleted(null, plan?.id, plan?.price);
+    }, []);
 
     useEffect(() => {
         const timer = setTimeout(() => {

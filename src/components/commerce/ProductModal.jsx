@@ -10,18 +10,22 @@ import {
     useMediaQuery,
     useTheme,
     CircularProgress,
-    Slide
+    Slide,
+    Alert
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import { ProductImageCarousel } from './ProductImageCarousel';
-import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
+import { useCatalog } from '@/contexts/commerce/CatalogContext';
 import { DiscountZonePlaceholder } from './DiscountZonePlaceholder';
 import { getBestDeliveryEstimate, getShippingEstimate, getEstimatedDeliveryDates } from '@/components/commerce/geolocation';
 import { ModifierSelector } from './ModifierSelector';
 import { selectionsToCustomAttributes } from '@/services/squareModifiers';
+import { trackProductModalClosed, trackQuantityChanged, trackModifiersCompleted } from '@/services/analytics';
+import { resolveFulfillmentLocation } from '@/utils/fulfillmentRouter';
+import { StoreLocatorPrompt } from './StoreLocatorPrompt';
 
 // Placeholder image
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=Product';
@@ -52,11 +56,15 @@ export const ProductModal = ({
     storeLocations = [],
 }) => {
     const theme = useTheme();
-    const { products: shopifyProducts } = useShopify();
+    const { allProducts: shopifyProducts } = useCatalog();
 
     // Full screen on mobile (xs, sm), modal with overlay on md and up
     const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
     const closeButtonRef = useRef(null);
+
+    // Track how long the modal is open
+    const openTimeRef = useRef(null);
+    useEffect(() => { if (open) openTimeRef.current = Date.now(); }, [open]);
 
     // Internal open state to control animation independently
     const [internalOpen, setInternalOpen] = useState(open);
@@ -70,8 +78,9 @@ export const ProductModal = ({
 
     // Handle close with animation
     const handleClose = useCallback(() => {
+        trackProductModalClosed(product?.id || product?.sku, openTimeRef.current ? Date.now() - openTimeRef.current : 0);
         setInternalOpen(false); // Triggers exit animation
-    }, []);
+    }, [product]);
 
     // Called after exit animation completes
     const handleExited = useCallback(() => {
@@ -80,6 +89,9 @@ export const ProductModal = ({
 
     // Add to cart state
     const [addingToCart, setAddingToCart] = useState(false);
+
+    // Inline error state (replaces native alert())
+    const [inlineError, setInlineError] = useState(null);
     
     // Selected variant state (for products with multiple variants)
     const [selectedVariantId, setSelectedVariantId] = useState(null);
@@ -97,6 +109,18 @@ export const ProductModal = ({
     
     // Nearest store for pickup
     const [nearestStore, setNearestStore] = useState(null);
+
+    // Store locator prompt state (for visitors with no location selected)
+    const [showStoreLocator, setShowStoreLocator] = useState(false);
+
+    // Capture selected location when modal opens — stable for the modal's lifetime
+    // so background auto-detect won't change the display mid-session
+    const [capturedLocation, setCapturedLocation] = useState(null);
+    useEffect(() => {
+        if (open) {
+            setCapturedLocation(localStorage.getItem('selectedLocation') || null);
+        }
+    }, [open]);
 
     // Modifier selections state
     const [modifierSelections, setModifierSelections] = useState({});
@@ -136,6 +160,7 @@ export const ProductModal = ({
             setAllModifierStepsComplete(false);
             setCanContinueModifiers(false);
             setIsLastModifierStep(false);
+            setInlineError(null);
             return;
         }
         
@@ -187,7 +212,16 @@ export const ProductModal = ({
         return ['pickup', 'delivery', 'shipping'];
     };
     
-    const fulfillmentMethods = getFulfillmentMethods();
+    const rawFulfillmentMethods = getFulfillmentMethods();
+    // Filter out fulfillment methods disabled at the selected location
+    const selectedSlug = capturedLocation;
+    const selectedLoc = storeLocations.find(l => l.id === selectedSlug);
+    const fulfillmentMethods = rawFulfillmentMethods.filter(m => {
+        if (m === 'pickup' && selectedLoc?.disablePickup) return false;
+        if (m === 'delivery' && selectedLoc?.disableDelivery) return false;
+        if (m === 'shipping' && selectedLoc?.disableShipping) return false;
+        return true;
+    });
     const allowsPickup = fulfillmentMethods.includes('pickup');
     const allowsDelivery = fulfillmentMethods.includes('delivery');
     const allowsShipping = fulfillmentMethods.includes('shipping');
@@ -272,13 +306,22 @@ export const ProductModal = ({
 
         if (!variantIdToAdd) {
             console.error('❌ No variant ID available for product:', product);
-            alert('Please select a size option.');
+            setInlineError('Please select a size option.');
             return;
         }
 
         // Check modifier validation
         if (!modifierValidation.valid) {
-            alert(modifierValidation.errors.join('\n'));
+            setInlineError(modifierValidation.errors.join(' '));
+            return;
+        }
+
+        // Clear any previous error
+        setInlineError(null);
+
+        // Gate: require a store location to be selected
+        if (!capturedLocation) {
+            setShowStoreLocator(true);
             return;
         }
 
@@ -357,17 +400,42 @@ export const ProductModal = ({
 
             console.log('📋 Cart Attributes:', customAttributes);
 
+            // Pass fulfillment location info as hidden custom attributes
+            if (fulfillmentResolution.locationId) {
+                customAttributes.push({ key: '_fulfillmentLocationId', value: fulfillmentResolution.locationId });
+                customAttributes.push({ key: '_fulfillmentLocationName', value: fulfillmentResolution.locationName });
+            }
+            // Override fulfillment method based on resolution (warehouse/retail_fallback → shipping)
+            if (fulfillmentResolution.source === 'warehouse' || fulfillmentResolution.source === 'retail_fallback') {
+                const existingFulfillmentIdx = customAttributes.findIndex(a => a.key === '_fulfillment');
+                if (existingFulfillmentIdx >= 0) {
+                    customAttributes[existingFulfillmentIdx].value = 'shipping';
+                } else {
+                    customAttributes.push({ key: '_fulfillment', value: 'shipping' });
+                }
+            }
+
             // Call parent's onAddToCart handler - it will handle cart, banner, and modal closing
             await onAddToCart(product.id, variantIdToAdd, quantity, customAttributes);
             console.log('🎯 ✅ onAddToCart callback completed');
 
         } catch (error) {
             console.error('❌ Error adding to cart:', error);
-            alert('Failed to add item to cart. Please try again.');
+            setInlineError('Failed to add item to cart. Please try again.');
         } finally {
             setAddingToCart(false);
         }
     };
+
+    const handleStoreSelected = useCallback((locationId) => {
+        localStorage.setItem('selectedLocation', locationId);
+        setCapturedLocation(locationId);
+        window.dispatchEvent(new CustomEvent('locationChanged', { detail: { locationId } }));
+        setShowStoreLocator(false);
+        // Re-trigger add to cart now that location is set
+        // Use setTimeout to let state updates settle first
+        setTimeout(() => handleAddToCart(), 0);
+    }, []);
 
     if (!product) return null;
 
@@ -376,25 +444,22 @@ export const ProductModal = ({
     const selectedVariant = product.availableVariants?.find(v => v.id === selectedVariantId) 
         || product.variants?.find(v => v.id === selectedVariantId);
     
-    // Check if variant is available at the user's selected pickup location
-    const locationAvailability = useMemo(() => {
-        const selectedSlug = localStorage.getItem('selectedLocation');
-        if (!selectedSlug || !storeLocations?.length) return { available: true, locationName: null };
-        const store = storeLocations.find(loc => loc.id === selectedSlug);
-        if (!store) return { available: true, locationName: null };
-        // Catalog inventory is the source of truth
-        if (selectedVariant?.inventory?.byLocation?.length) {
-            const locEntry = selectedVariant.inventory.byLocation.find(l => l.locationId === selectedSlug);
-            if (!locEntry) {
-                if (selectedVariant.inventory.trackInventory) return { available: false, locationName: store.name };
-                return { available: true, locationName: store.name };
-            }
-            if (selectedVariant.inventory.trackInventory && locEntry.quantity <= 0) {
-                return { available: false, locationName: store.name };
-            }
+    // Resolve fulfillment location using waterfall: local → warehouse → other retail
+    const fulfillmentResolution = useMemo(() => {
+        if (!capturedLocation || !storeLocations?.length) {
+            return { locationId: null, locationName: null, fulfillmentMethod: 'pickup', maxQuantity: Infinity, source: 'local' };
         }
-        return { available: true, locationName: store.name };
-    }, [selectedVariant?.id, product?.id, storeLocations]);
+        return resolveFulfillmentLocation(selectedVariant, capturedLocation, storeLocations, 'pickup');
+    }, [selectedVariant?.id, selectedVariant?.inventory, product?.id, storeLocations, capturedLocation]);
+
+    // Backward-compatible locationAvailability derived from fulfillmentResolution
+    const locationAvailability = useMemo(() => {
+        const store = storeLocations?.find(loc => loc.id === capturedLocation);
+        return {
+            available: fulfillmentResolution.source !== 'none',
+            locationName: store?.name || null,
+        };
+    }, [fulfillmentResolution, storeLocations]);
 
     // Debug
     console.log('🖼️ Modal debug:', {
@@ -453,11 +518,10 @@ export const ProductModal = ({
     const displayPrice = useMemo(() => {
         const v = selectedVariant;
         if (!v) return product.price;
-        const slug = localStorage.getItem('selectedLocation');
-        const locPrice = slug && v.locationPrices?.[slug];
+        const locPrice = capturedLocation && v.locationPrices?.[capturedLocation];
         const price = locPrice != null ? locPrice : v.price;
         return `$${parseFloat(price).toFixed(2)}`;
-    }, [selectedVariant, product.price]);
+    }, [selectedVariant, product.price, capturedLocation]);
 
     const productName = product.name || product.title || 'Product';
 
@@ -582,6 +646,7 @@ export const ProductModal = ({
                                         <Button
                                             key={variant.id}
                                             variant={isSelected ? "contained" : "outlined"}
+                                            aria-pressed={isSelected}
                                             onClick={() => setSelectedVariantId(variant.id)}
                                             sx={{
                                                 minWidth: '100px',
@@ -640,8 +705,17 @@ export const ProductModal = ({
                         products={shopifyProducts}
                     />
 
+                    {/* Inline error display (ADA-compliant replacement for native alert()) */}
+                    {inlineError && (
+                        <Alert role="alert" severity="error" onClose={() => setInlineError(null)} sx={{ mb: 2 }}>
+                            {inlineError}
+                        </Alert>
+                    )}
+
                     {/* Quantity Selector */}
                     <Box
+                        role="group"
+                        aria-label="Quantity"
                         sx={{
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -652,7 +726,7 @@ export const ProductModal = ({
                         }}
                     >
                         <Button
-                            onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                            onClick={() => setQuantity(q => { const newQ = Math.max(1, q - 1); trackQuantityChanged(product?.id || product?.sku, newQ); return newQ; })}
                             disabled={quantity <= 1}
                             sx={{ minWidth: '40px' }}
                             aria-label="Decrease quantity"
@@ -660,6 +734,8 @@ export const ProductModal = ({
                             -
                         </Button>
                         <Typography
+                            aria-live="polite"
+                            role="status"
                             sx={{
                                 px: 2,
                                 fontWeight: 'bold',
@@ -670,7 +746,14 @@ export const ProductModal = ({
                             {quantity}
                         </Typography>
                         <Button
-                            onClick={() => setQuantity(q => q + 1)}
+                            onClick={() => setQuantity(q => {
+                                const max = fulfillmentResolution.maxQuantity;
+                                if (max !== Infinity && q >= max) return q;
+                                const newQ = q + 1;
+                                trackQuantityChanged(product?.id || product?.sku, newQ);
+                                return newQ;
+                            })}
+                            disabled={fulfillmentResolution.maxQuantity !== Infinity && quantity >= fulfillmentResolution.maxQuantity}
                             sx={{ minWidth: '40px' }}
                             aria-label="Increase quantity"
                         >
@@ -687,69 +770,86 @@ export const ProductModal = ({
                             onSelectionsChange={handleModifierSelectionsChange}
                             onPriceChange={setModifierPrice}
                             onValidationChange={setModifierValidation}
-                            onAllStepsComplete={setAllModifierStepsComplete}
+                            onAllStepsComplete={(complete) => { setAllModifierStepsComplete(complete); if (complete) trackModifiersCompleted(product?.id || product?.sku); }}
                             onCanContinueChange={setCanContinueModifiers}
                             onIsLastStepChange={setIsLastModifierStep}
                         />
                     )}
 
-                    {/* Fulfillment Options - Apple style */}
+                    {/* Fulfillment Options — always show all three methods */}
                     <Box sx={{ mb: 3 }}>
-                        {/* Check inventory for tracked products */}
                         {(() => {
-                            const isInventoryTracked = product.inventoryTracked;
-                            const isOutOfStock = isInventoryTracked && product.totalInventory === 0;
+                            const source = fulfillmentResolution.source;
+                            const isLocal = source === 'local';
+                            const isNone = source === 'none';
 
-                            if (isOutOfStock) {
-                                return (
-                                    <Typography variant="body2" color="text.secondary">
-                                        Out of stock
-                                    </Typography>
-                                );
-                            }
-                            
+                            const pickupAvail = allowsPickup && isLocal;
+                            const deliveryAvail = allowsDelivery && isLocal;
+                            const shippingAvail = (allowsShipping || !isLocal) && !isNone;
+
+                            const methodRow = (icon, label, available, detail) => (
+                                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, opacity: available ? 1 : 0.45 }}>
+                                    {React.cloneElement(icon, {
+                                        sx: { color: available ? 'text.secondary' : 'text.disabled', fontSize: 20, mt: 0.25 },
+                                        'aria-hidden': true,
+                                    })}
+                                    <Box>
+                                        <Typography variant="body2" sx={{ fontWeight: 500 }} color={available ? 'text.primary' : 'text.disabled'}>
+                                            {label}{!available && ' — Unavailable'}
+                                        </Typography>
+                                        {available && detail}
+                                    </Box>
+                                </Box>
+                            );
+
                             return (
                                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                    {/* Pickup Option */}
-                                    {allowsPickup && (
-                                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-                                            <StorefrontIcon sx={{ color: 'text.secondary', fontSize: 20, mt: 0.25 }} aria-hidden="true" />
-                                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                                Pickup available{nearestStore ? ` from ${nearestStore.name}` : ''}
+                                    {/* Pickup */}
+                                    {methodRow(
+                                        <StorefrontIcon />,
+                                        `Pickup${pickupAvail && selectedLoc ? ` from ${selectedLoc.name}` : ''}`,
+                                        pickupAvail,
+                                        pickupAvail && selectedLoc?.pickupWindow ? (
+                                            <Typography variant="body2">
+                                                <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>Pickup</Box>
+                                                {' '}
+                                                <Box component="span" sx={{ color: 'success.main' }}>ready in {selectedLoc.pickupWindow} minutes</Box>
                                             </Typography>
-                                        </Box>
+                                        ) : null
                                     )}
 
-                                    {/* Delivery Options */}
-                                    {(allowsDelivery || allowsShipping) && (
-                                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-                                            <LocalShippingIcon sx={{ color: 'text.secondary', fontSize: 20, mt: 0.25 }} aria-hidden="true" />
+                                    {/* Local Delivery */}
+                                    {methodRow(
+                                        <LocalShippingIcon />,
+                                        'Local Delivery',
+                                        deliveryAvail,
+                                        deliveryAvail && deliveryEstimate?.available && deliveryEstimate?.feeText ? (
+                                            <Typography variant="body2" color="text.secondary">{deliveryEstimate.feeText}</Typography>
+                                        ) : null
+                                    )}
+
+                                    {/* Shipping */}
+                                    {methodRow(
+                                        <LocalShippingIcon />,
+                                        `Shipping${shippingAvail && fulfillmentResolution.locationName && !isLocal ? ` from ${fulfillmentResolution.locationName}` : ''}`,
+                                        shippingAvail,
+                                        shippingAvail ? (
                                             <Box>
-                                                {/* Local Delivery */}
-                                                {allowsDelivery && (
-                                                    <Typography variant="body2" sx={{ fontWeight: 500, mb: allowsShipping ? 1 : 0 }}>
-                                                        Local Delivery
-                                                        {deliveryEstimate?.available && deliveryEstimate?.feeText && (
-                                                            <Typography component="span" color="text.secondary"> — {deliveryEstimate.feeText}</Typography>
-                                                        )}
+                                                <Typography variant="body2" color="text.secondary">Calculated at checkout</Typography>
+                                                {shippingEstimate?.available && shippingEstimate?.rangeText && (
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        Est. arrival: {shippingEstimate.rangeText}
                                                     </Typography>
                                                 )}
-                                                {/* Shipping */}
-                                                {allowsShipping && (
-                                                    <Box>
-                                                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                                            Shipping
-                                                            <Typography component="span" color="text.secondary"> — Calculated at checkout</Typography>
-                                                        </Typography>
-                                                        {shippingEstimate?.available && shippingEstimate?.rangeText && (
-                                                            <Typography variant="body2" color="text.secondary">
-                                                                Est. arrival: {shippingEstimate.rangeText}
-                                                            </Typography>
-                                                        )}
-                                                    </Box>
-                                                )}
                                             </Box>
-                                        </Box>
+                                        ) : null
+                                    )}
+
+                                    {/* Max quantity notice */}
+                                    {fulfillmentResolution.maxQuantity !== Infinity && fulfillmentResolution.maxQuantity > 0 && (
+                                        <Typography variant="caption" color="text.secondary">
+                                            {fulfillmentResolution.maxQuantity} available
+                                        </Typography>
                                     )}
                                 </Box>
                             );
@@ -866,16 +966,16 @@ export const ProductModal = ({
 
                 {/* Action Button - Continue or Add to Cart */}
                 {(() => {
-                    // Determine button state
-                    const isOutOfStock = product.inventoryTracked && product.totalInventory === 0;
-                    const notAtLocation = !locationAvailability.available;
+                    // Determine button state using fulfillment waterfall
+                    const isOutOfStock = fulfillmentResolution.source === 'none';
                     const showContinue = hasModifiers && !isLastModifierStep && !allModifierStepsComplete;
                     const continueDisabled = showContinue && !canContinueModifiers;
+                    const isInStoreOnly = selectedVariant?.inStoreOnly === true;
                     const addToCartDisabled = !showContinue && (
+                        isInStoreOnly ||
                         addingToCart ||
                         (!selectedVariantId && !product.variantId) ||
                         isOutOfStock ||
-                        notAtLocation ||
                         (hasModifiers && !allModifierStepsComplete)
                     );
 
@@ -898,6 +998,7 @@ export const ProductModal = ({
                             }
                             onClick={handleButtonClick}
                             disabled={showContinue ? continueDisabled : addToCartDisabled}
+                            aria-busy={addingToCart || undefined}
                             sx={{
                                 backgroundColor: '#000000',
                                 color: '#ffffff',
@@ -916,10 +1017,10 @@ export const ProductModal = ({
                         >
                             {addingToCart ? (
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Adding...</Typography>
+                            ) : isInStoreOnly ? (
+                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>In-Store Only</Typography>
                             ) : isOutOfStock ? (
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Out of Stock</Typography>
-                            ) : notAtLocation ? (
-                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Not Available at {locationAvailability.locationName}</Typography>
                             ) : showContinue ? (
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Continue</Typography>
                             ) : (
@@ -931,7 +1032,22 @@ export const ProductModal = ({
                         </Button>
                     );
                 })()}
+                {selectedVariant?.terms && (
+                    <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', textAlign: 'center', pb: 1.5 }}>
+                        {selectedVariant.terms}
+                    </Typography>
+                )}
             </DialogActions>
+
+            {/* Store Locator Prompt — shown when add-to-cart clicked with no location */}
+            <StoreLocatorPrompt
+                open={showStoreLocator}
+                onClose={() => setShowStoreLocator(false)}
+                onSelectStore={handleStoreSelected}
+                product={product}
+                selectedVariant={selectedVariant}
+                storeLocations={storeLocations}
+            />
         </Dialog>
     );
 };

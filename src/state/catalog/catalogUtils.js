@@ -62,7 +62,7 @@ export const resolveDisplayModifiers = (displayModifiers = [], allModifiers = []
         return opts.length ? {
             modifierId: dm.modifierId,
             name: mod.name,
-            options: opts.map(o => ({ optionId: o.optionId, name: o.name, price: o.price, image: o.image })),
+            options: opts.map(o => ({ optionId: o.optionId, name: o.name, price: o.price, image: o.image, imageVariants: o.imageVariants })),
         } : null;
     }).filter(Boolean);
 };
@@ -80,22 +80,9 @@ export const getDescendantIds = (parentId, categories) => {
     return ids;
 };
 
-// Build SKU → Shopify variant GID lookup from Shopify products
-export const buildShopifyGidLookup = (shopifyProducts) => {
-    const map = {};
-    for (const sp of shopifyProducts) {
-        for (const sv of sp.variants || []) {
-            if (sv.sku) map[sv.sku.toUpperCase()] = { variantGid: sv.id, productGid: sp.shopifyId, productHandle: sp.id };
-        }
-    }
-    return map;
-};
-
-// Build catalog-first variant objects (SKU is the canonical ID; Shopify GID attached if available)
-export const buildCatalogFirstVariants = (catalogVariants, shopifyGidLookup) => {
+// Build catalog-first variant objects (SKU is the canonical ID)
+export const buildCatalogFirstVariants = (catalogVariants) => {
     return (catalogVariants || []).map(cv => {
-        const skuUpper = cv.sku?.toUpperCase();
-        const gidFallback = skuUpper ? shopifyGidLookup?.[skuUpper] : null;
         const _locSlug = typeof window !== 'undefined' ? localStorage.getItem('selectedLocation') : null;
         const _locPrice = _locSlug && cv.locationPrices?.[_locSlug];
         return {
@@ -107,10 +94,11 @@ export const buildCatalogFirstVariants = (catalogVariants, shopifyGidLookup) => 
             isDefault: cv.isDefault,
             catalogImage: cv.catalogImage,
             locationPrices: cv.locationPrices || null,
-            shopifyVariantGid: cv.platformIds?.shopify || gidFallback?.variantGid || null,
-            id: cv.sku || cv.platformIds?.shopify || gidFallback?.variantGid,
+            id: cv.sku,
             availableForSale: cv.inventory?.inStock !== false,
             inventory: cv.inventory || {},
+            inStoreOnly: cv.inStoreOnly || false,
+            terms: cv.terms || null,
         };
     });
 };
@@ -154,31 +142,153 @@ export const getMergedProductOrder = (categories) => {
     return allOrdered;
 };
 
+// Filter test items — only show on beta/localhost when test mode is enabled
+export const filterTestItems = (products, testModeEnabled) => {
+    const isTestEnvironment = typeof window !== 'undefined' && (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.startsWith('beta')
+    );
+    if (isTestEnvironment && testModeEnabled) return products;
+    return products.filter(p => !p.testItem);
+};
+
 // Filter products by location availability (catalog locationAvailability is source of truth)
-export const filterProductsByLocation = (shopifyProducts, catalog, storeLocations, locationSlug) => {
-    if (!locationSlug || storeLocations.length === 0) return shopifyProducts;
+export const filterProductsByLocation = (products, catalog, storeLocations, locationSlug) => {
+    if (!locationSlug || storeLocations.length === 0) return products;
 
-    // Build catalog locationAvailability lookup by product name (lowercase)
-    const catalogLocAvail = {};
-    if (catalog?.products) {
-        for (const cp of catalog.products) {
-            if (cp.locationAvailability && cp.name) {
-                catalogLocAvail[cp.name.toLowerCase()] = cp.locationAvailability;
-            }
-        }
-    }
-
-    return shopifyProducts.filter(product => {
-        const locAvail = catalogLocAvail[(product.name || product.title || '').toLowerCase()];
-        if (locAvail && locAvail[locationSlug] === false) return false;
+    return products.filter(product => {
+        // Direct locationAvailability on catalog-derived products
+        if (product.locationAvailability?.[locationSlug] === false) return false;
         return true;
     });
+};
+
+// Build flat product array from catalog data
+export const buildAllProducts = (catalog) => {
+    if (!catalog?.products?.length) return [];
+
+    const categoryById = new Map();
+    (catalog.categories || []).forEach(c => categoryById.set(c.id, c));
+
+    const getRootCategory = (categoryId) => {
+        let current = categoryById.get(categoryId);
+        while (current?.parentId) {
+            const parent = categoryById.get(current.parentId);
+            if (parent) current = parent;
+            else break;
+        }
+        return current;
+    };
+
+    // Check if a product's category chain contains a category matching a name
+    const categoryChainIncludes = (categoryIds, nameLower) => {
+        for (const catId of (categoryIds || [])) {
+            let current = categoryById.get(catId);
+            while (current) {
+                if (current.name?.toLowerCase().includes(nameLower) || current.slug?.includes(nameLower)) return true;
+                current = current.parentId ? categoryById.get(current.parentId) : null;
+            }
+        }
+        return false;
+    };
+
+    return catalog.products.map(cp => {
+        const variants = buildCatalogFirstVariants(cp.variants);
+
+        // Determine root category for category/productType
+        const rootCat = cp.categoryIds?.[0] ? getRootCategory(cp.categoryIds[0]) : null;
+        const rootSlug = rootCat?.slug || rootCat?.name?.toLowerCase() || null;
+        // Map 'collectibles' to 'merchandise' for backward compatibility
+        const category = rootSlug === 'collectibles' ? 'merchandise' : rootSlug;
+
+        // Infer merchandiseType from category hierarchy
+        const isBlindBox = categoryChainIncludes(cp.categoryIds, 'blind box');
+
+        return {
+            id: cp.productId || cp.sku || cp.name,
+            productId: cp.productId,
+            platformIds: cp.platformIds,
+            name: cp.name,
+            title: cp.name,
+            description: cp.description || '',
+            category,
+            productType: category,
+            categoryIds: cp.categoryIds || [],
+            variants,
+            variantId: variants[0]?.id || null,
+            imageUrl: cp.masterImage?.url || cp.images?.[0]?.url || null,
+            images: (cp.images || []).sort((a, b) => (a.order || 0) - (b.order || 0)),
+            masterImage: cp.masterImage,
+            pwa: cp.masterImage?.pwa || null,
+            fulfillmentMethods: cp.fulfillmentMethods || [],
+            locationAvailability: cp.locationAvailability || {},
+            testItem: cp.testItem || false,
+            sku: cp.sku || cp.variants?.[0]?.sku || null,
+            merchandiseType: isBlindBox ? 'blind_box_collectible' : null,
+            tags: cp.tags || [],
+            crosssellProducts: cp.crossSellProducts || [],
+        };
+    });
+};
+
+// Build category helper functions from catalog categories
+export const buildCategoryHelpers = (categories = []) => {
+    const categoryById = new Map();
+    categories.forEach(c => categoryById.set(c.id, c));
+
+    const getCategoryBySlug = (slug) => {
+        if (!slug) return null;
+        const lower = slug.toLowerCase();
+        return categories.find(c => c.slug === lower || c.name?.toLowerCase() === lower) || null;
+    };
+
+    const getCategoryChildren = (categoryId) => {
+        return categories
+            .filter(c => c.parentId === categoryId)
+            .sort((a, b) => (a.position || 0) - (b.position || 0));
+    };
+
+    const getRootCategories = () => {
+        return categories
+            .filter(c => !c.parentId)
+            .sort((a, b) => (a.position || 0) - (b.position || 0));
+    };
+
+    const getProductHierarchy = (product) => {
+        const firstCatId = product.categoryIds?.[0];
+        if (!firstCatId) return null;
+
+        const chain = [];
+        let current = categoryById.get(firstCatId);
+        while (current) {
+            chain.unshift(current);
+            current = current.parentId ? categoryById.get(current.parentId) : null;
+        }
+        return {
+            rootCategory: chain[0] ? { ...chain[0], handle: chain[0].slug || chain[0].name?.toLowerCase() } : null,
+            subcategory: chain[1] ? { ...chain[1], handle: chain[1].slug || chain[1].name?.toLowerCase() } : null,
+            container: chain[2] ? { ...chain[2], handle: chain[2].slug || chain[2].name?.toLowerCase(), title: chain[2].name } : null,
+        };
+    };
+
+    const getSubcategories = (rootSlug) => {
+        const rootCat = getCategoryBySlug(rootSlug);
+        if (!rootCat) return [];
+        return getCategoryChildren(rootCat.id).map(c => ({
+            ...c,
+            handle: c.slug || c.name?.toLowerCase(),
+            title: c.name,
+        }));
+    };
+
+    return { getCategoryBySlug, getCategoryChildren, getRootCategories, getProductHierarchy, getSubcategories, categoryById };
 };
 
 // Build subcategories from catalog data (catalog-first approach)
 // rootName: e.g. 'desserts', 'collectibles' — matches category name or slug (case-insensitive)
 // storeLocations: array of location objects with { id, type } — used for warehouse-based visibility
-export const buildSubcategoriesFromCatalog = (catalog, shopifyGidLookup, locationSlug, rootName = 'desserts', storeLocations = []) => {
+export const buildSubcategoriesFromCatalog = (catalog, _unused = {}, locationSlug, rootName = 'desserts', storeLocations = []) => {
     if (!catalog?.categories?.length || !catalog?.products?.length) return [];
 
     const rootNameLower = rootName.toLowerCase();
@@ -192,10 +302,10 @@ export const buildSubcategoriesFromCatalog = (catalog, shopifyGidLookup, locatio
         return [];
     }
 
-    // Get all subcategories under the root
+    // Get all subcategories under the root (position, then name for ties — matches admin)
     const subcategories = catalog.categories
         .filter(c => c.parentId === rootCategory.id)
-        .sort((a, b) => (a.position || 0) - (b.position || 0));
+        .sort((a, b) => (a.position || 0) - (b.position || 0) || (a.name || '').localeCompare(b.name || ''));
 
     console.log(`📦 [Catalog:${rootName}] Found subcategories:`, subcategories.map(s => s.name));
 
@@ -206,13 +316,35 @@ export const buildSubcategoriesFromCatalog = (catalog, shopifyGidLookup, locatio
             p.categoryIds?.some(catId => subcatIds.has(catId))
         );
 
-        // Sort by productOrder — merge from children if parent has none
-        let productOrder = subcat.productOrder || [];
-        if (productOrder.length === 0) {
-            const childCategories = catalog.categories
-                .filter(c => c.parentId === subcat.id)
-                .sort((a, b) => (a.position || 0) - (b.position || 0));
-            productOrder = childCategories.flatMap(child => child.productOrder || []);
+        // Sort by productOrder — children-first to match admin tree view
+        // When a subcategory has children (L3), use children's productOrders
+        // concatenated in tree position order. This matches the admin's tree view
+        // where products are grouped by sub-subcategory.
+        let productOrder;
+        const childCatsForOrder = catalog.categories
+            .filter(c => c.parentId === subcat.id)
+            .sort((a, b) => (a.position || 0) - (b.position || 0) || (a.name || '').localeCompare(b.name || ''));
+        if (childCatsForOrder.length > 0) {
+            // Children-first: concatenate children's productOrders in tree order
+            productOrder = [];
+            const seen = new Set();
+            for (const child of childCatsForOrder) {
+                for (const sku of (child.productOrder || [])) {
+                    if (!seen.has(sku.toUpperCase())) {
+                        seen.add(sku.toUpperCase());
+                        productOrder.push(sku);
+                    }
+                }
+            }
+            // Append any parent-only products not covered by children
+            for (const sku of (subcat.productOrder || [])) {
+                if (!seen.has(sku.toUpperCase())) {
+                    seen.add(sku.toUpperCase());
+                    productOrder.push(sku);
+                }
+            }
+        } else {
+            productOrder = subcat.productOrder || [];
         }
         const sortedCatalogProducts = productOrder.length > 0
             ? sortProductsByOrder(catalogProductsInCategory, productOrder, catalog.products)
@@ -234,7 +366,7 @@ export const buildSubcategoriesFromCatalog = (catalog, shopifyGidLookup, locatio
         const warehouseIds = storeLocations.filter(l => l.type === 'Warehouse').map(l => l.id);
         const isCollectibles = rootNameLower === 'collectibles';
 
-        // Build containers from catalog products (catalog-first: no Shopify product required)
+        // Build containers from catalog products
         const containers = sortedCatalogProducts.filter(catalogProduct => {
             if (isCollectibles && warehouseIds.length > 0) {
                 // Collectibles: visible if ANY warehouse has it visible
@@ -266,23 +398,21 @@ export const buildSubcategoriesFromCatalog = (catalog, shopifyGidLookup, locatio
             const gradientEndColor = masterImage?.gradientEndColor || firstImage?.gradientEndColor || null;
 
             // Build variants directly from catalog data
-            const catalogVariants = buildCatalogFirstVariants(catalogProduct.variants, shopifyGidLookup);
-
-            // Product-level IDs (catalog is source of truth; Shopify GID attached if available)
-            const firstSku = catalogProduct.variants?.[0]?.sku?.toUpperCase();
-            const productShopifyGid = catalogProduct.platformIds?.shopify || shopifyGidLookup?.[firstSku]?.productGid || null;
+            const catalogVariants = buildCatalogFirstVariants(catalogProduct.variants);
 
             // Build catalog-first product object
             const productObj = {
-                id: catalogProduct.productId || shopifyGidLookup?.[firstSku]?.productHandle || catalogProduct.name,
-                shopifyId: productShopifyGid,
+                id: catalogProduct.productId || catalogProduct.sku || catalogProduct.name,
                 platformIds: catalogProduct.platformIds,
                 name: catalogProduct.name,
                 description: catalogProduct.description || '',
                 category: catalogProduct.categoryIds?.[0] || null,
+                categoryIds: catalogProduct.categoryIds || [],
+                tags: catalogProduct.tags || [],
                 variants: catalogVariants,
                 imageUrl: s3Image,
                 fulfillmentMethods: catalogProduct.fulfillmentMethods || [],
+                crosssellProducts: catalogProduct.crossSellProducts || [],
             };
 
             return {
@@ -315,7 +445,7 @@ export const buildSubcategoriesFromCatalog = (catalog, shopifyGidLookup, locatio
             id: subcat.id,
             title: subcat.name,
             description: subcat.description || '',
-            image: subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.name)}`,
+            image: subcat.image?.variants?.sm?.url || subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.name)}`,
             containers: containers,
             products: containers.map(c => c.product),
             childCategories: childCategories.map(c => ({ id: c.id, name: c.name, position: c.position })),

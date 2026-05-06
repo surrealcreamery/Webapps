@@ -1,19 +1,29 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Box, Typography } from '@mui/material';
+import { trackCrossSellShown, trackCrossSellProductClicked } from '@/services/analytics';
 
 /**
  * Cross-sell / Upsell Recommendations
  * Shows related products below cart summary
  * Apple-style "You might also like" section
  */
-export function ProductRecommendations({ products, onProductClick }) {
+export function ProductRecommendations({ products, onProductClick, id }) {
   if (!products || products.length === 0) return null;
 
   // Limit to 2 products for cross-sell
   const displayProducts = products.slice(0, 2);
+  const headingId = id ? `recommendations-heading-${id}` : 'recommendations-heading';
+
+  useEffect(() => {
+    if (products?.length > 0) {
+      trackCrossSellShown(products.slice(0, 2).map(p => p.id), null);
+    }
+  }, [products]);
 
   return (
     <Box
+      component="section"
+      aria-labelledby={headingId}
       sx={{
         maxWidth: '600px',
         margin: '0 auto',
@@ -23,6 +33,7 @@ export function ProductRecommendations({ products, onProductClick }) {
     >
       {/* Section Header */}
       <Typography
+        id={headingId}
         variant="h5"
         sx={{
           fontWeight: 700,
@@ -52,10 +63,20 @@ export function ProductRecommendations({ products, onProductClick }) {
           gap: 3
         }}
       >
-        {displayProducts.map((product) => (
+        {displayProducts.map((product, index) => (
           <Box
             key={product.id}
-            onClick={() => onProductClick(product.id)}
+            role="button"
+            tabIndex={0}
+            aria-label={`${product.name}, ${product.price}`}
+            onClick={() => { trackCrossSellProductClicked(product.id, index, null); onProductClick(product.id); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                trackCrossSellProductClicked(product.id, index, null);
+                onProductClick(product.id);
+              }
+            }}
             sx={{
               cursor: 'pointer',
               display: 'flex',
@@ -63,13 +84,17 @@ export function ProductRecommendations({ products, onProductClick }) {
               transition: 'transform 0.2s',
               '&:hover': {
                 transform: 'translateY(-4px)'
+              },
+              '&:focus-visible': {
+                outline: '2px solid #1976d2',
+                outlineOffset: '2px'
               }
             }}
           >
             {/* Product Image */}
             <Box
               component="img"
-              src={product.imageUrl}
+              src={product.imageUrl || '/placeholder.png'}
               alt={product.name}
               sx={{
                 width: '100%',

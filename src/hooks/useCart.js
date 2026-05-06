@@ -60,7 +60,7 @@ export const useCart = () => {
     /**
      * Add item to cart (merges by variantSku + modifiers key)
      */
-    const addToCart = useCallback((product, variant, quantity = 1, modifiers = [], { isFreeGift = false, discountId = null, fulfillmentMethod = null } = {}) => {
+    const addToCart = useCallback((product, variant, quantity = 1, modifiers = [], { isFreeGift = false, discountId = null, fulfillmentMethod = null, fulfillmentLocationId = null, fulfillmentLocationName = null, crossSellDiscount = null, triggerProductId = null } = {}) => {
         const variantSku = variant?.sku || variant?.id || product?.id;
         const modKey = modifiers.map(m => `${m.key}:${m.value}`).sort().join('|');
 
@@ -68,6 +68,7 @@ export const useCart = () => {
             const existingIdx = prev.findIndex(item => {
                 if (item.variantSku !== variantSku) return false;
                 if ((item.fulfillmentMethod || null) !== (fulfillmentMethod || null)) return false;
+                if ((item.fulfillmentLocationId || null) !== (fulfillmentLocationId || null)) return false;
                 const existingModKey = (item.modifiers || []).map(m => `${m.key}:${m.value}`).sort().join('|');
                 return existingModKey === modKey;
             });
@@ -82,8 +83,8 @@ export const useCart = () => {
 
             return [...prev, {
                 id: crypto.randomUUID(),
-                productId: product?.id || product?.platformIds?.shopify || product?.shopifyId || '',
-                variantId: variant?.sku || variant?.id || variant?.shopifyVariantGid || variant?.platformIds?.shopify || '',
+                productId: product?.id || product?.sku || '',
+                variantId: variant?.sku || variant?.id || '',
                 sku: product?.sku || variant?.sku || '',
                 variantSku,
                 name: product?.name || product?.title || '',
@@ -95,6 +96,8 @@ export const useCart = () => {
                 isFreeGift,
                 discountId,
                 ...(fulfillmentMethod ? { fulfillmentMethod } : {}),
+                ...(fulfillmentLocationId ? { fulfillmentLocationId, fulfillmentLocationName } : {}),
+                ...(crossSellDiscount ? { crossSellDiscount, triggerProductId } : {}),
             }];
         });
     }, [updateCart]);
@@ -103,14 +106,33 @@ export const useCart = () => {
      * Remove item by id
      */
     const removeFromCart = useCallback((itemId) => {
-        updateCart(prev => prev.filter(item => item.id !== itemId));
+        updateCart(prev => {
+            const removed = prev.find(item => item.id === itemId);
+            return prev.filter(item => item.id !== itemId).map(item => {
+                if (item.crossSellDiscount && item.triggerProductId && removed && item.triggerProductId === removed.productId) {
+                    const { crossSellDiscount, triggerProductId, ...rest } = item;
+                    return rest;
+                }
+                return item;
+            });
+        });
     }, [updateCart]);
 
     /**
      * Remove item by variantId (for discount swap logic)
      */
     const removeByVariantId = useCallback((variantId) => {
-        updateCart(prev => prev.filter(item => item.variantId !== variantId));
+        updateCart(prev => {
+            const removed = prev.filter(item => item.variantId === variantId);
+            const removedProductIds = new Set(removed.map(item => item.productId));
+            return prev.filter(item => item.variantId !== variantId).map(item => {
+                if (item.crossSellDiscount && item.triggerProductId && removedProductIds.has(item.triggerProductId)) {
+                    const { crossSellDiscount, triggerProductId, ...rest } = item;
+                    return rest;
+                }
+                return item;
+            });
+        });
     }, [updateCart]);
 
     /**
@@ -118,13 +140,13 @@ export const useCart = () => {
      */
     const updateQuantity = useCallback((itemId, newQty) => {
         if (newQty < 1) {
-            updateCart(prev => prev.filter(item => item.id !== itemId));
+            removeFromCart(itemId);
             return;
         }
         updateCart(prev => prev.map(item =>
             item.id === itemId ? { ...item, quantity: newQty } : item
         ));
-    }, [updateCart]);
+    }, [updateCart, removeFromCart]);
 
     /**
      * Clear entire cart
@@ -147,7 +169,14 @@ export const useCart = () => {
     const getSubtotal = useCallback(() => {
         return cart.reduce((sum, item) => {
             const modTotal = (item.modifiers || []).reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
-            return sum + (item.unitPrice + modTotal) * item.quantity;
+            let unitWithMods = item.unitPrice + modTotal;
+            if (item.crossSellDiscount) {
+                const csd = item.crossSellDiscount;
+                unitWithMods = Math.max(0, csd.valueType === 'PERCENTAGE'
+                    ? unitWithMods * (1 - csd.value / 100)
+                    : unitWithMods - csd.value / 100);
+            }
+            return sum + unitWithMods * item.quantity;
         }, 0);
     }, [cart]);
 

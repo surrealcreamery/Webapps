@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Typography, Button, Container, Stack, Paper, Divider, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { format, isValid, isPast, parse } from 'date-fns';
+import { trackEventsDashboardViewed } from '@/services/analytics';
 
 const formatDateSafe = (dateValue, formatString) => {
   if (!dateValue) return 'Date TBD';
@@ -265,7 +266,11 @@ const ParticipantEventCard = ({ event }) => {
 
 export const UserDashboard = ({ events, allEvents, onScheduleNew, onViewTransactions, onViewMarketingMaterials }) => {
     const [view, setView] = useState('All');
-    
+
+    useEffect(() => {
+        trackEventsDashboardViewed();
+    }, []);
+
     console.log("UserDashboard received raw events prop:", events);
     
     const handleViewChange = (event, newView) => {

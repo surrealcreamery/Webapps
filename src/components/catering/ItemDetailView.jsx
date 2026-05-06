@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, Typography, Stack, Button, Divider } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import { trackCateringItemViewed, trackCateringItemAdded } from '@/services/analytics';
 
 const CartQuantitySelector = ({ value, onIncrement, onDecrement }) => (
     <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 1 }}>
@@ -13,7 +14,11 @@ const CartQuantitySelector = ({ value, onIncrement, onDecrement }) => (
 export const ItemDetailView = ({ item, sendToCatering, isAuthenticated }) => {
     const [quantity, setQuantity] = useState(1);
 
-    const inclusiveModifiers = item.ModifierCategories.flatMap(category => 
+    useEffect(() => {
+        trackCateringItemViewed(item['Item Name']);
+    }, [item]);
+
+    const inclusiveModifiers = item.ModifierCategories.flatMap(category =>
         category.Modifiers.filter(modifier => modifier['Modifier Type'] === 'Inclusive')
     );
 
@@ -38,6 +43,7 @@ export const ItemDetailView = ({ item, sendToCatering, isAuthenticated }) => {
     }
 
     const handleAddToCart = () => {
+        trackCateringItemAdded(item['Item Name'], quantity);
         sendToCatering({ type: 'ADD_TO_CART', item, selectedModifiers: {}, quantity });
         // Also send an event to navigate to the cart
         sendToCatering({ type: 'VIEW_CART' });

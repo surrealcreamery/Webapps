@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { Box, IconButton, Typography } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { trackProductImageNavigated } from '@/services/analytics';
 
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=Product';
 
@@ -59,23 +60,26 @@ export const ProductImageCarousel = ({
         setActiveIndex((prev) => {
             const newIndex = prev === 0 ? normalizedImages.length - 1 : prev - 1;
             setAnnouncement(`Showing image ${newIndex + 1} of ${normalizedImages.length}`);
+            trackProductImageNavigated(productName, 'previous', newIndex);
             return newIndex;
         });
-    }, [normalizedImages.length]);
+    }, [normalizedImages.length, productName]);
 
     const handleNext = useCallback(() => {
         setActiveIndex((prev) => {
             const newIndex = prev === normalizedImages.length - 1 ? 0 : prev + 1;
             setAnnouncement(`Showing image ${newIndex + 1} of ${normalizedImages.length}`);
+            trackProductImageNavigated(productName, 'next', newIndex);
             // Auto-expand when clicking next beyond visible thumbnails
             if (!showAllThumbnails && newIndex >= maxVisibleThumbnails) {
                 setShowAllThumbnails(true);
             }
             return newIndex;
         });
-    }, [normalizedImages.length, showAllThumbnails, maxVisibleThumbnails]);
+    }, [normalizedImages.length, showAllThumbnails, maxVisibleThumbnails, productName]);
 
     const handleThumbnailClick = (index) => {
+        trackProductImageNavigated(productName, 'thumbnail', index);
         setActiveIndex(index);
         setAnnouncement(`Showing image ${index + 1} of ${normalizedImages.length}`);
     };
@@ -143,7 +147,7 @@ export const ProductImageCarousel = ({
                 {/* Main Image */}
                 <img
                     src={normalizedImages[activeIndex].url}
-                    srcSet={pwa ? `${pwa.sm} 480w, ${pwa.md} 960w, ${pwa.lg} 1440w` : undefined}
+                    srcSet={pwa ? `${pwa.xs || pwa.sm} 320w, ${pwa.sm} 480w, ${pwa.md} 960w, ${pwa.lg} 1440w` : undefined}
                     sizes={pwa ? "(max-width: 600px) 100vw, (max-width: 960px) 80vw, 600px" : undefined}
                     alt={normalizedImages[activeIndex].alt}
                     style={{

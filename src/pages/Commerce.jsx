@@ -1,7 +1,6 @@
 import React, { useContext, useEffect, useRef, useLayoutEffect, useState, useMemo, useCallback } from 'react';
-import { Box, Typography, Button, CircularProgress, Alert, Divider, Container, Grid, Card, CardMedia, CardContent, Modal, IconButton, Chip, ToggleButtonGroup, ToggleButton, useMediaQuery, useTheme, TextField, Stack } from '@mui/material';
+import { Box, Typography, Button, CircularProgress, Alert, Divider, Container, Grid, Card, CardMedia, CardContent, Modal, IconButton, Chip, ToggleButtonGroup, ToggleButton, useMediaQuery, useTheme, TextField, Stack, Skeleton } from '@mui/material';
 import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
-import { useShopify } from '@/contexts/commerce/ShopifyContext_GraphQL';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -12,6 +11,7 @@ import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Import components
@@ -30,6 +30,13 @@ import { fetchInitialData as fetchEventsData } from '@/state/events/eventService
 import { useCatalog } from '@/contexts/commerce/CatalogContext';
 import { getTextColorForBackground, getItemBackground, resolveDisplayModifiers } from '@/state/catalog/catalogUtils';
 import { useLocationAvailability } from '@/hooks/useLocationAvailability';
+import { useRealTimeInventory } from '@/hooks/useRealTimeInventory';
+import { resolveFulfillmentLocation } from '@/utils/fulfillmentRouter';
+import { trackProductClicked, trackProductViewed, trackVariantSelected, trackAddedToCart, setCartId } from '@/services/analytics';
+import { useSegment } from '@/contexts/commerce/SegmentContext';
+import { StoreLocatorPrompt } from '@/components/commerce/StoreLocatorPrompt';
+import JsonLd from '@/components/seo/JsonLd';
+import { buildProductSchema, buildItemListSchema } from '@/components/seo/schemas';
 
 // Placeholder image for variants without images
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=No+Image';
@@ -43,11 +50,41 @@ let pendingScrollRestore = null;
 
 
 // Mobile product card grid - category index view
-const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOptionTap, collapsingFeedIndex }) => {
+const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOptionTap, collapsingFeedIndex, storeLocations = [], selectedLocation }) => {
+    const selectedLocationId = selectedLocation || localStorage.getItem('selectedLocation');
+    const storeLocationIds = storeLocations.filter(l => l.type !== 'Warehouse').map(l => l.id);
+    const warehouseIds = storeLocations.filter(l => l.type === 'Warehouse').map(l => l.id);
 
     const renderCard = (item, isFullWidth) => {
         const itemFeedIndex = feedItems.findIndex(f => f.id === item.id);
         const product = item.product || item;
+        const inv = item.inventory;
+        const isTracked = inv?.trackInventory;
+        const locations = inv?.byLocation || [];
+        // Check store qty at user's selected location
+        const storeQty = isTracked && selectedLocationId
+            ? locations.find(l => l.locationId === selectedLocationId)?.quantity || 0
+            : null;
+        const warehouseQty = isTracked
+            ? locations.filter(l => warehouseIds.includes(l.locationId)).reduce((sum, l) => sum + Math.max(0, l.quantity || 0), 0)
+            : 0;
+        const otherRetailQty = isTracked
+            ? locations.filter(l => l.locationId && l.locationId !== selectedLocationId && !warehouseIds.includes(l.locationId)).reduce((sum, l) => sum + Math.max(0, l.quantity || 0), 0)
+            : 0;
+        const anyLocationHasStock = locations.some(l => (l.quantity || 0) > 0);
+        const allowsShipping = !product.fulfillmentMethods?.length || product.fulfillmentMethods.includes('shipping');
+        const canShipFromAnywhere = allowsShipping && locations.some(l => {
+            if ((l.quantity || 0) <= 0) return false;
+            const loc = storeLocations.find(sl => sl.id === l.locationId);
+            return loc && !loc.disableShipping;
+        });
+        const isSoldOut = isTracked && (!anyLocationHasStock || (storeQty != null && storeQty <= 0 && !canShipFromAnywhere));
+        const hasLocalStock = !isTracked || (storeQty != null && storeQty > 0);
+        const fm = product.fulfillmentMethods?.length > 0 ? product.fulfillmentMethods : ['pickup', 'delivery', 'shipping'];
+        const pickupOk = hasLocalStock && fm.includes('pickup');
+        const deliveryOk = hasLocalStock && fm.includes('delivery');
+        const shippingOk = canShipFromAnywhere;
+        const showFulfillment = isTracked && !isSoldOut;
         const variants = product.variants?.filter(v => v.price) || [];
         let price = '';
         if (variants.length > 1) {
@@ -68,6 +105,9 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
             <Box
                 key={item.id}
                 data-feed-index={itemFeedIndex}
+                role="button"
+                tabIndex={0}
+                aria-label={`View product: ${item.title}`}
                 onClick={(e) => {
                     const cardEl = e.currentTarget.querySelector('[data-card]');
                     const rect = cardEl ? cardEl.getBoundingClientRect() : e.currentTarget.getBoundingClientRect();
@@ -76,10 +116,22 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                     const imgAR = imgEl ? imgEl.naturalWidth / imgEl.naturalHeight : 1;
                     onProductTap?.(itemFeedIndex, { rect, bgColor, bgGradient, imgRect, imgSrc: item.image, imgAR });
                 }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        const cardEl = e.currentTarget.querySelector('[data-card]');
+                        const rect = cardEl ? cardEl.getBoundingClientRect() : e.currentTarget.getBoundingClientRect();
+                        const imgEl = e.currentTarget.querySelector('[data-product-img]');
+                        const imgRect = imgEl ? imgEl.getBoundingClientRect() : null;
+                        const imgAR = imgEl ? imgEl.naturalWidth / imgEl.naturalHeight : 1;
+                        onProductTap?.(itemFeedIndex, { rect, bgColor, bgGradient, imgRect, imgSrc: item.image, imgAR });
+                    }
+                }}
                 sx={{
                     cursor: 'pointer',
                     transition: 'transform 0.2s',
                     '&:active': { transform: 'scale(0.96)' },
+                    '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2, borderRadius: 1 },
                 }}
             >
                 {/* Card: white top, solid background color behind image, text below image */}
@@ -95,6 +147,15 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                         flexDirection: 'column',
                     }}
                 >
+                    {/* Sold Out Banner — above image */}
+                    {isSoldOut && (
+                        <Box sx={{ bgcolor: 'rgba(180, 30, 30, 1)', py: 0.5, textAlign: 'center' }}>
+                            <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.6rem', letterSpacing: 2, textTransform: 'uppercase' }}>
+                                Sold Out
+                            </Typography>
+                        </Box>
+                    )}
+
                     {/* Image area - aspect ratio placeholder */}
                     <Box sx={{ position: 'relative', paddingTop: isFullWidth ? '50%' : '100%' }}>
                         {/* Solid background color - behind lower portion of image */}
@@ -125,13 +186,14 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                                 <img
                                     data-product-img
                                     src={item.image}
-                                    srcSet={item.pwa ? `${item.pwa.sm} 480w, ${item.pwa.md} 960w, ${item.pwa.lg} 1440w` : undefined}
-                                    sizes={item.pwa ? "50vw" : undefined}
+                                    srcSet={item.pwa ? `${item.pwa.xs || item.pwa.sm} 320w, ${item.pwa.sm} 480w, ${item.pwa.md} 960w, ${item.pwa.lg} 1440w` : undefined}
+                                    sizes={item.pwa ? "(max-width: 600px) 45vw, 25vw" : undefined}
                                     alt={item.title || ''}
                                     style={{
                                         width: '100%',
                                         height: '100%',
                                         objectFit: 'cover',
+                                        ...(isSoldOut ? { filter: 'grayscale(100%)' } : {}),
                                     }}
                                 />
                             </Box>
@@ -147,29 +209,49 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                             flex: 1,
                         }}
                     >
+                        {price && (
+                            <Typography
+                                sx={{
+                                    fontSize: '1.6rem',
+                                    fontWeight: 700,
+                                    color: textColor,
+                                }}
+                            >
+                                {price}
+                            </Typography>
+                        )}
                         <Typography
                             sx={{
-                                fontWeight: 700,
+                                fontWeight: 400,
                                 fontSize: '1.6rem',
                                 lineHeight: 1.2,
                                 color: textColor,
-
                                 mb: 0.5,
                             }}
                         >
                             {item.title}
                         </Typography>
-                        {price && (
-                            <Typography
-                                sx={{
-                                    fontSize: '1.6rem',
-                                    fontWeight: 600,
-                                    color: textColor,
-                                    opacity: 0.8,
-                                }}
-                            >
-                                {price}
-                            </Typography>
+                        {showFulfillment && (
+                            <Box sx={{ mt: 0.25 }}>
+                                {pickupOk && (
+                                    <Typography sx={{ fontSize: '1.6rem' }}>
+                                        <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>Pickup</Box>
+                                        {(() => { const loc = storeLocations.find(l => l.id === selectedLocationId); return loc?.pickupWindow ? <Box component="span" sx={{ color: 'success.main' }}>{' '}ready in {loc.pickupWindow} minutes</Box> : null; })()}
+                                    </Typography>
+                                )}
+                                {deliveryOk && (
+                                    <Typography sx={{ fontSize: '1.6rem' }}>
+                                        <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>Delivery</Box>
+                                        {(() => { const loc = storeLocations.find(l => l.id === selectedLocationId); return loc?.deliveryWindow ? <Box component="span" sx={{ color: 'success.main' }}>{' '}ready in {loc.deliveryWindow} minutes</Box> : null; })()}
+                                    </Typography>
+                                )}
+                                {shippingOk && (
+                                    <Typography sx={{ fontSize: '1.6rem' }}>
+                                        <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>Shipping</Box>
+                                        <Box component="span" sx={{ color: 'success.main' }}> available</Box>
+                                    </Typography>
+                                )}
+                            </Box>
                         )}
                     </Box>
                 </Box>
@@ -199,6 +281,9 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
             <Box
                 key={item.id}
                 data-feed-index={itemFeedIndex}
+                role="button"
+                tabIndex={0}
+                aria-label={`View product: ${item.title || product.name}`}
                 onClick={(e) => {
                     const cardEl = e.currentTarget.querySelector('[data-card]');
                     const rect = cardEl ? cardEl.getBoundingClientRect() : e.currentTarget.getBoundingClientRect();
@@ -207,10 +292,22 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                     const imgAR = imgEl ? imgEl.naturalWidth / imgEl.naturalHeight : 1;
                     onProductTap?.(itemFeedIndex, { rect, bgColor, bgGradient, imgRect, imgSrc: item.image, imgAR });
                 }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        const cardEl = e.currentTarget.querySelector('[data-card]');
+                        const rect = cardEl ? cardEl.getBoundingClientRect() : e.currentTarget.getBoundingClientRect();
+                        const imgEl = e.currentTarget.querySelector('[data-product-img]');
+                        const imgRect = imgEl ? imgEl.getBoundingClientRect() : null;
+                        const imgAR = imgEl ? imgEl.naturalWidth / imgEl.naturalHeight : 1;
+                        onProductTap?.(itemFeedIndex, { rect, bgColor, bgGradient, imgRect, imgSrc: item.image, imgAR });
+                    }
+                }}
                 sx={{
                     cursor: 'pointer',
                     transition: 'transform 0.2s',
                     '&:active': { transform: 'scale(0.96)' },
+                    '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2, borderRadius: 1 },
                 }}
             >
                 <Box
@@ -249,8 +346,8 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                                 <img
                                     data-product-img
                                     src={item.image || product.imageUrl}
-                                    srcSet={item.pwa ? `${item.pwa.sm} 480w, ${item.pwa.md} 960w, ${item.pwa.lg} 1440w` : undefined}
-                                    sizes={item.pwa ? "50vw" : undefined}
+                                    srcSet={item.pwa ? `${item.pwa.xs || item.pwa.sm} 320w, ${item.pwa.sm} 480w, ${item.pwa.md} 960w, ${item.pwa.lg} 1440w` : undefined}
+                                    sizes={item.pwa ? "(max-width: 600px) 45vw, 25vw" : undefined}
                                     alt={item.title || product.name}
                                     style={{
                                         width: '100%',
@@ -267,43 +364,26 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                             p: 1.5,
                             pt: 0.5,
                             flex: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
                         }}
                     >
+                        {price && (
+                            <Typography sx={{
+                                color: txtColor,
+                                fontSize: '1.6rem',
+                                fontWeight: 700,
+                            }}>
+                                {price}
+                            </Typography>
+                        )}
                         <Typography sx={{
                             color: txtColor,
-                            fontWeight: 700,
+                            fontWeight: 400,
                             fontSize: '1.6rem',
-                            textAlign: 'center',
                             lineHeight: 1.2,
                             mb: 0.5,
                         }}>
                             {item.title || product.name}
                         </Typography>
-                        {price && (
-                            <Typography sx={{
-                                color: txtColor,
-                                opacity: 0.8,
-                                fontSize: '1.6rem',
-                                mb: 1,
-                            }}>
-                                Starting from {price}
-                            </Typography>
-                        )}
-                        <Box sx={{
-                            border: `2px solid ${txtColor}`,
-                            color: txtColor,
-                            fontWeight: 700,
-                            fontSize: '1.3rem',
-                            px: 2,
-                            py: 0.5,
-                            borderRadius: 2,
-                        }}>
-                            Make Your Own
-                        </Box>
                     </Box>
                 </Box>
             </Box>
@@ -344,6 +424,7 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                         <Box key={group.id} sx={{ mb: 3 }}>
                             {group.name && (
                                 <Typography
+                                    component="h3"
                                     sx={{
                                         fontSize: '1.8rem',
                                         fontWeight: 700,
@@ -377,13 +458,26 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
 // Product detail page - image hero (top 1/3) + scrollable info card (bottom 2/3)
 const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, storeLocations = [] }) => {
     const product = item?.product || item;
-    // Variants are already catalog-first (catalog order, names, prices, Shopify GIDs attached)
-    const variants = product?.variants || [];
+    const { recordProductView: segRecordProductView, recordVariantSelect: segRecordVariantSelect, recordAddToCart: segRecordAddToCart } = useSegment();
+    // Fetch real-time inventory (returns null while loading or on error — falls back to static)
+    const liveInventory = useRealTimeInventory(product?.sku);
+
+    // Override static catalog inventory with real-time data when available
+    const variants = useMemo(() => {
+        const staticVariants = product?.variants || [];
+        if (!liveInventory) return staticVariants;
+        return staticVariants.map(v => {
+            const live = liveInventory[v.sku?.toUpperCase()];
+            if (!live) return v;
+            return { ...v, inventory: live, availableForSale: live.inStock };
+        });
+    }, [product?.variants, liveInventory]);
+
     const isMYOProduct = item?.isMYO || false;
     const hasMultipleVariants = variants.length > 1;
     const defaultVariantId = (isMYOProduct && hasMultipleVariants)
         ? null  // MYO with multiple variants: don't auto-select, user picks first
-        : (variants.find(v => v.availableForSale !== false)?.id || variants[0]?.id || product?.variantId);
+        : (variants.find(v => v.availableForSale !== false)?.sku || variants[0]?.sku);
     const [selectedVariantId, setSelectedVariantId] = useState(defaultVariantId);
     // Reset selection when product changes
     useEffect(() => {
@@ -495,7 +589,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 
     // MYO: track selected modifier options for hero image
     const isMYO = item?.isMYO || false;
-    const productSku = isMYO ? (product?.variants?.[0]?.sku || product?.sku || null) : null;
+    const productSku = product?.variants?.[0]?.sku || product?.sku || null;
     const [myoSelectedImages, setMyoSelectedImages] = useState([]);
     const modifierSelectorRef = useRef(null);
     const [canContinueModifiers, setCanContinueModifiers] = useState(false);
@@ -523,33 +617,83 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 
     // Fulfillment state (used by MYO ad lib and collectibles fulfillment selector)
     const [bottomMode, setBottomMode] = useState('modifiers'); // 'modifiers' | 'fulfillment' | 'location'
-    const productFulfillmentMethods = product?.fulfillmentMethods || [];
-    const hasFulfillmentMethods = productFulfillmentMethods.length > 0;
+    const productFulfillmentMethods = product?.fulfillmentMethods?.length > 0 ? product.fulfillmentMethods : ['pickup', 'delivery', 'shipping'];
     const selectedLocationId = localStorage.getItem('selectedLocation');
-    const selectedLocationObj = storeLocations.find(loc => loc.id === selectedLocationId) || storeLocations[0];
+    // Only show retail stores (not warehouses) as selectable locations
+    const selectableLocations = storeLocations.filter(l => l.type !== 'Warehouse');
+    const selectedLocationObj = selectableLocations.find(loc => loc.id === selectedLocationId) || null;
+    // Filter out fulfillment methods disabled at the location level
+    // Note: shipping is NOT filtered by selected store — it depends on the shipping origin location
+    const effectiveFulfillmentMethods = productFulfillmentMethods.filter(m => {
+        if (m === 'pickup' && selectedLocationObj?.disablePickup) return false;
+        if (m === 'delivery' && selectedLocationObj?.disableDelivery) return false;
+        return true;
+    });
+    const hasFulfillmentMethods = productFulfillmentMethods.length > 0;
 
     // Warehouse locations for inventory display
     const warehouseLocations = storeLocations.filter(l => l.type === 'Warehouse');
 
-    // Default fulfillment method: pick first method that has inventory
+    // Aggregate live inventory at product level for product-level checks
+    const itemInventory = useMemo(() => {
+        if (!liveInventory) return item?.inventory;
+        let totalQuantity = 0;
+        const byLocation = {};
+        let anyTracked = false;
+        for (const inv of Object.values(liveInventory)) {
+            if (inv.trackInventory) anyTracked = true;
+            totalQuantity += inv.totalQuantity;
+            for (const loc of inv.byLocation) {
+                byLocation[loc.locationId] = (byLocation[loc.locationId] || 0) + loc.quantity;
+            }
+        }
+        return {
+            trackInventory: anyTracked,
+            totalQuantity,
+            inStock: !anyTracked || totalQuantity > 0,
+            byLocation: Object.entries(byLocation).map(([locationId, quantity]) => ({ locationId, quantity })),
+        };
+    }, [liveInventory, item?.inventory]);
+
+    // Default fulfillment method — will be refined by fulfillmentResolution after selectedVariant is known
     const defaultFulfillmentMethod = useMemo(() => {
         if (!hasFulfillmentMethods) return 'pickup';
-        const inv = item?.inventory;
+        const inv = itemInventory;
         const localQty = inv?.trackInventory
             ? (inv.byLocation || []).find(l => l.locationId === selectedLocationObj?.id)?.quantity || 0
             : null;
         const totalQty = inv?.trackInventory ? inv.totalQuantity || 0 : null;
-        // Prefer pickup for desserts, shipping for collectibles
-        if (productFulfillmentMethods.includes('pickup') && selectedLocationObj && (localQty === null || localQty > 0)) return 'pickup';
-        if (productFulfillmentMethods.includes('shipping') && (totalQty === null || totalQty > 0)) return 'shipping';
-        if (productFulfillmentMethods.includes('delivery') && selectedLocationObj && (localQty === null || localQty > 0)) return 'delivery';
-        return productFulfillmentMethods[0] || 'pickup';
-    }, [hasFulfillmentMethods, item?.inventory, productFulfillmentMethods, selectedLocationObj]);
+        if (effectiveFulfillmentMethods.includes('pickup') && selectedLocationObj && (localQty === null || localQty > 0)) return 'pickup';
+        if (effectiveFulfillmentMethods.includes('shipping') && (totalQty === null || totalQty > 0)) return 'shipping';
+        if (effectiveFulfillmentMethods.includes('delivery') && selectedLocationObj && (localQty === null || localQty > 0)) return 'delivery';
+        return effectiveFulfillmentMethods[0] || 'pickup';
+    }, [hasFulfillmentMethods, itemInventory, effectiveFulfillmentMethods, selectedLocationObj]);
     const [fulfillmentMethod, setFulfillmentMethod] = useState(defaultFulfillmentMethod);
+
+    // Reset fulfillment method if current selection is no longer available (e.g. location override disabled it)
+    useEffect(() => {
+        if (hasFulfillmentMethods && !effectiveFulfillmentMethods.includes(fulfillmentMethod)) {
+            setFulfillmentMethod(defaultFulfillmentMethod);
+        }
+    }, [effectiveFulfillmentMethods, fulfillmentMethod, defaultFulfillmentMethod, hasFulfillmentMethods]);
+
+    // Saved delivery address from localStorage
+    const [savedDeliveryAddress, setSavedDeliveryAddress] = useState(() => {
+        try {
+            const saved = localStorage.getItem('deliveryAddress');
+            if (saved) { const p = JSON.parse(saved); if (p.address1 && p.city) return p; }
+        } catch { /* ignore */ }
+        return null;
+    });
+
+    // Store locator prompt state (for visitors with no location selected)
+    const [showStoreLocator, setShowStoreLocator] = useState(false);
 
     // Track selected modifier images for MYO hero
     const [myoModifierData, setMyoModifierData] = useState(null);
-    const [myoAllValid, setMyoAllValid] = useState(false);
+    const [myoAllValid, setMyoAllValid] = useState(true);
+    const [showMyoError, setShowMyoError] = useState(false);
+    useEffect(() => { if (myoAllValid) setShowMyoError(false); }, [myoAllValid]);
     const myoSelectionsRef = useRef({ selections: {}, categories: [] });
     const [myoNextStep, setMyoNextStep] = useState(null);
     const handleMyoSelectionsChange = useCallback((selections, categories, modifierData) => {
@@ -562,7 +706,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
             selectedIds.forEach(modId => {
                 const mod = cat.modifiers.find(m => m.id === modId);
                 if (mod) {
-                    images.push({ id: mod.id, categoryId: cat.id, name: mod.name, image: mod.image || mod.imageUrl });
+                    images.push({ id: mod.id, categoryId: cat.id, name: mod.name, image: mod.imageVariants?.thumb?.url || mod.image || mod.imageUrl });
                 }
             });
         });
@@ -609,37 +753,78 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
         return () => clearTimeout(timer);
     }, []);
 
-    const selectedVariant = variants.find(v => v.id === selectedVariantId) || variants[0];
+    // Analytics: track product view on mount
+    useEffect(() => {
+        trackProductViewed(product, variants[0]);
+        segRecordProductView?.(product);
+    }, [product?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Analytics: track variant selection changes (skip initial default)
+    const variantInitRef = useRef(true);
+    useEffect(() => {
+        if (variantInitRef.current) { variantInitRef.current = false; return; }
+        if (!selectedVariantId) return;
+        const v = variants.find(vr => vr.sku === selectedVariantId);
+        if (v) trackVariantSelected(product, v);
+        segRecordVariantSelect?.();
+    }, [selectedVariantId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const selectedVariant = variants.find(v => v.sku === selectedVariantId) || variants[0];
+
+    // Resolve fulfillment location using waterfall: local → warehouse → other retail
+    const fulfillmentResolution = useMemo(() => {
+        if (!selectedVariant) return { locationId: null, locationName: null, fulfillmentMethod: 'pickup', maxQuantity: Infinity, source: 'local' };
+        return resolveFulfillmentLocation(selectedVariant, selectedLocationObj?.id, storeLocations, 'pickup');
+    }, [selectedVariant, selectedLocationObj?.id, storeLocations]);
+
+    // Override fulfillment method when resolution says warehouse/retail (must ship)
+    useEffect(() => {
+        if ((fulfillmentResolution.source === 'warehouse' || fulfillmentResolution.source === 'retail_fallback')
+            && effectiveFulfillmentMethods.includes('shipping')) {
+            setFulfillmentMethod('shipping');
+        }
+    }, [fulfillmentResolution.source, effectiveFulfillmentMethods]);
+
     const displayPrice = selectedVariant?.price
         ? `$${parseFloat(selectedVariant.price).toFixed(2)}`
         : product?.price
             ? `$${parseFloat(product.price).toFixed(2)}`
             : '';
-    // Use master inventory if available, fall back to Shopify's availableForSale
+    // Use fulfillment waterfall for availability — item is available if any location can fulfill
     const { available: availableAtLocation, locationName } = useLocationAvailability(selectedVariant, product, storeLocations);
-    // For products with shipping fulfillment: available if any location has stock (not just selected store)
-    const isAvailable = hasFulfillmentMethods
-        ? (fulfillmentMethod === 'shipping'
-            ? (item?.inventory?.trackInventory ? item.inventory.totalQuantity > 0 : true)
-            : availableAtLocation && (item?.inventory?.trackInventory ? item.inventory.inStock : selectedVariant?.availableForSale !== false))
-        : (item?.inventory?.trackInventory
-            ? item.inventory.inStock
-            : selectedVariant?.availableForSale !== false) && availableAtLocation;
+    const isInStoreOnly = selectedVariant?.inStoreOnly === true;
+    const isAvailable = !isInStoreOnly && fulfillmentResolution.source !== 'none';
+
+    const pendingAddToCartRef = useRef(false);
+    const handleStoreSelected = useCallback((locationId) => {
+        localStorage.setItem('selectedLocation', locationId);
+        window.dispatchEvent(new CustomEvent('locationChanged', { detail: { locationId } }));
+        setShowStoreLocator(false);
+        pendingAddToCartRef.current = true;
+    }, []);
 
     const handleAddToCart = async () => {
         if (!selectedVariantId || addingToCart) return;
 
-        // Check for unmet required modifier selections
-        if (isMYO && !myoAllValid) {
-            modifierSelectorRef.current?.highlightRequired();
+        // Gate: require a store location to be selected
+        if (!localStorage.getItem('selectedLocation')) {
+            setShowStoreLocator(true);
             return;
         }
 
+        // Check for unmet required modifier selections
+        if (!myoAllValid) {
+            setShowMyoError(true);
+            modifierSelectorRef.current?.highlightRequired();
+            return;
+        }
+        setShowMyoError(false);
+
         setAddingToCart(true);
         try {
-            // Build customAttributes from MYO modifier selections
+            // Build customAttributes from modifier selections
             const customAttributes = [];
-            if (isMYO) {
+            {
                 const { selections, categories } = myoSelectionsRef.current;
                 categories.forEach(cat => {
                     const selectedIds = selections[cat.id] || [];
@@ -653,9 +838,18 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                 });
             }
             // Pass fulfillment method (used by checkout Lambda to configure draft order)
-            if (hasFulfillmentMethods && fulfillmentMethod) {
-                customAttributes.push({ key: '_fulfillment', value: fulfillmentMethod });
+            const effectiveMethod = (fulfillmentResolution.source === 'warehouse' || fulfillmentResolution.source === 'retail_fallback')
+                ? 'shipping' : fulfillmentMethod;
+            if (hasFulfillmentMethods && effectiveMethod) {
+                customAttributes.push({ key: '_fulfillment', value: effectiveMethod });
             }
+            // Pass fulfillment location for multi-origin shipping
+            if (fulfillmentResolution.locationId) {
+                customAttributes.push({ key: '_fulfillmentLocationId', value: fulfillmentResolution.locationId });
+                customAttributes.push({ key: '_fulfillmentLocationName', value: fulfillmentResolution.locationName });
+            }
+            trackAddedToCart(product, selectedVariant, quantity, customAttributes.filter(a => !a.key?.startsWith('_')));
+            segRecordAddToCart?.(product);
             const result = await onAddToCart?.(product, selectedVariant, quantity, customAttributes);
             if (result?.skipCartOpen) return; // delivery flow handles its own UI
             onClose?.();
@@ -666,6 +860,15 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
             setAddingToCart(false);
         }
     };
+
+    // Auto-add to cart after store selection from the StoreLocatorPrompt
+    useEffect(() => {
+        if (!showStoreLocator && pendingAddToCartRef.current) {
+            pendingAddToCartRef.current = false;
+            // Small delay to let location state propagate
+            setTimeout(() => handleAddToCart(), 100);
+        }
+    }, [showStoreLocator]);
 
     // Collectibles: resolve per-image styles from catalog when a thumbnail is selected
     // Each catalog image can have its own backgroundColor, textColor, gradient
@@ -693,7 +896,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
         };
     const backgroundStyle = getItemBackground(collectibleItem);
 
-    // Match variant image: prefer catalog variant image, then hash-match from Shopify CDN
+    // Match variant image: prefer catalog variant image, then hash-match from image CDN
     const catalogImages = item?.catalogImages || [];
     let heroImage = item?.image;
     // Catalog-first: use variant's catalogImage directly
@@ -702,8 +905,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
     } else {
         const variantImgUrl = selectedVariant?.image?.url;
         if (variantImgUrl && catalogImages.length > 1) {
-            const shopifyFilename = variantImgUrl.split('/').pop()?.split('?')[0] || '';
-            const hashMatch = shopifyFilename.match(/([a-f0-9]{8})/);
+            const imgFilename = variantImgUrl.split('/').pop()?.split('?')[0] || '';
+            const hashMatch = imgFilename.match(/([a-f0-9]{8})/);
             if (hashMatch) {
                 const hash = hashMatch[1];
                 const matched = catalogImages.find(ci => ci.url?.includes(hash));
@@ -780,7 +983,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         >
                             {/* Fulfillment ad lib */}
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                                <Typography
+                                <Button
+                                    variant="text"
                                     onClick={() => setBottomMode(bottomMode === 'fulfillment' ? 'modifiers' : 'fulfillment')}
                                     sx={{
                                         fontSize: '1.6rem',
@@ -789,15 +993,19 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                         textDecoration: 'underline',
                                         textDecorationStyle: 'dotted',
                                         textUnderlineOffset: '3px',
-                                        cursor: 'pointer',
+                                        textTransform: 'none',
+                                        p: 0,
+                                        minWidth: 'auto',
+                                        '&:hover': { bgcolor: 'transparent' },
                                     }}
                                 >
                                     {fulfillmentMethod === 'pickup' ? 'Pickup' : 'Delivery'}
-                                </Typography>
-                                <Typography sx={{ fontSize: '1.6rem', color: heroTextColor, opacity: 0.7 }}>
+                                </Button>
+                                <Typography sx={{ fontSize: '1.6rem', color: `${heroTextColor}B3` }}>
                                     from
                                 </Typography>
-                                <Typography
+                                <Button
+                                    variant="text"
                                     onClick={() => setBottomMode(bottomMode === 'location' ? 'modifiers' : 'location')}
                                     sx={{
                                         fontSize: '1.6rem',
@@ -806,22 +1014,25 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                         textDecoration: 'underline',
                                         textDecorationStyle: 'dotted',
                                         textUnderlineOffset: '3px',
-                                        cursor: 'pointer',
+                                        textTransform: 'none',
+                                        p: 0,
+                                        minWidth: 'auto',
+                                        '&:hover': { bgcolor: 'transparent' },
                                     }}
                                 >
                                     {selectedLocationObj?.name || 'Select Location'}
-                                </Typography>
+                                </Button>
                             </Box>
 
                             {/* Product title */}
-                            <Typography sx={{ fontSize: '2rem', fontWeight: 700, color: heroTextColor, mb: 0.5 }}>
+                            <Typography component="h1" sx={{ fontSize: '2rem', fontWeight: 700, color: heroTextColor, mb: 0.5 }}>
                                 {item?.title || product?.name}
                             </Typography>
 
                             {/* Selected variant label for MYO multi-variant */}
                             {isMYO && hasMultipleVariants && selectedVariantId && (
-                                <Typography sx={{ fontSize: '1.4rem', color: heroTextColor, opacity: 0.7, mb: 0.5 }}>
-                                    {variants.find(v => v.id === selectedVariantId)?.name || variants.find(v => v.id === selectedVariantId)?.catalogName || ''} · {displayPrice}
+                                <Typography sx={{ fontSize: '1.6rem', color: `${heroTextColor}B3`, mb: 0.5 }}>
+                                    {variants.find(v => v.sku === selectedVariantId)?.name || variants.find(v => v.sku === selectedVariantId)?.catalogName || ''} · {displayPrice}
                                 </Typography>
                             )}
                             {/* Variant toggle (hide for MYO multi-variant — shown in content area) */}
@@ -846,15 +1057,15 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                     >
                                         {variants.map((variant) => (
                                             <ToggleButton
-                                                key={variant.id}
-                                                value={variant.id}
+                                                key={variant.sku}
+                                                value={variant.sku}
                                                 sx={{
                                                     textTransform: 'none',
                                                     minHeight: 0,
                                                     lineHeight: 1.2,
                                                     px: 1.5,
                                                     py: '4px',
-                                                    fontSize: '1.4rem',
+                                                    fontSize: '1.6rem',
                                                     whiteSpace: 'nowrap',
                                                     color: heroTextColor,
                                                     '&.Mui-selected': {
@@ -873,7 +1084,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             )}
 
                             {myoNextStep && (
-                                <Typography sx={{ fontSize: '1.4rem', color: heroTextColor, opacity: 0.7, mb: 1 }}>
+                                <Typography sx={{ fontSize: '1.6rem', color: `${heroTextColor}B3`, mb: 1 }}>
                                     {myoNextStep}
                                 </Typography>
                             )}
@@ -907,9 +1118,9 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                                     mr: 1.5,
                                                 }}>
                                                     {sel.image ? (
-                                                        <img src={sel.image} alt={sel.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        <img src={sel.image} alt={sel.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                     ) : (
-                                                        <Typography sx={{ fontSize: '1.4rem', color: heroTextColor }}>{sel.name.charAt(0).toUpperCase()}</Typography>
+                                                        <Typography sx={{ fontSize: '1.6rem', color: heroTextColor }}>{sel.name.charAt(0).toUpperCase()}</Typography>
                                                     )}
                                                 </Box>
                                                 <Box sx={{ flex: 1 }}>
@@ -917,18 +1128,18 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                                         {sel.name}
                                                     </Typography>
                                                     {cat && (
-                                                        <Typography sx={{ fontSize: '1.2rem', color: heroTextColor, opacity: 0.5 }}>
+                                                        <Typography sx={{ fontSize: '1.6rem', color: `${heroTextColor}80` }}>
                                                             {cat.name}
                                                         </Typography>
                                                     )}
                                                 </Box>
                                                 <IconButton
                                                     onClick={() => modifierSelectorRef.current?.removeSelection(sel.categoryId, sel.id)}
+                                                    aria-label={`Remove ${sel.name}`}
                                                     sx={{
-                                                        color: heroTextColor,
-                                                        opacity: 0.5,
+                                                        color: `${heroTextColor}80`,
                                                         p: 0.5,
-                                                        '&:hover': { opacity: 1, bgcolor: `${heroTextColor}15` },
+                                                        '&:hover': { color: heroTextColor, bgcolor: `${heroTextColor}15` },
                                                     }}
                                                 >
                                                     <CloseIcon sx={{ fontSize: 18 }} />
@@ -937,7 +1148,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                         );
                                     })
                                 ) : (
-                                    <Typography sx={{ fontSize: '1.4rem', color: heroTextColor, opacity: 0.5, mt: 2 }}>
+                                    <Typography sx={{ fontSize: '1.6rem', color: `${heroTextColor}80`, mt: 2 }}>
                                         Your selections will appear here
                                     </Typography>
                                 )}
@@ -948,6 +1159,10 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                     {/* Top section - gradient background + product image (hidden for MYO — uses full card instead) */}
                     <Box
                         onClick={isCollectible && !isWide && !isMYO ? () => setImageExpanded(prev => !prev) : undefined}
+                        onKeyDown={isCollectible && !isWide && !isMYO ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setImageExpanded(prev => !prev); } } : undefined}
+                        role={isCollectible && !isWide && !isMYO ? 'button' : undefined}
+                        tabIndex={isCollectible && !isWide && !isMYO ? 0 : undefined}
+                        aria-label={isCollectible && !isWide && !isMYO ? (imageExpanded ? 'Collapse product image' : 'Expand product image') : undefined}
                         sx={{
                             display: isMYO ? 'none' : 'flex',
                             position: 'fixed',
@@ -977,7 +1192,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             }}>
                                 {/* Fulfillment ad lib */}
                                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, px: 2, mb: 1 }}>
-                                    <Typography
+                                    <Button
+                                        variant="text"
                                         onClick={() => setBottomMode(bottomMode === 'fulfillment' ? 'modifiers' : 'fulfillment')}
                                         sx={{
                                             fontSize: '1.6rem',
@@ -986,15 +1202,19 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             textDecoration: 'underline',
                                             textDecorationStyle: 'dotted',
                                             textUnderlineOffset: '3px',
-                                            cursor: 'pointer',
+                                            textTransform: 'none',
+                                            p: 0,
+                                            minWidth: 'auto',
+                                            '&:hover': { bgcolor: 'transparent' },
                                         }}
                                     >
                                         {fulfillmentMethod === 'pickup' ? 'Pickup' : 'Delivery'}
-                                    </Typography>
+                                    </Button>
                                     <Typography sx={{ fontSize: '1.6rem', color: heroTextColor }}>
                                         from
                                     </Typography>
-                                    <Typography
+                                    <Button
+                                        variant="text"
                                         onClick={() => setBottomMode(bottomMode === 'location' ? 'modifiers' : 'location')}
                                         sx={{
                                             fontSize: '1.6rem',
@@ -1003,11 +1223,14 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             textDecoration: 'underline',
                                             textDecorationStyle: 'dotted',
                                             textUnderlineOffset: '3px',
-                                            cursor: 'pointer',
+                                            textTransform: 'none',
+                                            p: 0,
+                                            minWidth: 'auto',
+                                            '&:hover': { bgcolor: 'transparent' },
                                         }}
                                     >
                                         {selectedLocationObj?.name || 'Select Location'}
-                                    </Typography>
+                                    </Button>
                                 </Box>
 
                                 {/* Variant toggle group */}
@@ -1030,8 +1253,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                         >
                                             {variants.map((variant) => (
                                                 <ToggleButton
-                                                    key={variant.id}
-                                                    value={variant.id}
+                                                    key={variant.sku}
+                                                    value={variant.sku}
                                                     sx={{
                                                         textTransform: 'none',
                                                         minHeight: 0,
@@ -1057,7 +1280,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                 )}
 
                                 {/* Product title */}
-                                <Typography sx={{
+                                <Typography component="h1" sx={{
                                     fontSize: '2rem',
                                     fontWeight: 700,
                                     textAlign: 'center',
@@ -1071,9 +1294,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                 {myoNextStep && (
                                     <Typography sx={{
                                         textAlign: 'center',
-                                        fontSize: '1.4rem',
-                                        color: heroTextColor,
-                                        opacity: 0.8,
+                                        fontSize: '1.6rem',
+                                        color: `${heroTextColor}CC`,
                                         mb: 1,
                                     }}>
                                         {myoNextStep}
@@ -1112,9 +1334,9 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                                     borderColor: `${heroTextColor}40`,
                                                 }}>
                                                     {sel.image ? (
-                                                        <img src={sel.image} alt={sel.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        <img src={sel.image} alt={sel.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                     ) : (
-                                                        <Typography sx={{ fontSize: '1.4rem', color: heroTextColor }}>{sel.name.charAt(0).toUpperCase()}</Typography>
+                                                        <Typography sx={{ fontSize: '1.6rem', color: heroTextColor }}>{sel.name.charAt(0).toUpperCase()}</Typography>
                                                     )}
                                                 </Box>
                                                 {/* Name */}
@@ -1130,11 +1352,11 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                                 {/* Remove button */}
                                                 <IconButton
                                                     onClick={() => modifierSelectorRef.current?.removeSelection(sel.categoryId, sel.id)}
+                                                    aria-label={`Remove ${sel.name}`}
                                                     sx={{
-                                                        color: heroTextColor,
-                                                        opacity: 0.7,
+                                                        color: `${heroTextColor}B3`,
                                                         p: 0.5,
-                                                        '&:hover': { opacity: 1, bgcolor: `${heroTextColor}20` },
+                                                        '&:hover': { color: heroTextColor, bgcolor: `${heroTextColor}20` },
                                                     }}
                                                 >
                                                     <CloseIcon sx={{ fontSize: 18 }} />
@@ -1147,9 +1369,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             alignItems: 'center',
                                             justifyContent: 'center',
                                             height: '100%',
-                                            opacity: 0.6,
                                         }}>
-                                            <Typography sx={{ color: heroTextColor, fontSize: '1.4rem', textAlign: 'center' }}>
+                                            <Typography sx={{ color: `${heroTextColor}99`, fontSize: '1.6rem', textAlign: 'center' }}>
                                                 Select options below to build your order
                                             </Typography>
                                         </Box>
@@ -1193,8 +1414,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                     >
                                         {variants.map((variant) => (
                                             <ToggleButton
-                                                key={variant.id}
-                                                value={variant.id}
+                                                key={variant.sku}
+                                                value={variant.sku}
                                                 sx={{
                                                     textTransform: 'none',
                                                     minHeight: 0,
@@ -1227,7 +1448,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                         <motion.img
                                             key={heroImage}
                                             src={heroImage}
-                                            alt={item?.title || ''}
+                                            alt={item?.title || 'Product image'}
                                             initial={{ opacity: 0 }}
                                             animate={{ opacity: 1 }}
                                             exit={{ opacity: 0 }}
@@ -1268,7 +1489,12 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             return (
                                                 <Box
                                                     key={idx}
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    aria-label={`View image ${idx + 1} of ${allProductImages.length}`}
+                                                    aria-pressed={isActive}
                                                     onClick={() => setSelectedThumbnailIndex(idx)}
+                                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedThumbnailIndex(idx); } }}
                                                     sx={{
                                                         flexShrink: 0,
                                                         width: 60,
@@ -1277,14 +1503,16 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                                         overflow: 'hidden',
                                                         cursor: 'pointer',
                                                         border: isActive ? `2px solid ${heroTextColor}` : '2px solid transparent',
-                                                        opacity: isActive ? 1 : 0.6,
+                                                        opacity: isActive ? 1 : 0.7,
                                                         transition: 'all 0.2s',
                                                         '&:hover': { opacity: 1 },
+                                                        '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2 },
                                                     }}
                                                 >
                                                     <img
                                                         src={imgUrl}
-                                                        alt=""
+                                                        alt={`Product image ${idx + 1}`}
+                                                        loading="lazy"
                                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                     />
                                                 </Box>
@@ -1326,7 +1554,12 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                 return (
                                     <Box
                                         key={idx}
+                                        role="button"
+                                        tabIndex={0}
+                                        aria-label={`View image ${idx + 1} of ${allProductImages.length}`}
+                                        aria-pressed={isActive}
                                         onClick={() => setSelectedThumbnailIndex(idx)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedThumbnailIndex(idx); } }}
                                         sx={{
                                             flexShrink: 0,
                                             width: 52,
@@ -1335,14 +1568,16 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             overflow: 'hidden',
                                             cursor: 'pointer',
                                             border: isActive ? `2px solid ${heroTextColor}` : '2px solid transparent',
-                                            opacity: isActive ? 1 : 0.6,
+                                            opacity: isActive ? 1 : 0.7,
                                             transition: 'all 0.2s',
                                             '&:hover': { opacity: 1 },
+                                            '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2 },
                                         }}
                                     >
                                         <img
                                             src={imgUrl}
-                                            alt=""
+                                            alt={`Product image ${idx + 1}`}
+                                            loading="lazy"
                                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                         />
                                     </Box>
@@ -1377,8 +1612,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         >
                             {variants.map((variant) => (
                                 <ToggleButton
-                                    key={variant.id}
-                                    value={variant.id}
+                                    key={variant.sku}
+                                    value={variant.sku}
                                     sx={{
                                         textTransform: 'none',
                                         minHeight: 0,
@@ -1437,10 +1672,26 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                     transition: (isCollectible && !isWide && cardExpansion === 0) ? 'top 0.35s cubic-bezier(0.22, 1, 0.36, 1)' : undefined,
                 }}
             >
-                {/* Drag handle indicator (hidden for MYO and when image expanded) */}
+                {/* Drag handle indicator with expand button alternative (hidden for MYO and when image expanded) */}
                 {!isMYO && !imageExpanded && (
-                    <Box sx={{ display: isWide ? 'none' : 'flex', justifyContent: 'center', pt: 1.5, pb: 1 }}>
-                        <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: 'grey.300' }} />
+                    <Box sx={{ display: isWide ? 'none' : 'flex', flexDirection: 'column', alignItems: 'center', pt: 1, pb: 0.5 }}>
+                        <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: 'grey.300', mb: 0.5 }} aria-hidden="true" />
+                        {isCollectible && maxCardExpansion > 0 && (
+                            <IconButton
+                                size="small"
+                                aria-label={cardExpansion >= maxCardExpansion ? 'Collapse product details' : 'Expand product details'}
+                                onClick={() => {
+                                    if (cardExpansion >= maxCardExpansion) {
+                                        updateExpansion(0);
+                                    } else {
+                                        updateExpansion(maxCardExpansion);
+                                    }
+                                }}
+                                sx={{ p: 0.25, color: 'grey.500', transition: 'transform 0.3s', transform: cardExpansion >= maxCardExpansion ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                            >
+                                <KeyboardArrowUpIcon sx={{ fontSize: 20 }} />
+                            </IconButton>
+                        )}
                     </Box>
                 )}
 
@@ -1458,7 +1709,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                     }}>
                         {/* Fulfillment ad lib */}
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, mb: 1 }}>
-                            <Typography
+                            <Button
+                                variant="text"
                                 onClick={() => setBottomMode(bottomMode === 'fulfillment' ? 'modifiers' : 'fulfillment')}
                                 sx={{
                                     fontSize: '1.6rem',
@@ -1466,15 +1718,19 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                     textDecoration: 'underline',
                                     textDecorationStyle: 'dotted',
                                     textUnderlineOffset: '3px',
-                                    cursor: 'pointer',
+                                    textTransform: 'none',
+                                    p: 0,
+                                    minWidth: 'auto',
+                                    '&:hover': { bgcolor: 'transparent' },
                                 }}
                             >
                                 {fulfillmentMethod === 'pickup' ? 'Pickup' : 'Delivery'}
-                            </Typography>
+                            </Button>
                             <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
                                 from
                             </Typography>
-                            <Typography
+                            <Button
+                                variant="text"
                                 onClick={() => setBottomMode(bottomMode === 'location' ? 'modifiers' : 'location')}
                                 sx={{
                                     fontSize: '1.6rem',
@@ -1482,14 +1738,17 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                     textDecoration: 'underline',
                                     textDecorationStyle: 'dotted',
                                     textUnderlineOffset: '3px',
-                                    cursor: 'pointer',
+                                    textTransform: 'none',
+                                    p: 0,
+                                    minWidth: 'auto',
+                                    '&:hover': { bgcolor: 'transparent' },
                                 }}
                             >
                                 {selectedLocationObj?.name || 'Select Location'}
-                            </Typography>
+                            </Button>
                         </Box>
                         {/* Product title */}
-                        <Typography sx={{ fontSize: '1.8rem', fontWeight: 700, textAlign: 'center', lineHeight: 1.2 }}>
+                        <Typography component="h1" sx={{ fontSize: '1.8rem', fontWeight: 700, textAlign: 'center', lineHeight: 1.2 }}>
                             {item?.title || product?.name}
                         </Typography>
                         {/* Selected modifier icons */}
@@ -1500,7 +1759,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                     {myoSelectedImages.map((sel, idx) => (
                                         <React.Fragment key={sel.id}>
                                             {idx > 0 && (
-                                                <Typography sx={{ fontSize: '1.2rem', color: 'text.disabled', fontWeight: 500, lineHeight: 1 }}>+</Typography>
+                                                <Typography sx={{ fontSize: '1.6rem', color: 'text.disabled', fontWeight: 500, lineHeight: 1 }}>+</Typography>
                                             )}
                                             <Box sx={{
                                                 width: 32, height: 32,
@@ -1515,9 +1774,9 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                                 borderColor: 'grey.300',
                                             }}>
                                                 {sel.image ? (
-                                                    <img src={sel.image} alt={sel.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    <img src={sel.image} alt={sel.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 ) : (
-                                                    <Typography sx={{ fontSize: '1.1rem', fontWeight: 600, color: 'text.secondary' }}>{sel.name.charAt(0)}</Typography>
+                                                    <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'text.secondary' }}>{sel.name.charAt(0)}</Typography>
                                                 )}
                                             </Box>
                                         </React.Fragment>
@@ -1547,15 +1806,15 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                 >
                                     {variants.map((variant) => (
                                         <ToggleButton
-                                            key={variant.id}
-                                            value={variant.id}
+                                            key={variant.sku}
+                                            value={variant.sku}
                                             sx={{
                                                 textTransform: 'none',
                                                 minHeight: 0,
                                                 lineHeight: 1.2,
                                                 px: 1.5,
                                                 py: '4px',
-                                                fontSize: '1.4rem',
+                                                fontSize: '1.6rem',
                                                 whiteSpace: 'nowrap',
                                                 '&.Mui-selected': {
                                                     bgcolor: 'black',
@@ -1572,7 +1831,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         )}
                         {/* Next step indicator */}
                         {myoNextStep && (
-                            <Typography sx={{ textAlign: 'center', fontSize: '1.4rem', color: 'text.secondary', mt: 0.5 }}>
+                            <Typography sx={{ textAlign: 'center', fontSize: '1.6rem', color: 'text.secondary', mt: 0.5 }}>
                                 {myoNextStep}
                             </Typography>
                         )}
@@ -1597,7 +1856,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                     {/* Product name + price */}
                     {!isMYO && (
                         <>
-                            <Typography sx={{ fontSize: '1.8rem', fontWeight: 700, lineHeight: 1.2, mb: 0.5 }}>
+                            <Typography component="h1" sx={{ fontSize: '1.8rem', fontWeight: 700, lineHeight: 1.2, mb: 0.5 }}>
                                 {item?.title || product?.name}
                             </Typography>
                             <Typography sx={{ fontSize: '1.6rem', fontWeight: 500, color: 'grey.600', mb: 1.5 }}>
@@ -1606,31 +1865,63 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 
                             {/* Quantity selector */}
                             <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 2, mb: 2 }}>
-                                <IconButton onClick={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1} size="small">
+                                <IconButton onClick={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1} size="small" aria-label="Decrease quantity">
                                     <RemoveIcon />
                                 </IconButton>
-                                <Typography sx={{ px: 1, fontWeight: 600, fontSize: '1.6rem', minWidth: 28, textAlign: 'center' }}>
+                                <Typography aria-live="polite" role="status" sx={{ px: 1, fontWeight: 600, fontSize: '1.6rem', minWidth: 28, textAlign: 'center' }}>
                                     {quantity}
                                 </Typography>
-                                <IconButton onClick={() => setQuantity(q => q + 1)} size="small">
+                                <IconButton
+                                    onClick={() => setQuantity(q => {
+                                        const max = fulfillmentResolution.maxQuantity;
+                                        return (max !== Infinity && q >= max) ? q : q + 1;
+                                    })}
+                                    disabled={fulfillmentResolution.maxQuantity !== Infinity && quantity >= fulfillmentResolution.maxQuantity}
+                                    size="small"
+                                    aria-label="Increase quantity"
+                                >
                                     <AddIcon />
                                 </IconButton>
                             </Box>
 
                             {/* Fulfillment method selector (any product with fulfillment methods) */}
-                            {hasFulfillmentMethods && item?.inventory && (() => {
-                                const inv = item.inventory;
+                            {hasFulfillmentMethods && (() => {
+                                const inv = itemInventory || {};
 
                                 // Check inventory for each fulfillment method
                                 const localQty = inv.trackInventory
                                     ? (inv.byLocation || []).find(l => l.locationId === selectedLocationObj?.id)?.quantity || 0
                                     : null; // null = not tracked = available
-                                // Shipping: available if ANY location has inventory (not just warehouse)
-                                const totalQty = inv.trackInventory ? inv.totalQuantity || 0 : null;
+                                // Shipping: find location with stock using same waterfall as fulfillment router
+                                // Priority: warehouse → other retail (skip locations with disableShipping)
+                                const shipFromLoc = inv.trackInventory
+                                    ? (() => {
+                                        const byLoc = inv.byLocation || [];
+                                        // Warehouses first
+                                        for (const sl of storeLocations.filter(s => s.type === 'Warehouse' && !s.disableShipping)) {
+                                            const entry = byLoc.find(l => l.locationId === sl.id);
+                                            if (entry && (entry.quantity || 0) > 0) return sl;
+                                        }
+                                        // Then other retail (not the selected store)
+                                        for (const sl of storeLocations.filter(s => s.type !== 'Warehouse' && s.id !== selectedLocationObj?.id && !s.disableShipping)) {
+                                            const entry = byLoc.find(l => l.locationId === sl.id);
+                                            if (entry && (entry.quantity || 0) > 0) return sl;
+                                        }
+                                        return null;
+                                    })()
+                                    : selectedLocationObj; // untracked = local store
 
-                                const pickupAvailable = productFulfillmentMethods.includes('pickup') && selectedLocationObj && (localQty === null || localQty > 0);
-                                const deliveryAvailable = productFulfillmentMethods.includes('delivery') && selectedLocationObj && (localQty === null || localQty > 0);
-                                const shippingAvailable = productFulfillmentMethods.includes('shipping') && (totalQty === null || totalQty > 0);
+                                const stateNames = { AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'California',CO:'Colorado',CT:'Connecticut',DE:'Delaware',FL:'Florida',GA:'Georgia',HI:'Hawaii',ID:'Idaho',IL:'Illinois',IN:'Indiana',IA:'Iowa',KS:'Kansas',KY:'Kentucky',LA:'Louisiana',ME:'Maine',MD:'Maryland',MA:'Massachusetts',MI:'Michigan',MN:'Minnesota',MS:'Mississippi',MO:'Missouri',MT:'Montana',NE:'Nebraska',NV:'Nevada',NH:'New Hampshire',NJ:'New Jersey',NM:'New Mexico',NY:'New York',NC:'North Carolina',ND:'North Dakota',OH:'Ohio',OK:'Oklahoma',OR:'Oregon',PA:'Pennsylvania',RI:'Rhode Island',SC:'South Carolina',SD:'South Dakota',TN:'Tennessee',TX:'Texas',UT:'Utah',VT:'Vermont',VA:'Virginia',WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming' };
+                                const shipFromLabel = shipFromLoc
+                                    ? shipFromLoc.type === 'Warehouse'
+                                        ? `${stateNames[shipFromLoc.state] || shipFromLoc.state} Warehouse`
+                                        : shipFromLoc.name
+                                    : null;
+
+                                const noStoreSelected = !selectedLocationObj;
+                                const pickupAvailable = productFulfillmentMethods.includes('pickup') && !selectedLocationObj?.disablePickup && (noStoreSelected || localQty === null || localQty > 0);
+                                const deliveryAvailable = productFulfillmentMethods.includes('delivery') && !selectedLocationObj?.disableDelivery && (noStoreSelected || (selectedLocationObj?.deliveryEnabled && (localQty === null || localQty > 0)));
+                                const shippingAvailable = productFulfillmentMethods.includes('shipping') && !!shipFromLoc;
                                 const availableMethods = [
                                     ...(pickupAvailable ? ['pickup'] : []),
                                     ...(deliveryAvailable ? ['delivery'] : []),
@@ -1639,14 +1930,16 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 
                                 const allMethods = [
                                     productFulfillmentMethods.includes('pickup') && { key: 'pickup', available: pickupAvailable, icon: '🏪', label: 'Pickup', sub: selectedLocationObj?.name || 'Select store' },
-                                    productFulfillmentMethods.includes('delivery') && { key: 'delivery', available: deliveryAvailable, icon: '🛵', label: 'Delivery', sub: 'Local area' },
-                                    productFulfillmentMethods.includes('shipping') && { key: 'shipping', available: shippingAvailable, icon: '📦', label: 'Ship', sub: 'To your door' },
+                                    productFulfillmentMethods.includes('delivery') && { key: 'delivery', available: deliveryAvailable, icon: '🛵', label: 'Delivery', sub: noStoreSelected ? 'Select store' : !deliveryAvailable ? 'Unavailable' : savedDeliveryAddress ? `${savedDeliveryAddress.address1}, ${savedDeliveryAddress.city}` : 'Local area' },
+                                    productFulfillmentMethods.includes('shipping') && { key: 'shipping', available: shippingAvailable, icon: '📦', label: 'Ship', sub: shippingAvailable && shipFromLabel ? `From ${shipFromLabel}` : 'Unavailable' },
                                 ].filter(Boolean);
 
-                                if (availableMethods.length === 0) {
+                                // Truly sold out: no stock anywhere
+                                const trulySoldOut = inv.trackInventory && (inv.byLocation || []).every(l => (l.quantity || 0) <= 0);
+                                if (trulySoldOut) {
                                     return (
                                         <Box sx={{ mb: 2 }}>
-                                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: 'error.main' }}>
+                                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'error.main' }}>
                                                 Sold Out
                                             </Typography>
                                         </Box>
@@ -1655,16 +1948,19 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 
                                 return (
                                     <Box sx={{ mb: 2 }}>
-                                        <Typography sx={{ fontSize: '1.2rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
-                                            How would you like it?
-                                        </Typography>
                                         <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
                                             {allMethods.map(({ key, available, icon, label, sub }) => {
                                                 const selected = fulfillmentMethod === key;
                                                 return (
                                                     <Box
                                                         key={key}
+                                                        role="button"
+                                                        tabIndex={available ? 0 : -1}
+                                                        aria-label={`${label}: ${sub}`}
+                                                        aria-pressed={selected}
+                                                        aria-disabled={!available}
                                                         onClick={() => available && setFulfillmentMethod(key)}
+                                                        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && available) { e.preventDefault(); setFulfillmentMethod(key); } }}
                                                         sx={{
                                                             flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
                                                             py: 1.5, px: 1, borderRadius: 2, border: '2px solid',
@@ -1673,13 +1969,32 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                                             opacity: available ? 1 : 0.45,
                                                             cursor: available ? 'pointer' : 'default',
                                                             transition: 'all 0.2s',
+                                                            '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2 },
                                                         }}
                                                     >
-                                                        <Typography sx={{ fontSize: '1.8rem', mb: 0.25 }}>{icon}</Typography>
-                                                        <Typography sx={{ fontSize: '1.3rem', fontWeight: 600, lineHeight: 1.2, textAlign: 'center' }}>{label}</Typography>
-                                                        <Typography sx={{ fontSize: '1.1rem', color: 'text.secondary', lineHeight: 1.2, textAlign: 'center' }}>
-                                                            {available ? sub : 'Unavailable'}
+                                                        <Typography sx={{ fontSize: '1.8rem', mb: 0.25 }}><span aria-hidden="true">{icon}</span></Typography>
+                                                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, lineHeight: 1.2, textAlign: 'center' }}>{label}</Typography>
+                                                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', lineHeight: 1.2, textAlign: 'center' }}>
+                                                            {sub}
                                                         </Typography>
+                                                        {key === 'pickup' && selected && available && selectedLocationObj?.pickupWindow && (
+                                                            <Typography sx={{ fontSize: '1.6rem', mt: 0.5, color: 'success.main' }}>
+                                                                Ready in {selectedLocationObj.pickupWindow} min
+                                                            </Typography>
+                                                        )}
+                                                        {key === 'delivery' && selected && savedDeliveryAddress && (
+                                                            <Button
+                                                                variant="text"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    localStorage.removeItem('deliveryAddress');
+                                                                    setSavedDeliveryAddress(null);
+                                                                }}
+                                                                sx={{ fontSize: '1.6rem', mt: 0.5, color: 'primary.main', textTransform: 'none', p: 0, minWidth: 'auto' }}
+                                                            >
+                                                                Change Address
+                                                            </Button>
+                                                        )}
                                                     </Box>
                                                 );
                                             })}
@@ -1702,8 +2017,13 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                 const isUnavailable = variant.availableForSale === false;
                                 return (
                                     <Box
-                                        key={variant.id}
-                                        onClick={() => !isUnavailable && setSelectedVariantId(variant.id)}
+                                        key={variant.sku}
+                                        role="button"
+                                        tabIndex={isUnavailable ? -1 : 0}
+                                        aria-label={`${variant.name || variant.catalogName || variant.title}: ${isUnavailable ? 'Sold Out' : `$${variantPrice.toFixed(2)}`}`}
+                                        aria-disabled={isUnavailable}
+                                        onClick={() => !isUnavailable && setSelectedVariantId(variant.sku)}
+                                        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !isUnavailable) { e.preventDefault(); setSelectedVariantId(variant.sku); } }}
                                         sx={{
                                             display: 'flex',
                                             alignItems: 'center',
@@ -1717,6 +2037,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             opacity: isUnavailable ? 0.5 : 1,
                                             transition: 'all 0.15s',
                                             '&:hover': !isUnavailable ? { borderColor: 'black', bgcolor: 'grey.50' } : {},
+                                            '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2 },
                                         }}
                                     >
                                         <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>
@@ -1744,19 +2065,38 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             onIsLastStepChange={setIsLastModifierStep}
                         />
                     )}
+                    {/* Non-MYO: Modifier selection for products with modifiers */}
+                    {!isMYO && productSku && (!hasMultipleVariants || selectedVariantId) && (
+                        <ModifierSelector
+                            ref={modifierSelectorRef}
+                            sku={productSku}
+                            layout="grid"
+                            onSelectionsChange={handleMyoSelectionsChange}
+                            onPriceChange={() => {}}
+                            onValidationChange={() => {}}
+                            onAllStepsComplete={setMyoAllValid}
+                            onCanContinueChange={setCanContinueModifiers}
+                            onIsLastStepChange={setIsLastModifierStep}
+                        />
+                    )}
                     {isMYO && bottomMode === 'fulfillment' && (
                         <Box sx={{ py: 2 }}>
-                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 2 }}>
+                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 2 }}>
                                 Pickup or Delivery
                             </Typography>
                             <Box sx={{ display: 'flex', gap: 2 }}>
-                                {['pickup', 'delivery'].map((method) => (
+                                {effectiveFulfillmentMethods.filter(m => m === 'pickup' || m === 'delivery').map((method) => (
                                     <Box
                                         key={method}
+                                        role="button"
+                                        tabIndex={0}
+                                        aria-label={method === 'pickup' ? `Pickup from ${selectedLocationObj?.name || 'store'}` : 'Delivery to your door'}
+                                        aria-pressed={fulfillmentMethod === method}
                                         onClick={() => {
                                             setFulfillmentMethod(method);
                                             setBottomMode('modifiers');
                                         }}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFulfillmentMethod(method); setBottomMode('modifiers'); } }}
                                         sx={{
                                             flex: 1,
                                             display: 'flex',
@@ -1769,13 +2109,14 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             bgcolor: fulfillmentMethod === method ? 'grey.50' : 'white',
                                             cursor: 'pointer',
                                             transition: 'all 0.2s',
+                                            '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2 },
                                             py: 4,
                                         }}
                                     >
                                         <Typography sx={{ fontSize: '2rem', fontWeight: 700 }}>
                                             {method === 'pickup' ? 'Pickup' : 'Delivery'}
                                         </Typography>
-                                        <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', mt: 1, textAlign: 'center', px: 2 }}>
+                                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', mt: 1, textAlign: 'center', px: 2 }}>
                                             {method === 'pickup'
                                                 ? `Ready at ${selectedLocationObj?.name || 'store'}`
                                                 : 'Delivered to your door'}
@@ -1787,18 +2128,23 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                     )}
                     {isMYO && bottomMode === 'location' && (
                         <Box sx={{ py: 2 }}>
-                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 2 }}>
+                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 2 }}>
                                 Select Location
                             </Typography>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                                {storeLocations.map((location) => (
+                                {selectableLocations.map((location) => (
                                     <Box
                                         key={location.id}
+                                        role="button"
+                                        tabIndex={0}
+                                        aria-label={`Select location: ${location.name}`}
+                                        aria-pressed={location.id === selectedLocationId}
                                         onClick={() => {
                                             localStorage.setItem('selectedLocation', location.id);
                                             window.dispatchEvent(new CustomEvent('locationChanged'));
                                             setBottomMode('modifiers');
                                         }}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); localStorage.setItem('selectedLocation', location.id); window.dispatchEvent(new CustomEvent('locationChanged')); setBottomMode('modifiers'); } }}
                                         sx={{
                                             display: 'flex',
                                             flexDirection: 'column',
@@ -1809,6 +2155,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                             bgcolor: location.id === selectedLocationId ? 'grey.50' : 'white',
                                             cursor: 'pointer',
                                             transition: 'all 0.2s',
+                                            '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2 },
                                             py: 3,
                                             px: 3,
                                         }}
@@ -1816,11 +2163,11 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                         <Typography sx={{ fontSize: '1.8rem', fontWeight: 700 }}>
                                             {location.name}
                                         </Typography>
-                                        <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', mt: 0.5, textAlign: 'center' }}>
+                                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', mt: 0.5, textAlign: 'center' }}>
                                             {location.address}
                                         </Typography>
                                         {location.phone && (
-                                            <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary', mt: 0.5 }}>
+                                            <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', mt: 0.5 }}>
                                                 {location.phone}
                                             </Typography>
                                         )}
@@ -1897,35 +2244,48 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             {item?.title || product?.name}
                         </Typography>
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.5 }}>
-                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 500, color: 'grey.600' }}>
+                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 500, color: 'grey.600' }}>
                                 {displayPrice}
                             </Typography>
                             <Box sx={{ display: 'flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 2 }}>
-                                <IconButton onClick={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1} size="small" sx={{ p: 0.5 }}>
+                                <IconButton onClick={() => setQuantity(q => Math.max(1, q - 1))} disabled={quantity <= 1} size="small" sx={{ p: 0.5 }} aria-label="Decrease quantity">
                                     <RemoveIcon sx={{ fontSize: 18 }} />
                                 </IconButton>
-                                <Typography sx={{ px: 0.5, fontWeight: 600, fontSize: '1.4rem', minWidth: 20, textAlign: 'center' }}>
+                                <Typography aria-live="polite" role="status" sx={{ px: 0.5, fontWeight: 600, fontSize: '1.6rem', minWidth: 20, textAlign: 'center' }}>
                                     {quantity}
                                 </Typography>
-                                <IconButton onClick={() => setQuantity(q => q + 1)} size="small" sx={{ p: 0.5 }}>
+                                <IconButton
+                                    onClick={() => setQuantity(q => {
+                                        const max = fulfillmentResolution.maxQuantity;
+                                        return (max !== Infinity && q >= max) ? q : q + 1;
+                                    })}
+                                    disabled={fulfillmentResolution.maxQuantity !== Infinity && quantity >= fulfillmentResolution.maxQuantity}
+                                    size="small"
+                                    sx={{ p: 0.5 }}
+                                    aria-label="Increase quantity"
+                                >
                                     <AddIcon sx={{ fontSize: 18 }} />
                                 </IconButton>
                             </Box>
                         </Box>
-                        <Typography
+                        <Button
+                            variant="text"
                             onClick={() => setImageExpanded(false)}
                             sx={{
-                                fontSize: '1.4rem',
+                                fontSize: '1.6rem',
                                 fontWeight: 600,
                                 color: 'black',
-                                cursor: 'pointer',
                                 textDecoration: 'underline',
                                 textUnderlineOffset: '2px',
+                                textTransform: 'none',
                                 mt: 0.5,
+                                p: 0,
+                                minWidth: 'auto',
+                                '&:hover': { bgcolor: 'transparent' },
                             }}
                         >
                             See more
-                        </Typography>
+                        </Button>
                     </Box>
                 )}
 
@@ -1944,6 +2304,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                     {/* Close button */}
                     <IconButton
                         onClick={onClose}
+                        aria-label="Close"
                         sx={{
                             border: '1px solid',
                             borderColor: 'grey.300',
@@ -1975,7 +2336,9 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             }}
                         >
                             {addingToCart ? (
-                                <CircularProgress size={24} color="inherit" />
+                                <CircularProgress size={24} color="inherit" aria-label="Adding to cart" />
+                            ) : isInStoreOnly ? (
+                                'In-Store Only'
                             ) : !isAvailable ? (
                                 'Out of Stock'
                             ) : (!selectedVariantId || !myoAllValid) ? (
@@ -1989,7 +2352,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             variant="contained"
                             fullWidth
                             onClick={handleAddToCart}
-                            disabled={addingToCart || !selectedVariantId || !isAvailable}
+                            disabled={addingToCart || !selectedVariantId || !isAvailable || !myoAllValid}
                             sx={{
                                 py: 1.5,
                                 fontSize: '1.6rem',
@@ -2001,7 +2364,9 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             }}
                         >
                             {addingToCart ? (
-                                <CircularProgress size={24} color="inherit" />
+                                <CircularProgress size={24} color="inherit" aria-label="Adding to cart" />
+                            ) : isInStoreOnly ? (
+                                'In-Store Only'
                             ) : isAvailable ? (
                                 'Add to Cart'
                             ) : !availableAtLocation ? (
@@ -2011,9 +2376,28 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             )}
                         </Button>
                     )}
+                    {!myoAllValid && showMyoError && (
+                        <Typography role="alert" aria-live="assertive" color="error" sx={{ mt: 1, fontSize: '1.6rem', textAlign: 'center' }}>
+                            Please complete all required selections
+                        </Typography>
+                    )}
+                    {selectedVariant?.terms && (
+                        <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary', textAlign: 'center', mt: 1 }}>
+                            {selectedVariant.terms}
+                        </Typography>
+                    )}
                 </Box>
             </motion.div>
 
+            {/* Store Locator Prompt — shown when add-to-cart clicked with no location */}
+            <StoreLocatorPrompt
+                open={showStoreLocator}
+                onClose={() => setShowStoreLocator(false)}
+                onSelectStore={handleStoreSelected}
+                product={product}
+                selectedVariant={selectedVariant}
+                storeLocations={storeLocations}
+            />
         </>
     );
 };
@@ -2051,9 +2435,14 @@ class CommerceErrorBoundary extends React.Component {
  */
 function CommerceInner() {
     const { commerceState, sendToCommerce, setActiveTextColor, setIsProductDetail, setOnCloseProductDetail, setCartCount, setEffectivePath } = useContext(LayoutContext);
-    const { products: shopifyProducts, loading: shopifyLoading, error: shopifyError, categories, dessertSubcategories, merchandiseSubcategories, getProductHierarchy, getCategoryChildren, getSubcategories, getContainerCategories } = useShopify();
+    const { allProducts, catalog, categories, categoryHelpers, subcategories: CATALOG_DESSERT_SUBCATEGORIES, collectiblesSubcategories: CATALOG_COLLECTIBLES_SUBCATEGORIES, locationFilteredProducts, storeLocations, selectedLocation: selectedLocationForFilter, mergedProductOrder: getMergedProductOrder, isLoading: catalogLoading, isReady: catalogReady, isError: catalogErrorFlag, error: catalogError, refresh: catalogRefresh } = useCatalog();
+    const productsLoading = catalogLoading;
+    const productsError = catalogError;
+    const { getProductHierarchy, getSubcategories } = categoryHelpers || {};
+    const { currentSegment, recordProductView, recordCategoryView, recordAddToCart, recordVariantSelect, getSegmentCrossSells } = useSegment();
     const localCart = useCart();
-    
+    useEffect(() => { setCartId(localCart.cartId); }, [localCart.cartId]);
+
     // State for reward selection (for quantity-based discounts with multiple options)
     const [selectedRewards, setSelectedRewards] = useState({});
 
@@ -2183,7 +2572,7 @@ function CommerceInner() {
         }));
     };
     
-    const { freeGiftDiscounts, orderDiscounts, getApplicableDiscounts, getQuantityDiscountsByThreshold, isDiscountActive, loading: discountsLoading } = useDiscounts(localCart, selectedRewards, shopifyProducts);
+    const { freeGiftDiscounts, orderDiscounts, getApplicableDiscounts, getQuantityDiscountsByThreshold, isDiscountActive, loading: discountsLoading } = useDiscounts(localCart, selectedRewards, allProducts);
     
     // Get quantity-based discounts grouped by threshold
     const quantityDiscountGroups = getQuantityDiscountsByThreshold ? getQuantityDiscountsByThreshold() : [];
@@ -2256,19 +2645,6 @@ function CommerceInner() {
 
     // Blind box selector modal state
     const [showBlindBoxSelector, setShowBlindBoxSelector] = useState(false);
-
-    // Catalog engine (shared state machine)
-    const {
-        catalog,
-        subcategories: CATALOG_DESSERT_SUBCATEGORIES,
-        collectiblesSubcategories: CATALOG_COLLECTIBLES_SUBCATEGORIES,
-        shopifyGidLookup,
-        mergedProductOrder: getMergedProductOrder,
-        locationFilteredProducts,
-        storeLocations,
-        selectedLocation: selectedLocationForFilter,
-        isReady: catalogReady,
-    } = useCatalog();
 
     // Page configuration from API
     const [pageConfig, setPageConfig] = useState(null);
@@ -2413,7 +2789,12 @@ function CommerceInner() {
     const pathCategory = currentPath.startsWith('/') ? currentPath.slice(1).split('/')[0] : '';
     const PATH_ALIASES = { collectibles: 'merchandise' };
     const resolvedPath = PATH_ALIASES[pathCategory] || pathCategory;
-    const currentCategory = categories?.find(c => c.handle === resolvedPath || c.id === resolvedPath);
+    // Catalog categories use `slug`; add `handle` alias for backward compat
+    const currentCategory = useMemo(() => {
+        const cat = categories?.find(c => c.slug === resolvedPath || c.name?.toLowerCase() === resolvedPath || c.id === resolvedPath);
+        if (!cat) return null;
+        return { ...cat, handle: cat.slug || cat.name?.toLowerCase(), title: cat.name, description: cat.description || '' };
+    }, [categories, resolvedPath]);
 
     // When product is dismissed (closed without route change), override category detection
     const [dismissedCategory, setDismissedCategory] = useState(null);
@@ -2539,6 +2920,10 @@ function CommerceInner() {
         // If path changed TO a category page, clear the added-to-cart view
         // This handles: URL bar navigation, header nav links, browser back/forward
         if (prevPath !== currentPath && (isCategoryPage || isHomepage)) {
+            // Clear dismissedCategory override so navigation works again
+            if (dismissedCategory) {
+                setDismissedCategory(null);
+            }
             // Reset feed mode when leaving desserts (e.g., navigating to homepage)
             if (feedActive && !isDesserts) {
                 setFeedActive(false);
@@ -2558,10 +2943,10 @@ function CommerceInner() {
                 sessionStorage.removeItem('addedToCart');
             }
         }
-    }, [currentPath, isCategoryPage, isHomepage, showAddedToCart]);
+    }, [currentPath, isCategoryPage, isHomepage, showAddedToCart, dismissedCategory]);
     
     // Handle browser back/forward cache (bfcache) restoration
-    // When user returns from Shopify checkout, browser might restore page from cache
+    // When user returns from checkout, browser might restore page from cache
     useEffect(() => {
         const handlePageShow = (event) => {
             if (event.persisted) {
@@ -2718,7 +3103,7 @@ function CommerceInner() {
             const isMerch = activeProductItem?.isCollectible || false;
             const categoryPath = isMerch ? '/collectibles' : '/desserts';
             const dismissCategory = isMerch ? 'merchandise' : 'desserts';
-            const isValidReturn = (path) => path && path !== '/' && !path.startsWith('/product/');
+            const isValidReturn = (path) => path && !path.startsWith('/product/');
             const targetPath = (returnPath.current && isValidReturn(returnPath.current))
                 ? returnPath.current
                 : isValidReturn(originPathRef.current)
@@ -2739,7 +3124,9 @@ function CommerceInner() {
 
             // Start close animation: keep ProductDetailPage visible (closing=true) while grid appears behind
             setClosingProduct(true);
-            setDismissedCategory(dismissCategory);
+            if (targetPath !== '/') {
+                setDismissedCategory(dismissCategory);
+            }
             window.history.replaceState(window.history.state, '', targetPath);
 
             // Restore header immediately (like closeProductDetail does)
@@ -2788,6 +3175,7 @@ function CommerceInner() {
             setTimeout(() => {
                 setClosingProduct(false);
                 setCollapseTransition(null);
+                setDismissedCategory(null);
                 returnPath.current = null;
                 savedScrollPosition.current = 0;
                 selectedVariantInfo.current = null;
@@ -2835,7 +3223,7 @@ function CommerceInner() {
             console.log('🎯 Saved variant info:', selectedVariantInfo.current);
         }
         
-        console.log('📦 Available products:', shopifyProducts.length);
+        console.log('📦 Available products:', allProducts.length);
         console.log('🔍 Looking up product:', lookupId);
         
         navigate(`/product/${lookupId}`, { replace: false });
@@ -2845,29 +3233,48 @@ function CommerceInner() {
     const handleAddToCart = async (productOrId, variantOrId, quantity = 1, customAttributes = []) => {
         console.log('🛒 handleAddToCart called:', { productOrId, variantOrId, quantity, customAttributes });
         try {
-            // Support both calling conventions:
-            // 1) Catalog-first: (productObj, variantObj, quantity)
-            // 2) Legacy: (productId, variantId, quantity, customAttributes)
             let product, variant;
             if (typeof productOrId === 'object' && productOrId !== null) {
                 product = productOrId;
                 variant = variantOrId;
             } else {
-                product = shopifyProducts.find(p => p.id === productOrId);
-                variant = product?.variants?.find(v => v.id === variantOrId) || product?.variants?.[0];
+                product = allProducts.find(p => p.id === productOrId || p.sku === productOrId);
+                variant = product?.variants?.find(v => v.sku === variantOrId) || product?.variants?.[0];
             }
 
-            // Extract fulfillment method before filtering internal attributes
+            // Extract fulfillment method and location before filtering internal attributes
             const fulfillmentAttr = (customAttributes || []).find(a => a.key === '_fulfillment');
             const fulfillmentMethod = fulfillmentAttr?.value || null;
+            const fulfillmentLocationId = (customAttributes || []).find(a => a.key === '_fulfillmentLocationId')?.value || null;
+            const fulfillmentLocationName = (customAttributes || []).find(a => a.key === '_fulfillmentLocationName')?.value || null;
 
             // Add to local cart
             const modifiers = (customAttributes || [])
                 .filter(a => !a.key?.startsWith('_'))
                 .map(a => ({ key: a.key, value: a.value, price: 0 }));
 
-            // If delivery: navigate to delivery check page
+            // If delivery: check for saved address or navigate to delivery check page
             if (fulfillmentMethod === 'delivery') {
+                try {
+                    const savedAddr = localStorage.getItem('deliveryAddress');
+                    if (savedAddr) {
+                        const parsed = JSON.parse(savedAddr);
+                        if (parsed.address1 && parsed.city) {
+                            // Already have a validated delivery address — add directly
+                            localCart.addToCart(product, variant, quantity, modifiers, { fulfillmentMethod: 'delivery' });
+                            console.log('✅ Added delivery item to cart (saved address)');
+                            sendToCommerce({ type: 'CLOSE_PRODUCT' });
+                            sendToCommerce({ type: 'SET_FEED_ACTIVE', active: false });
+                            setIsProductDetail(false);
+                            setOnCloseProductDetail(null);
+                            setFeedActive(false);
+                            setAddedProduct(product);
+                            setAddedVariant(variant);
+                            return;
+                        }
+                    }
+                } catch { /* ignore */ }
+                // No saved address — navigate to delivery check
                 const selectedLocationSlug = localStorage.getItem('selectedLocation') || '';
                 navigate('/delivery-check', {
                     state: { product, variant, quantity, modifiers, pickupLocation: selectedLocationSlug },
@@ -2875,7 +3282,7 @@ function CommerceInner() {
                 return { skipCartOpen: true };
             }
 
-            localCart.addToCart(product, variant, quantity, modifiers, { fulfillmentMethod });
+            localCart.addToCart(product, variant, quantity, modifiers, { fulfillmentMethod, fulfillmentLocationId, fulfillmentLocationName });
             console.log('✅ Added to local cart');
 
             // Close the modal via state machine and reset product detail mode
@@ -2891,7 +3298,7 @@ function CommerceInner() {
             setAddedQuantity(quantity);
             setAddedModifiers(modifiers);
             setShowAddedToCart(true);
-            
+
             // Save to sessionStorage BEFORE navigate (useEffect won't run if component unmounts)
             sessionStorage.setItem('addedToCart', JSON.stringify({
                 show: true,
@@ -2941,22 +3348,43 @@ function CommerceInner() {
     
     // Get all available blind boxes (excluding the one just added)
     const getAvailableBlindBoxes = useMemo(() => {
-        return shopifyProducts.filter(p => 
+        return allProducts.filter(p => 
             p.merchandiseType === 'blind_box_collectible' && 
             p.id !== addedProduct?.id
         );
-    }, [shopifyProducts, addedProduct]);
-    
+    }, [allProducts, addedProduct]);
+
+    // Cross-sell products for cart drawer — resolve SKUs from addedProduct to full allProducts
+    // Segment-aware: overlay AI-generated recs when available, fall back to static cross-sells
+    const cartCrossSellProducts = useMemo(() => {
+        if (!addedProduct) return [];
+        // 1. Static cross-sells (always available, instant)
+        const staticCrossSells = (addedProduct.crosssellProducts || [])
+            .map(cs => {
+                const product = allProducts.find(p => p.sku === cs.sku);
+                if (!product) return null;
+                return cs.discount ? { ...product, crossSellDiscount: cs.discount } : product;
+            })
+            .filter(Boolean)
+            .slice(0, 4);
+        // 2. Segment-aware overlay (async, ~1-3s on first gen, instant on cache hit)
+        const segmentRecs = currentSegment ? getSegmentCrossSells(addedProduct.sku) : [];
+        if (segmentRecs.length > 0) {
+            const segSkus = new Set(segmentRecs.map(r => r.sku));
+            return [...segmentRecs, ...staticCrossSells.filter(p => !segSkus.has(p.sku))].slice(0, 4);
+        }
+        return staticCrossSells;
+    }, [addedProduct, allProducts, currentSegment, getSegmentCrossSells]);
+
     // Count blind boxes in cart
     const blindBoxesInCart = useMemo(() => {
         if (!localCart.cart.length) return 0;
 
         return localCart.cart.reduce((count, item) => {
-            const matchedProduct = shopifyProducts.find(p =>
+            const matchedProduct = allProducts.find(p =>
                 p.id === item.productId ||
-                p.shopifyId === item.productId ||
-                p.variantId === item.variantId ||
-                p.variants?.some(v => v.id === item.variantId)
+                p.sku === item.sku ||
+                p.variants?.some(v => v.sku === item.variantSku)
             );
 
             if (matchedProduct?.merchandiseType === 'blind_box_collectible') {
@@ -2964,7 +3392,7 @@ function CommerceInner() {
             }
             return count;
         }, 0);
-    }, [localCart.cart, shopifyProducts]);
+    }, [localCart.cart, allProducts]);
 
     // Calculate how many more blind boxes needed for discount (dynamic, no hardcoding)
     const blindBoxesNeededForDiscount = hasBlindBoxDiscount ? Math.max(0, BLIND_BOX_QUANTITY_THRESHOLD - blindBoxesInCart) : 0;
@@ -2975,11 +3403,10 @@ function CommerceInner() {
 
         const items = [];
         localCart.cart.forEach(item => {
-            const matchedProduct = shopifyProducts.find(p =>
+            const matchedProduct = allProducts.find(p =>
                 p.id === item.productId ||
-                p.shopifyId === item.productId ||
-                p.variantId === item.variantId ||
-                p.variants?.some(v => v.id === item.variantId)
+                p.sku === item.sku ||
+                p.variants?.some(v => v.sku === item.variantSku)
             );
 
             if (matchedProduct?.merchandiseType === 'blind_box_collectible') {
@@ -2989,7 +3416,7 @@ function CommerceInner() {
                     items.push({
                         id: `${item.id}-${i}`,
                         product: matchedProduct,
-                        variant: matchedProduct?.variants?.find(v => v.id === item.variantId) || null,
+                        variant: matchedProduct?.variants?.find(v => v.sku === item.variantSku || v.sku === item.variantId) || null,
                         title: item.name,
                         imageUrl: item.image || matchedProduct?.imageUrl || matchedProduct?.images?.[0]?.url,
                         originalPrice,
@@ -3002,7 +3429,7 @@ function CommerceInner() {
         });
 
         return items;
-    }, [localCart.cart, shopifyProducts]);
+    }, [localCart.cart, allProducts]);
     
     // Check if the added product is a blind box
     const isBlindBoxAdded = addedProduct?.merchandiseType === 'blind_box_collectible';
@@ -3110,17 +3537,8 @@ function CommerceInner() {
         }
     }, [showAddedToCart, isBlindBoxAdded, blindBoxesInCart]);
 
-    // Clear AddedToCart view when cart becomes empty
-    useEffect(() => {
-        if (showAddedToCart && localCart.cart.length === 0) {
-            setShowAddedToCart(false);
-            setAddedProduct(null);
-            setAddedVariant(null);
-            setAddedQuantity(1);
-            setAddedModifiers([]);
-            sessionStorage.removeItem('addedToCart');
-        }
-    }, [showAddedToCart, localCart.cart.length]);
+    // Note: We intentionally do NOT clear AddedToCart view when cart becomes empty.
+    // The "You Might Also Like" recommendations should persist even after removing items.
 
     // Handle adding a blind box from the selector modal
     const handleAddBlindBoxFromSelector = async (product) => {
@@ -3178,23 +3596,24 @@ function CommerceInner() {
     const getAddedToCartRecommendations = () => {
         if (!addedProduct) return [];
 
-        // Priority 1: Cross-sell collection products
+        // Priority 1: Cross-sell collection products — resolve to full allProducts by SKU
         const crosssell = addedProduct.crosssellProducts || [];
         if (crosssell.length > 0) {
-            console.log('✅ Using crosssellProducts:', crosssell);
-            return crosssell.slice(0, 4);
+            const resolved = crosssell
+                .map(cs => allProducts.find(p => p.sku === cs.sku))
+                .filter(Boolean)
+                .slice(0, 4);
+            if (resolved.length > 0) return resolved;
         }
 
         // Fallback: Other products from the same root category (desserts or collectibles)
         const addedCategory = addedProduct.category;
         const isCollectible = addedCategory === 'merchandise' || addedCategory === 'collectibles';
         const rootCategories = isCollectible ? ['merchandise', 'collectibles'] : ['desserts'];
-        const fallback = shopifyProducts.filter(p =>
+        return allProducts.filter(p =>
             rootCategories.includes(p.category) &&
             p.id !== addedProduct.id
         );
-        console.log('📦 Using root category products:', fallback.length);
-        return fallback;
     };
     
     // Get featured/filtered products based on route
@@ -3215,7 +3634,6 @@ function CommerceInner() {
                 const _locSlug = localStorage.getItem('selectedLocation');
                 const catalogFirstVariants = (catalogProduct?.variants || []).map(cv => {
                     const skuUpper = cv.sku?.toUpperCase();
-                    const gidFallback = skuUpper ? shopifyGidLookup?.[skuUpper] : null;
                     const _locPrice = _locSlug && cv.locationPrices?.[_locSlug];
                     return {
                         sku: cv.sku,
@@ -3223,8 +3641,7 @@ function CommerceInner() {
                         price: cv.price,
                         compareAtPrice: cv.compareAtPrice,
                         locationPrices: cv.locationPrices || null,
-                        shopifyVariantGid: cv.platformIds?.shopify || gidFallback?.variantGid || null,
-                        id: cv.sku || cv.platformIds?.shopify || gidFallback?.variantGid,
+                        id: cv.sku,
                         availableForSale: cv.inventory?.inStock !== false,
                         inventory: cv.inventory || {},
                         // Keep variant metafields for grouping
@@ -3235,7 +3652,7 @@ function CommerceInner() {
                     };
                 });
 
-                // Fall back to original Shopify variants if no catalog match
+                // Fall back to original variants if no catalog match
                 const enrichedVars = catalogFirstVariants.length > 0 ? catalogFirstVariants : product.variants;
 
                 // Group variants by subcategory first, then by container
@@ -3277,7 +3694,7 @@ function CommerceInner() {
                         exploded.push({
                             ...productWithoutVariants,
                             id: `${product.id}-${subcategory}-${container}`,
-                            variantId: variant.id,
+                            variantId: variant.sku || variant.id,
                             name: catalogProduct?.name || product.name,
                             price: (() => { const _s = localStorage.getItem('selectedLocation'); const _lp = _s && variant.locationPrices?.[_s]; return `$${parseFloat(_lp != null ? _lp : variant.price).toFixed(2)}`; })(),
                             originalProductId: product.id,
@@ -3373,7 +3790,6 @@ function CommerceInner() {
             // Build catalog-first variants (SKU is canonical ID)
             const catalogFirstVariants = (catalogProduct?.variants || []).map(cv => {
                 const skuUpper = cv.sku?.toUpperCase();
-                const gidFallback = skuUpper ? shopifyGidLookup?.[skuUpper] : null;
                 return {
                     sku: cv.sku,
                     name: cv.name,
@@ -3382,14 +3798,13 @@ function CommerceInner() {
                     optionValues: cv.optionValues,
                     isDefault: cv.isDefault,
                     catalogImage: cv.catalogImage,
-                    shopifyVariantGid: cv.platformIds?.shopify || gidFallback?.variantGid || null,
-                    id: cv.sku || cv.platformIds?.shopify || gidFallback?.variantGid,
+                    id: cv.sku,
                     availableForSale: cv.inventory?.inStock !== false,
                     inventory: cv.inventory || {},
                 };
             });
 
-            // Fall back to Shopify-enriched variants if no catalog product found
+            // Fall back to base variants if no catalog product found
             const productVariants = catalogFirstVariants.length > 0
                 ? catalogFirstVariants
                 : (product.variants || []);
@@ -3419,7 +3834,7 @@ function CommerceInner() {
                     name: catalogProduct?.name || product.name,
                     price: priceDisplay,
                     originalProductId: product.id,
-                    shopifyId: catalogProduct?.platformIds?.shopify || shopifyGidLookup[productVariants[0]?.sku?.toUpperCase()]?.productGid || null,
+                    sku: catalogProduct?.sku || product.sku || null,
                     subcategory: subcategory,
                     subcategoryData: subcategoryData,
                     container: container,
@@ -3441,11 +3856,11 @@ function CommerceInner() {
                 exploded.push({
                     ...product,
                     id: `${product.id}-${subcategory}-${container}`,
-                    variantId: variant.id || product.id,
+                    variantId: variant.sku || variant.id || product.id,
                     name: catalogProduct?.name || product.name,
                     price: (() => { const _s = localStorage.getItem('selectedLocation'); const _lp = _s && variant.locationPrices?.[_s]; const _p = _lp != null ? _lp : variant.price; return _p ? `$${parseFloat(_p).toFixed(2)}` : product.price; })(),
                     originalProductId: product.id,
-                    shopifyId: catalogProduct?.platformIds?.shopify || shopifyGidLookup[variant.sku?.toUpperCase()]?.productGid || null,
+                    sku: catalogProduct?.sku || product.sku || null,
                     subcategory: subcategory,
                     subcategoryData: subcategoryData,
                     container: container,
@@ -3474,14 +3889,12 @@ function CommerceInner() {
     };
 
     /**
-     * Build Shopify product GID → catalog category mappings.
-     * Catalog is the source of truth for product-to-category assignments.
-     * Works entirely from catalog data (no Shopify category mapping needed).
+     * Build catalog product lookup and category mappings.
      */
     const { catalogProductLookup, catalogCategoryById, catalogProductOrder } = useMemo(() => {
-        const productLookup = new Map();  // Shopify GID → catalog product
+        const productLookup = new Map();  // SKU → catalog product
         const categoryById = new Map();   // catalog category ID → catalog category
-        const orderMap = new Map();       // Shopify GID → order index
+        const orderMap = new Map();       // SKU (uppercase) → order index
 
         if (!catalog?.categories?.length || !catalog?.products?.length) {
             return { catalogProductLookup: productLookup, catalogCategoryById: categoryById, catalogProductOrder: orderMap };
@@ -3490,61 +3903,51 @@ function CommerceInner() {
         // Index catalog categories by ID
         catalog.categories.forEach(cat => categoryById.set(cat.id, cat));
 
-        // Index catalog products by Shopify GID
+        // Index catalog products by SKU
         catalog.products.forEach(prod => {
-            const shopifyGid = prod.platformIds?.shopify;
-            if (shopifyGid) productLookup.set(shopifyGid, prod);
+            if (prod.sku) productLookup.set(prod.sku.toUpperCase(), prod);
         });
 
-        // Build productOrder index: catalog SKU → order index per category
-        const skuOrderIndex = new Map();
+        // Build productOrder index: SKU → order index from category productOrder arrays
         catalog.categories.forEach(cat => {
             if (cat.productOrder?.length) {
                 cat.productOrder.forEach((sku, idx) => {
-                    skuOrderIndex.set(sku.toUpperCase(), idx);
+                    const key = sku.toUpperCase();
+                    if (!orderMap.has(key)) orderMap.set(key, orderMap.size);
                 });
             }
         });
 
-        // Map Shopify GID → order index using catalog product SKU
-        catalog.products.forEach(prod => {
-            const shopifyGid = prod.platformIds?.shopify;
-            if (!shopifyGid) return;
-            const orderIdx = skuOrderIndex.get((prod.sku || '').toUpperCase());
-            if (orderIdx != null) orderMap.set(shopifyGid, orderIdx);
-        });
-
-        console.log('📦 Built catalog lookups:', productLookup.size, 'products,', categoryById.size, 'categories');
+        console.log('📦 Built catalog lookups:', productLookup.size, 'products,', categoryById.size, 'categories,', orderMap.size, 'ordered SKUs');
         return { catalogProductLookup: productLookup, catalogCategoryById: categoryById, catalogProductOrder: orderMap };
     }, [catalog]);
 
     /**
-     * Get catalog root category ID for a Shopify product.
-     * Traces the product's catalog categoryIds up to the root via parentId.
+     * Get catalog root category ID for a product.
+     * Traces the product's categoryIds up to the root via parentId.
      */
-    const getCatalogRootId = useCallback((shopifyProduct) => {
-        const catalogProd = catalogProductLookup.get(shopifyProduct.shopifyId);
-        if (!catalogProd?.categoryIds?.length) return null;
+    const getCatalogRootId = useCallback((product) => {
+        if (!product?.categoryIds?.length) return null;
 
         // Trace first categoryId up to root
-        let current = catalogCategoryById.get(catalogProd.categoryIds[0]);
+        let current = catalogCategoryById.get(product.categoryIds[0]);
         while (current?.parentId) {
             const parent = catalogCategoryById.get(current.parentId);
             if (parent) current = parent;
             else break;
         }
         return current?.id || null;
-    }, [catalogProductLookup, catalogCategoryById]);
+    }, [catalogCategoryById]);
 
     /**
-     * Check if a Shopify product belongs to a catalog category (or any descendant of it).
+     * Check if a product belongs to a catalog category (or any descendant of it).
+     * Works with catalog-derived products that have categoryIds directly.
      */
-    const productBelongsToCatalogCategory = useCallback((shopifyProduct, catalogCategoryId) => {
-        const catalogProd = catalogProductLookup.get(shopifyProduct.shopifyId);
-        if (!catalogProd?.categoryIds?.length) return false;
+    const productBelongsToCatalogCategory = useCallback((product, catalogCategoryId) => {
+        if (!product?.categoryIds?.length) return false;
 
         // Check if any of the product's categoryIds is the target or a descendant of it
-        return catalogProd.categoryIds.some(catId => {
+        return product.categoryIds.some(catId => {
             let current = catalogCategoryById.get(catId);
             while (current) {
                 if (current.id === catalogCategoryId) return true;
@@ -3552,133 +3955,7 @@ function CommerceInner() {
             }
             return false;
         });
-    }, [catalogProductLookup, catalogCategoryById]);
-
-    /**
-     * Map Shopify root category handle → catalog root category ID.
-     * Matches by name (case-insensitive) with known aliases.
-     */
-    const shopifyHandleToCatalogRootId = useMemo(() => {
-        const map = new Map();
-        if (!catalog?.categories?.length) return map;
-
-        // Name aliases: Shopify handle → catalog name
-        const HANDLE_TO_NAME = {
-            merchandise: 'collectibles',
-            desserts: 'desserts',
-            beverages: 'beverages',
-        };
-
-        const rootCats = catalog.categories.filter(c => !c.parentId);
-        for (const [handle, targetName] of Object.entries(HANDLE_TO_NAME)) {
-            const root = rootCats.find(c => c.name.toLowerCase() === targetName);
-            if (root) map.set(handle, root.id);
-        }
-
-        console.log('📦 Shopify handle → catalog root:', Object.fromEntries(map));
-        return map;
-    }, [catalog]);
-
-    /**
-     * Build subcategory definitions from CATEGORY HIERARCHY
-     * Uses Level 2 categories under a root category
-     * Extracts unique container sizes from product variants
-     */
-    const buildSubcategoriesFromHierarchy = (rootCategoryHandle) => {
-        const subcats = getSubcategories(rootCategoryHandle);
-        const catalogRootId = shopifyHandleToCatalogRootId.get(rootCategoryHandle);
-        console.log('🔍 Subcategories for', rootCategoryHandle, ':', subcats.map(s => s.handle), '| catalogRootId:', catalogRootId);
-
-        return subcats.map(subcat => {
-            // Find catalog category matching this Shopify subcategory (by name + correct root)
-            // Must match by both name AND root to disambiguate (e.g., two "tokidoki" categories)
-            const catalogSubcat = catalogRootId && catalog?.categories?.find(c =>
-                c.name?.toLowerCase() === subcat.title?.toLowerCase() &&
-                c.parentId === catalogRootId
-            );
-            const catalogSubcatId = catalogSubcat?.id;
-
-            // Filter products for this subcategory using catalog categoryIds (source of truth)
-            const subcatProducts = shopifyProducts.filter(p => {
-                // Primary: check if product belongs to this catalog subcategory
-                if (catalogSubcatId && p.shopifyId && catalogProductLookup.size > 0) {
-                    return productBelongsToCatalogCategory(p, catalogSubcatId);
-                }
-                // Fallback for products not in catalog
-                const hierarchy = getProductHierarchy(p);
-                return hierarchy?.subcategory?.handle === subcat.handle;
-            });
-
-            // Build list of individual products with their catalog images
-            const productItems = subcatProducts.map(product => {
-                const productName = product.name?.toLowerCase();
-                // Get first variant SKU for catalog lookup
-                const firstVariant = product.variants?.[0];
-                const variantSku = firstVariant?.sku?.toUpperCase();
-
-                // Look up product image from catalog
-                let catalogProduct = catalog?.products?.find(p => {
-                    if (variantSku && p.sku?.toUpperCase() === variantSku) return true;
-                    if (variantSku && p.variants?.some(v => v.sku?.toUpperCase() === variantSku)) return true;
-                    return false;
-                });
-                // Fallback: match by product name if SKU lookup failed
-                if (!catalogProduct && productName) {
-                    catalogProduct = catalog?.products?.find(p =>
-                        p.name?.toLowerCase() === productName
-                    );
-                }
-                // Get the master image from catalog (includes backgroundColor and textColor)
-                const catalogMasterImage = catalogProduct?.masterImage;
-                const masterImage = catalogProduct?.images?.find(img => img.url?.includes('/master/'));
-                const firstImage = catalogProduct?.images?.[0];
-                const s3Image = catalogMasterImage?.url || masterImage?.url || firstImage?.url || null;
-                // Get colors and gradient direction from masterImage (set in admin)
-                const backgroundColor = catalogMasterImage?.backgroundColor || masterImage?.backgroundColor || firstImage?.backgroundColor || null;
-                const textColor = catalogMasterImage?.textColor || masterImage?.textColor || firstImage?.textColor || null;
-                const gradientDirection = catalogMasterImage?.gradientDirection || masterImage?.gradientDirection || firstImage?.gradientDirection || null;
-                const gradientStartColor = catalogMasterImage?.gradientStartColor || masterImage?.gradientStartColor || firstImage?.gradientStartColor || null;
-                const gradientEndColor = catalogMasterImage?.gradientEndColor || masterImage?.gradientEndColor || firstImage?.gradientEndColor || null;
-                console.log('🖼️ Product lookup:', product.name, '| sku:', variantSku, '-> catalog:', catalogProduct?.name, '-> image:', s3Image?.slice(-50), '-> bgColor:', backgroundColor, '-> gradient:', gradientDirection);
-
-                return {
-                    id: product.id,
-                    title: product.name,
-                    product: product,
-                    image: s3Image,
-                    pwa: catalogMasterImage?.pwa || null,
-                    backgroundColor,
-                    textColor,
-                    gradientDirection,
-                    gradientStartColor,
-                    gradientEndColor,
-                    catalogImageStyles: catalogProduct?.images || [],
-                    isMYO: (product.name || '').toLowerCase().includes('make your own'),
-                };
-            });
-            console.log('🔍 Products for', subcat.handle, ':', productItems.map(p => p.title));
-
-            return {
-                id: subcat.handle,
-                title: subcat.title,
-                description: subcat.description || '',
-                image: subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.title)}`,
-                imageAspectRatio: subcat.imageAspectRatio || '1:1',
-                containers: productItems, // Individual products with catalog images
-                products: subcatProducts, // Products in this subcategory
-                productOrder: subcat.productOrder || [], // Per-subcategory ordering from catalog
-                catalogCategoryId: catalogSubcatId, // Catalog category ID for this subcategory
-                // Filter products using catalog as source of truth
-                filter: (p) => {
-                    if (catalogSubcatId && p.shopifyId && catalogProductLookup.size > 0) {
-                        return productBelongsToCatalogCategory(p, catalogSubcatId);
-                    }
-                    const hierarchy = getProductHierarchy(p);
-                    return hierarchy?.subcategory?.handle === subcat.handle;
-                }
-            };
-        });
-    };
+    }, [catalogCategoryById]);
 
     // Helper to convert aspect ratio string to paddingTop percentage
     const getAspectRatioPadding = (aspectRatio) => {
@@ -3690,153 +3967,9 @@ function CommerceInner() {
         }
     };
 
-    // Use hierarchy-based subcategories for Desserts (Level 2 under 'desserts')
-    // Must recalculate when catalog loads to get S3 master images
-    const HIERARCHY_DESSERT_SUBCATEGORIES = useMemo(() => {
-        return buildSubcategoriesFromHierarchy('desserts');
-    }, [catalog, shopifyProducts, categories, catalogProductLookup, shopifyHandleToCatalogRootId]);
-
-    // Use hierarchy-based subcategories for Merchandise (Level 2 under 'merchandise')
-    const HIERARCHY_MERCHANDISE_SUBCATEGORIES = useMemo(() => {
-        return buildSubcategoriesFromHierarchy('merchandise');
-    }, [catalog, shopifyProducts, categories, catalogProductLookup, shopifyHandleToCatalogRootId]);
-
-    // Toggle to use hierarchy-based grouping
-    // Set to FALSE to use variant metafield-based grouping (dessert.subcategory on each variant)
-    // This allows a single product (e.g., "Amour S'more") to appear in multiple categories
-    // NOTE: Variant-based requires dessert_subcategory metaobjects in Shopify
-    const USE_HIERARCHY_GROUPING = categories.some(c => c.level > 1);
-
-    // Debug: Log grouping mode
-    if (USE_HIERARCHY_GROUPING) {
-        console.log('🌳 Using HIERARCHY-based grouping');
-    } else {
-        console.log('📦 Using VARIANT METAFIELD-based grouping');
-        console.log('📦 dessertSubcategories from Shopify:', dessertSubcategories?.map(s => s.id) || 'empty');
-        console.log('📦 shopifyProducts count:', shopifyProducts?.length || 0);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // END: Hierarchy-based grouping
-    // ═══════════════════════════════════════════════════════════════════════════
-
-
-    /**
-     * Build subcategories from VARIANT METAFIELDS
-     * Groups products by their variant's dessert.subcategory metafield
-     */
-    const buildSubcategoriesFromVariants = () => {
-        if (!dessertSubcategories?.length) return [];
-
-        return dessertSubcategories.map(subcat => {
-            // Find all products that have variants with this subcategory
-            const matchingProducts = [];
-
-            shopifyProducts.forEach(product => {
-                // Check if any variant has this subcategory
-                const matchingVariants = product.variants?.filter(v =>
-                    v.subcategory?.toLowerCase() === subcat.id?.toLowerCase()
-                ) || [];
-
-                if (matchingVariants.length > 0) {
-                    // Look up product image from catalog
-                    const productName = product.name?.toLowerCase();
-                    const firstVariant = matchingVariants[0];
-                    const variantSku = firstVariant?.sku?.toUpperCase();
-
-                    let catalogProduct = catalog?.products?.find(p => {
-                        if (variantSku && p.sku?.toUpperCase() === variantSku) return true;
-                        if (variantSku && p.variants?.some(v => v.sku?.toUpperCase() === variantSku)) return true;
-                        return false;
-                    });
-                    if (!catalogProduct && productName) {
-                        catalogProduct = catalog?.products?.find(p =>
-                            p.name?.toLowerCase() === productName
-                        );
-                    }
-
-                    const catalogMasterImage = catalogProduct?.masterImage;
-                    const masterImage = catalogProduct?.images?.find(img => img.url?.includes('/master/'));
-                    const firstImage = catalogProduct?.images?.[0];
-                    const s3Image = catalogMasterImage?.url || masterImage?.url || firstImage?.url || null;
-                    const backgroundColor = catalogMasterImage?.backgroundColor || masterImage?.backgroundColor || firstImage?.backgroundColor || null;
-                    const textColor = catalogMasterImage?.textColor || masterImage?.textColor || firstImage?.textColor || null;
-                    const gradientDirection = catalogMasterImage?.gradientDirection || masterImage?.gradientDirection || firstImage?.gradientDirection || null;
-                    const gradientStartColor = catalogMasterImage?.gradientStartColor || masterImage?.gradientStartColor || firstImage?.gradientStartColor || null;
-                    const gradientEndColor = catalogMasterImage?.gradientEndColor || masterImage?.gradientEndColor || firstImage?.gradientEndColor || null;
-
-                    matchingProducts.push({
-                        id: `${product.id}-${subcat.id}`,
-                        title: product.name,
-                        product: product,
-                        image: s3Image,
-                        pwa: catalogMasterImage?.pwa || null,
-                        backgroundColor,
-                        textColor,
-                        gradientDirection,
-                        gradientStartColor,
-                        gradientEndColor,
-                        variantId: firstVariant?.id,
-                        variants: matchingVariants,
-                        isMYO: (product.name || '').toLowerCase().includes('make your own'),
-                    });
-                }
-            });
-
-            console.log('🔍 Variant-based products for', subcat.id, ':', matchingProducts.map(p => p.title));
-
-            return {
-                id: subcat.id,
-                title: subcat.title,
-                description: subcat.description || '',
-                image: subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.title)}`,
-                containers: matchingProducts,
-                products: matchingProducts.map(p => p.product),
-                filter: (p) => p.subcategory?.toLowerCase() === subcat.id?.toLowerCase()
-            };
-        }).filter(subcat => subcat.containers.length > 0); // Only include subcategories with products
-    };
-
-    // Build variant-based subcategories (memoized)
-    const VARIANT_DESSERT_SUBCATEGORIES = useMemo(() => {
-        return buildSubcategoriesFromVariants();
-    }, [dessertSubcategories, shopifyProducts, catalog]);
-
-    // Subcategory definitions for Desserts
-    // Priority: 1) Catalog categories (admin), 2) Hierarchy, 3) Variant metafields
-    const DESSERT_SUBCATEGORIES = CATALOG_DESSERT_SUBCATEGORIES.length > 0
-        ? CATALOG_DESSERT_SUBCATEGORIES
-        : USE_HIERARCHY_GROUPING
-            ? HIERARCHY_DESSERT_SUBCATEGORIES
-            : VARIANT_DESSERT_SUBCATEGORIES;
-
-    console.log('📦 Using subcategories source:',
-        CATALOG_DESSERT_SUBCATEGORIES.length > 0 ? 'CATALOG' :
-        USE_HIERARCHY_GROUPING ? 'HIERARCHY' : 'VARIANT_METAFIELDS',
-        '| Categories:', DESSERT_SUBCATEGORIES.map(s => s.title)
-    );
-
-    // Subcategory definitions for Merchandise/Collectibles
-    // Priority: 1) Catalog categories (same approach as desserts), 2) Hierarchy fallback, 3) Shopify metaobjects
-    const MERCHANDISE_SUBCATEGORIES = (CATALOG_COLLECTIBLES_SUBCATEGORIES || []).length > 0
-        ? CATALOG_COLLECTIBLES_SUBCATEGORIES
-        : HIERARCHY_MERCHANDISE_SUBCATEGORIES.length > 0
-            ? HIERARCHY_MERCHANDISE_SUBCATEGORIES
-            : merchandiseSubcategories?.length > 0
-                ? merchandiseSubcategories.map(subcat => ({
-                    id: subcat.id,
-                    title: subcat.title,
-                    description: subcat.description || '',
-                    image: subcat.image?.url || `https://placehold.co/300x300/e0e0e0/666666?text=${encodeURIComponent(subcat.title)}`,
-                    filter: (p) => p.merchandiseSubcategory === subcat.id
-                }))
-                : [];
-
-    console.log('📦 Using collectibles source:',
-        (CATALOG_COLLECTIBLES_SUBCATEGORIES || []).length > 0 ? 'CATALOG' :
-        HIERARCHY_MERCHANDISE_SUBCATEGORIES.length > 0 ? 'HIERARCHY' : 'METAOBJECTS',
-        '| Categories:', MERCHANDISE_SUBCATEGORIES.map(s => s.title)
-    );
+    // Subcategory definitions — catalog is the sole source of truth
+    const DESSERT_SUBCATEGORIES = CATALOG_DESSERT_SUBCATEGORIES;
+    const MERCHANDISE_SUBCATEGORIES = CATALOG_COLLECTIBLES_SUBCATEGORIES || [];
 
     // Helper: build flat feed from subcategories
     const buildFeedItems = (subcategories) => {
@@ -3879,50 +4012,7 @@ function CommerceInner() {
         : isMerchandise ? merchandiseWithDefaults
         : [];
 
-    // Prepend "You Might Also Like" category when showing added-to-cart
-    const activeFeedSubcategories = useMemo(() => {
-        if (!showAddedToCart || !addedProduct) return baseFeedSubcategories;
-        const recs = getAddedToCartRecommendations();
-        if (recs.length === 0) return baseFeedSubcategories;
-        const recsSubcat = {
-            id: 'you-might-also-like',
-            title: 'You Might Also Like',
-            description: '',
-            image: null,
-            containers: recs.map(p => {
-                const productName = p.name?.toLowerCase();
-                const firstVariant = p.variants?.[0];
-                const variantSku = firstVariant?.sku?.toUpperCase();
-                let catalogProduct = catalog?.products?.find(cp => {
-                    if (variantSku && cp.sku?.toUpperCase() === variantSku) return true;
-                    if (variantSku && cp.variants?.some(v => v.sku?.toUpperCase() === variantSku)) return true;
-                    return false;
-                });
-                if (!catalogProduct && productName) {
-                    catalogProduct = catalog?.products?.find(cp => cp.name?.toLowerCase() === productName);
-                }
-                const masterImg = catalogProduct?.masterImage;
-                const firstImg = catalogProduct?.images?.[0];
-                const isCollectible = p.category === 'merchandise' || p.category === 'collectibles';
-                return {
-                    id: p.id,
-                    title: p.name,
-                    product: p,
-                    image: masterImg?.url || firstImg?.url || null,
-                    pwa: masterImg?.pwa || null,
-                    backgroundColor: isCollectible ? (masterImg?.backgroundColor || '#ffffff') : (masterImg?.backgroundColor || null),
-                    textColor: isCollectible ? (masterImg?.textColor || '#000000') : (masterImg?.textColor || null),
-                    gradientDirection: masterImg?.gradientDirection || null,
-                    gradientStartColor: masterImg?.gradientStartColor || null,
-                    gradientEndColor: masterImg?.gradientEndColor || null,
-                    catalogImageStyles: catalogProduct?.images || [],
-                    isCollectible,
-                    isMYO: (p.name || '').toLowerCase().includes('make your own'),
-                };
-            }),
-        };
-        return [recsSubcat, ...baseFeedSubcategories];
-    }, [baseFeedSubcategories, showAddedToCart, addedProduct, catalog]);
+    const activeFeedSubcategories = baseFeedSubcategories;
 
     // Flatten subcategories into a single feed: divider slides + product slides
     const feedItems = buildFeedItems(activeFeedSubcategories);
@@ -3944,9 +4034,9 @@ function CommerceInner() {
             f => f.product?.id === productId || f.id === productId || f.id?.startsWith(productId + '-')
         );
         if (!match) {
-            const shopifyMatch = shopifyProducts.find(p => p.id === productId);
-            if (shopifyMatch) {
-                match = allFeedItems.find(f => f.product?.name === shopifyMatch.name);
+            const productMatch = allProducts.find(p => p.id === productId || p.sku === productId);
+            if (productMatch) {
+                match = allFeedItems.find(f => f.product?.name === productMatch.name);
             }
         }
         if (!match) {
@@ -3956,7 +4046,7 @@ function CommerceInner() {
             );
         }
         return match || null;
-    }, [productId, catalogReady, allFeedItems, shopifyProducts]);
+    }, [productId, catalogReady, allFeedItems, allProducts]);
 
     // Restore product detail mode on mount if feedActive was persisted
     const hasRestoredRef = useRef(false);
@@ -4034,46 +4124,27 @@ function CommerceInner() {
         const categoryHandle = currentCategory.handle?.toLowerCase();
         let categoryProducts;
 
-        if (USE_HIERARCHY_GROUPING) {
-            // HIERARCHY MODE: Filter by root category using catalog as source of truth
-            // Build set of all Shopify category handles under this root
-            const handlesUnderRoot = new Set([categoryHandle]);
-            categories.filter(c => c.rootCategory?.handle?.toLowerCase() === categoryHandle)
-                .forEach(c => handlesUnderRoot.add(c.handle));
+        // CATALOG MODE: Filter by root category using catalog categoryIds as source of truth
+        const catalogRootCat = categoryHelpers?.getCategoryBySlug?.(categoryHandle);
+        const catalogRootId = catalogRootCat?.id;
 
-            // Get the catalog root category ID for this Shopify handle
-            const catalogRootId = shopifyHandleToCatalogRootId.get(categoryHandle);
+        categoryProducts = locationFilteredProducts.filter(p => {
+            // Primary: catalog categoryIds (source of truth)
+            if (catalogRootId && p.categoryIds?.length) {
+                return productBelongsToCatalogCategory(p, catalogRootId);
+            }
+            // Fallback: match by category/productType fields
+            const pCategory = p.category?.toLowerCase();
+            const pType = p.productType?.toLowerCase();
+            return pCategory === categoryHandle ||
+                   pType === categoryHandle ||
+                   pCategory === currentCategory.id?.toLowerCase();
+        });
+        console.log(`[CATALOG] Filtering for root category "${categoryHandle}":`, categoryProducts.length, 'products');
 
-            categoryProducts = locationFilteredProducts.filter(p => {
-                // Primary: catalog categoryIds (source of truth)
-                if (catalogRootId && p.shopifyId && catalogProductLookup.size > 0) {
-                    return productBelongsToCatalogCategory(p, catalogRootId);
-                }
-                // Fallback for products not in catalog
-                const hierarchy = getProductHierarchy(p);
-                if (hierarchy?.rootCategory) {
-                    return hierarchy.rootCategory.handle?.toLowerCase() === categoryHandle;
-                }
-                return false;
-            });
-            console.log(`📦 [HIERARCHY] Filtering for root category "${categoryHandle}":`, categoryProducts.length, 'products');
-        } else {
-            // LEGACY MODE: Direct category match
-            categoryProducts = locationFilteredProducts.filter(p => {
-                const pCategory = p.category?.toLowerCase();
-                const pType = p.productType?.toLowerCase();
-                return pCategory === categoryHandle ||
-                       pType === categoryHandle ||
-                       pCategory === currentCategory.id?.toLowerCase();
-            });
-            console.log(`📦 [LEGACY] Filtering for category "${categoryHandle}":`, categoryProducts.length, 'products');
-        }
-        
         // Special handling for desserts - explode variants
         if (isDesserts) {
-            categoryProducts = USE_HIERARCHY_GROUPING
-                ? explodeProductVariantsByHierarchy(categoryProducts)
-                : explodeProductVariants(categoryProducts);
+            categoryProducts = explodeProductVariantsByHierarchy(categoryProducts);
         }
 
         // Enrich products with catalog CDN image + PWA responsive data
@@ -4091,17 +4162,17 @@ function CommerceInner() {
             });
         }
 
-        // Group products by subcategory, sorted by catalog productOrder (via Shopify GID)
+        // Group products by subcategory, sorted by catalog productOrder (via SKU)
         currentSubcategories.forEach(subcat => {
             const filtered = categoryProducts.filter(subcat.filter);
             if (catalogProductOrder.size > 0) {
                 productsBySubcategory[subcat.id] = [...filtered].sort((a, b) => {
-                    const aidx = catalogProductOrder.get(a.shopifyId) ?? Infinity;
-                    const bidx = catalogProductOrder.get(b.shopifyId) ?? Infinity;
+                    const aidx = catalogProductOrder.get((a.sku || '').toUpperCase()) ?? Infinity;
+                    const bidx = catalogProductOrder.get((b.sku || '').toUpperCase()) ?? Infinity;
                     if (aidx !== Infinity && bidx !== Infinity) return aidx - bidx;
                     if (aidx !== Infinity) return -1;
                     if (bidx !== Infinity) return 1;
-                    return (a.name || '').localeCompare(b.name || '');
+                    return 0;
                 });
             } else {
                 productsBySubcategory[subcat.id] = filtered;
@@ -4119,15 +4190,15 @@ function CommerceInner() {
             console.log(`📦 Products in "Other" section (no subcategory match):`, unmatchedProducts.length);
         }
 
-        // Sort by catalog productOrder (via Shopify GID)
+        // Sort by catalog productOrder (via SKU), preserve natural order for unordered products
         if (catalogProductOrder.size > 0) {
             displayProducts = [...categoryProducts].sort((a, b) => {
-                const aidx = catalogProductOrder.get(a.shopifyId) ?? Infinity;
-                const bidx = catalogProductOrder.get(b.shopifyId) ?? Infinity;
+                const aidx = catalogProductOrder.get((a.sku || '').toUpperCase()) ?? Infinity;
+                const bidx = catalogProductOrder.get((b.sku || '').toUpperCase()) ?? Infinity;
                 if (aidx !== Infinity && bidx !== Infinity) return aidx - bidx;
                 if (aidx !== Infinity) return -1;
                 if (bidx !== Infinity) return 1;
-                return (a.name || '').localeCompare(b.name || '');
+                return 0;
             });
         } else {
             displayProducts = categoryProducts;
@@ -4148,11 +4219,11 @@ function CommerceInner() {
     const getRecommendations = () => {
         if (!selectedProductId) return [];
         
-        const selectedProduct = shopifyProducts.find(p => p.id === selectedProductId);
+        const selectedProduct = allProducts.find(p => p.id === selectedProductId);
         if (!selectedProduct) return [];
         
         // Filter products by same category, exclude current
-        return shopifyProducts
+        return allProducts
             .filter(p => 
                 p.category === selectedProduct.category && 
                 p.id !== selectedProductId
@@ -4162,7 +4233,7 @@ function CommerceInner() {
     
     // Find selected product - handle if selectedProductId is an object or string
     const selectedProduct = selectedProductId 
-        ? shopifyProducts.find(p => {
+        ? allProducts.find(p => {
             const idToMatch = typeof selectedProductId === 'string' 
                 ? selectedProductId 
                 : selectedProductId?.id;
@@ -4188,9 +4259,11 @@ function CommerceInner() {
         setActiveTextColor(textColor);
     }, [isDesserts, feedItems, feedIndex, feedActive, setActiveTextColor]);
 
-    if (shopifyLoading && !shopifyProducts?.length) {
+    if (catalogLoading && !allProducts?.length) {
         return (
             <Box
+                role="status"
+                aria-live="polite"
                 sx={{
                     position: 'fixed',
                     top: 0,
@@ -4205,17 +4278,17 @@ function CommerceInner() {
                     zIndex: 9999,
                 }}
             >
-                <CircularProgress sx={{ color: 'black' }} />
+                <CircularProgress sx={{ color: 'black' }} aria-label="Loading" />
                 <Typography sx={{ mt: 2, color: 'black' }}>Loading...</Typography>
             </Box>
         );
     }
     
-    if (shopifyError) {
+    if (productsError) {
         return (
             <Container maxWidth="md" sx={{ py: 8 }}>
                 <Alert severity="error">
-                    Error loading products: {shopifyError}
+                    Error loading products: {productsError}
                 </Alert>
             </Container>
         );
@@ -4231,7 +4304,7 @@ function CommerceInner() {
     });
 
     return (
-        <>
+        <Box component="main">
             {/* Full-page product detail (ALL products — no modal) */}
             {(showProduct || closingProduct) && activeProductItem && (
                 <ProductDetailPage
@@ -4251,13 +4324,13 @@ function CommerceInner() {
                 const showGrid = (!showProduct || closingProduct) && (isDesserts || isMerchandise || feedActive);
                 const gridContent = (
                     <>
-                        {/* Added to Cart banner */}
-                        {showAddedToCart && addedProduct && (
+                        {/* Added to Cart banner — hide when cart is empty */}
+                        {showAddedToCart && addedProduct && localCart.cart.length > 0 && (
                             <Box sx={{ bgcolor: 'white', py: 1.5, px: 2, borderBottom: '1px solid', borderColor: 'grey.200', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1, minWidth: 0 }}>
                                     <Box sx={{ width: 44, height: 44, flexShrink: 0, borderRadius: 1, overflow: 'hidden' }}>
                                         {(addedVariant?.image?.url || addedProduct.imageUrl || addedProduct.images?.[0]?.url) ? (
-                                            <img src={addedVariant?.image?.url || addedProduct.imageUrl || addedProduct.images?.[0]?.url} alt={addedProduct.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            <img src={addedVariant?.image?.url || addedProduct.imageUrl || addedProduct.images?.[0]?.url} alt={addedProduct.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                         ) : (
                                             <Box sx={{ width: '100%', height: '100%', bgcolor: 'grey.200' }} />
                                         )}
@@ -4274,7 +4347,7 @@ function CommerceInner() {
                                     size="small"
                                     startIcon={<ShoppingBagOutlinedIcon sx={{ fontSize: '1.6rem' }} />}
                                     onClick={() => sendToCommerce({ type: 'OPEN_CART' })}
-                                    sx={{ flexShrink: 0, bgcolor: '#333', fontSize: '1.4rem', '&:hover': { bgcolor: '#000' } }}
+                                    sx={{ flexShrink: 0, bgcolor: '#333', fontSize: '1.6rem', '&:hover': { bgcolor: '#000' } }}
                                 >
                                     Bag ({localCart.getCartCount()})
                                 </Button>
@@ -4285,22 +4358,16 @@ function CommerceInner() {
                             <Box
                                 sx={{
                                     display: 'flex',
+                                    flexWrap: 'wrap',
+                                    justifyContent: 'center',
                                     position: 'sticky',
                                     top: 0,
-                                    left: 0,
-                                    right: 0,
                                     zIndex: 50,
-                                    flexDirection: 'row',
-                                    gap: 3,
+                                    columnGap: 1,
+                                    rowGap: 0,
                                     px: 2,
                                     py: 1,
-                                    maxWidth: '100vw',
-                                    overflowX: 'auto',
-                                    overflowY: 'hidden',
-                                    '&::-webkit-scrollbar': { display: 'none' },
-                                    scrollbarWidth: 'none',
                                     pointerEvents: 'auto',
-                                    touchAction: 'pan-x',
                                     bgcolor: 'white',
                                 }}
                             >
@@ -4309,9 +4376,12 @@ function CommerceInner() {
                                         ? activeMerchSection === idx
                                         : feedItems[feedIndex]?.categoryIndex === idx;
                                     return (
-                                        <Typography
+                                        <Button
                                             key={category.id}
+                                            variant="text"
+                                            aria-pressed={isActive}
                                             onClick={() => {
+                                                recordCategoryView?.(category.slug);
                                                 if (isMerchandise) {
                                                     scrollToSection(category.id);
                                                     return;
@@ -4321,18 +4391,20 @@ function CommerceInner() {
                                                 setFeedActive(false);
                                             }}
                                             sx={{
-                                                flexShrink: 0,
                                                 fontSize: '1.6rem',
                                                 fontWeight: isActive ? 700 : 400,
-                                                color: isActive ? 'black' : 'rgba(0,0,0,0.5)',
-                                                cursor: 'pointer',
+                                                color: isActive ? 'black' : 'rgba(0,0,0,0.65)',
                                                 whiteSpace: 'nowrap',
                                                 transition: 'color 0.3s ease-out',
-                                                '&:hover': { color: 'black' },
+                                                '&:hover': { color: 'black', bgcolor: 'transparent' },
+                                                textTransform: 'none',
+                                                minWidth: 'auto',
+                                                px: 1,
+                                                py: 0.5,
                                             }}
                                         >
                                             {category.title}
-                                        </Typography>
+                                        </Button>
                                     );
                                 })}
                             </Box>
@@ -4355,12 +4427,14 @@ function CommerceInner() {
                                     if (!subcatProducts.length) return null;
                                     return (
                                         <Box id={`section-${subcat.id}`} key={subcat.id}>
-                                            <Typography sx={{ fontSize: '1.8rem', fontWeight: 700, mb: 1.5, mt: idx > 0 ? 3 : 0, px: 2 }}>
+                                            <Typography component="h2" sx={{ fontSize: '1.8rem', fontWeight: 700, mb: 1.5, mt: idx > 0 ? 3 : 0, px: 2 }}>
                                                 {subcat.title}
                                             </Typography>
                                             <ProductCardGrid
                                                 items={subcatProducts}
                                                 feedItems={feedItems}
+                                                storeLocations={storeLocations}
+                                                selectedLocation={selectedLocationForFilter}
                                                 collapsingFeedIndex={(collapseTransition || closingProduct) ? feedIndex : undefined}
                                                 onProductTap={(itemFeedIndex, cardData) => {
                                                     feedScrollPositionRef.current = window.scrollY;
@@ -4373,6 +4447,7 @@ function CommerceInner() {
                                                     }
                                                     setFeedIndex(itemFeedIndex);
                                                     const tappedItem = feedItems[itemFeedIndex];
+                                                    trackProductClicked(tappedItem?.product, itemFeedIndex);
                                                     const productHandle = tappedItem?.product?.id;
                                                     if (productHandle) {
                                                         window.history.pushState(null, '', `/product/${productHandle}`);
@@ -4422,6 +4497,8 @@ function CommerceInner() {
                             <ProductCardGrid
                                 items={activeCategoryProducts}
                                 feedItems={feedItems}
+                                storeLocations={storeLocations}
+                                selectedLocation={selectedLocationForFilter}
                                 collapsingFeedIndex={(collapseTransition || closingProduct) ? feedIndex : undefined}
                                 onProductTap={(itemFeedIndex, cardData) => {
                             // Save scroll position and origin path before entering product detail
@@ -4437,6 +4514,7 @@ function CommerceInner() {
                             setFeedIndex(itemFeedIndex);
                             // Update URL for SEO (pushState to avoid React Router re-render)
                             const tappedItem = feedItems[itemFeedIndex];
+                            trackProductClicked(tappedItem?.product, itemFeedIndex);
                             const productHandle = tappedItem?.product?.id;
                             if (productHandle) {
                                 window.history.pushState(null, '', `/product/${productHandle}`);
@@ -4775,6 +4853,25 @@ function CommerceInner() {
                 );
             })()}
 
+            {/* Structured data for SEO */}
+            {(() => {
+                const activeProduct = productId && activeProductItem?.product
+                    ? activeProductItem.product
+                    : feedActive && feedItems[feedIndex]?.product
+                        ? feedItems[feedIndex].product
+                        : null;
+                if (activeProduct) {
+                    const schema = buildProductSchema(activeProduct);
+                    return schema ? <JsonLd data={schema} /> : null;
+                }
+                if (isDesserts || isMerchandise) {
+                    const listName = isDesserts ? 'Desserts' : 'Collectibles';
+                    const schema = buildItemListSchema(allProducts, listName);
+                    return schema ? <JsonLd data={schema} /> : null;
+                }
+                return null;
+            })()}
+
             <Box sx={{
                 minHeight: (isDesserts || isMerchandise || feedActive || ((showProduct || closingProduct) && !showAddedToCart)) ? 0 : '100vh',
                 backgroundColor: 'white',
@@ -4812,6 +4909,7 @@ function CommerceInner() {
                                                 <img
                                                     src={addedVariant?.image?.url || addedProduct.imageUrl || addedProduct.images?.[0]?.url}
                                                     alt={addedProduct.name}
+                                                    loading="lazy"
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                 />
                                             ) : (
@@ -4842,7 +4940,7 @@ function CommerceInner() {
                                                 </Typography>
                                             )}
                                             {addedModifiers?.length > 0 && (
-                                                <Typography sx={{ color: 'text.secondary', fontSize: '1.4rem', mt: 0.25 }}>
+                                                <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem', mt: 0.25 }}>
                                                     {addedModifiers.map(m => m.value).join(', ')}
                                                 </Typography>
                                             )}
@@ -5035,14 +5133,13 @@ function CommerceInner() {
                                                                             || option.freeProduct?.title
                                                                             || option.title;
                                                                         
-                                                                        // Look up image from shopifyProducts
+                                                                        // Look up image from allProducts
                                                                         const variantId = option.freeProducts?.[0]?.variantId || option.freeProduct?.variantId;
                                                                         const productId = option.freeProducts?.[0]?.id || option.freeProduct?.id;
-                                                                        const matchedProduct = shopifyProducts?.find(p => 
-                                                                            p.id === productId || 
-                                                                            p.shopifyId === productId ||  // Check shopifyId (full GID)
-                                                                            p.variantId === variantId ||
-                                                                            p.variants?.some(v => v.id === variantId)
+                                                                        const matchedProduct = allProducts?.find(p =>
+                                                                            p.id === productId ||
+                                                                            p.sku === productId ||
+                                                                            p.variants?.some(v => v.sku === variantId)
                                                                         );
                                                                         
                                                                         // Debug: Log image lookup
@@ -5051,16 +5148,16 @@ function CommerceInner() {
                                                                             variantId,
                                                                             matchedProduct: matchedProduct ? {
                                                                                 id: matchedProduct.id,
-                                                                                shopifyId: matchedProduct.shopifyId,
+                                                                                sku: matchedProduct.sku,
                                                                                 imageUrl: matchedProduct.imageUrl,
                                                                                 images: matchedProduct.images?.slice(0, 1),
                                                                             } : 'NOT FOUND',
-                                                                            shopifyProductsCount: shopifyProducts?.length
+                                                                            productsCount: allProducts?.length
                                                                         });
                                                                         
                                                                         const imageUrl = matchedProduct?.imageUrl 
                                                                             || matchedProduct?.images?.[0]?.url
-                                                                            || matchedProduct?.variants?.find(v => v.id === variantId)?.image?.url
+                                                                            || matchedProduct?.variants?.find(v => v.sku === variantId)?.image?.url
                                                                             || PLACEHOLDER_IMAGE;
                                                                         
                                                                         return (
@@ -5072,7 +5169,7 @@ function CommerceInner() {
                                                                                     p: 1.5,
                                                                                     borderRadius: 2,
                                                                                     bgcolor: 'white',
-                                                                                    opacity: 0.7
+                                                                                    opacity: 0.75
                                                                                 }}>
                                                                                     <Box sx={{
                                                                                         width: 60,
@@ -5085,6 +5182,7 @@ function CommerceInner() {
                                                                                         <img
                                                                                             src={imageUrl}
                                                                                             alt={rewardName}
+                                                                                            loading="lazy"
                                                                                             style={{
                                                                                                 width: '100%',
                                                                                                 height: '100%',
@@ -5146,18 +5244,17 @@ function CommerceInner() {
                                                                             || selectedOption.freeProduct?.title
                                                                             || selectedOption.title;
                                                                         
-                                                                        // Look up image from shopifyProducts
+                                                                        // Look up image from allProducts
                                                                         const variantId = selectedOption.freeProducts?.[0]?.variantId || selectedOption.freeProduct?.variantId;
                                                                         const productId = selectedOption.freeProducts?.[0]?.id || selectedOption.freeProduct?.id;
-                                                                        const matchedProduct = shopifyProducts?.find(p => 
-                                                                            p.id === productId || 
-                                                                            p.shopifyId === productId ||  // Check shopifyId (full GID)
-                                                                            p.variantId === variantId ||
-                                                                            p.variants?.some(v => v.id === variantId)
+                                                                        const matchedProduct = allProducts?.find(p =>
+                                                                            p.id === productId ||
+                                                                            p.sku === productId ||
+                                                                            p.variants?.some(v => v.sku === variantId)
                                                                         );
                                                                         const imageUrl = matchedProduct?.imageUrl 
                                                                             || matchedProduct?.images?.[0]?.url
-                                                                            || matchedProduct?.variants?.find(v => v.id === variantId)?.image?.url
+                                                                            || matchedProduct?.variants?.find(v => v.sku === variantId)?.image?.url
                                                                             || PLACEHOLDER_IMAGE;
                                                                         
                                                                         return (
@@ -5182,6 +5279,7 @@ function CommerceInner() {
                                                                                         <img
                                                                                             src={imageUrl}
                                                                                             alt={rewardName}
+                                                                                            loading="lazy"
                                                                                             style={{
                                                                                                 width: '100%',
                                                                                                 height: '100%',
@@ -5246,28 +5344,32 @@ function CommerceInner() {
                                                                                 || option.freeProduct?.title
                                                                                 || option.title;
                                                                             
-                                                                            // Look up image from shopifyProducts
+                                                                            // Look up image from allProducts
                                                                             const variantId = option.freeProducts?.[0]?.variantId || option.freeProduct?.variantId;
                                                                             const productId = option.freeProducts?.[0]?.id || option.freeProduct?.id;
-                                                                            const matchedProduct = shopifyProducts?.find(p => 
-                                                                                p.id === productId || 
-                                                                                p.shopifyId === productId ||  // Check shopifyId (full GID)
-                                                                                p.variantId === variantId ||
-                                                                                p.variants?.some(v => v.id === variantId)
+                                                                            const matchedProduct = allProducts?.find(p =>
+                                                                                p.id === productId ||
+                                                                                p.sku === productId ||
+                                                                                p.variants?.some(v => v.sku === variantId)
                                                                             );
                                                                             const imageUrl = matchedProduct?.imageUrl 
                                                                                 || matchedProduct?.images?.[0]?.url
-                                                                                || matchedProduct?.variants?.find(v => v.id === variantId)?.image?.url
+                                                                                || matchedProduct?.variants?.find(v => v.sku === variantId)?.image?.url
                                                                                 || PLACEHOLDER_IMAGE;
                                                                             
                                                                             return (
                                                                                 <Box key={option.id}>
-                                                                                    <Box 
+                                                                                    <Box
+                                                                                        role="button"
+                                                                                        tabIndex={0}
+                                                                                        aria-label={`Select reward: ${rewardName}`}
+                                                                                        aria-pressed={isSelected}
                                                                                         onClick={() => {
                                                                                             handleSelectReward(discount.threshold, option.id);
                                                                                             handleSelectReward(`${discount.threshold}_showOptions`, false);
                                                                                         }}
-                                                                                        sx={{ 
+                                                                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectReward(discount.threshold, option.id); handleSelectReward(`${discount.threshold}_showOptions`, false); } }}
+                                                                                        sx={{
                                                                                             display: 'flex',
                                                                                             alignItems: 'flex-start',
                                                                                             gap: 1.5,
@@ -5281,7 +5383,8 @@ function CommerceInner() {
                                                                                             '&:hover': {
                                                                                                 borderColor: isSelected ? '#000' : 'grey.500',
                                                                                                 bgcolor: 'grey.50'
-                                                                                            }
+                                                                                            },
+                                                                                            '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2 },
                                                                                         }}
                                                                                     >
                                                                                         <Box sx={{
@@ -5384,7 +5487,7 @@ function CommerceInner() {
                                         alignItems: 'center',
                                         gap: 1.5
                                     }}>
-                                        <CheckCircleOutlineIcon sx={{ color: '#2e7d32', fontSize: '1.5rem' }} />
+                                        <CheckCircleOutlineIcon sx={{ color: '#2e7d32', fontSize: '1.6rem' }} />
                                         <Box>
                                             <Typography variant="body2" sx={{ color: '#2e7d32', fontWeight: 600, fontSize: '1.6rem' }}>
                                                 {blindBoxCartItems[0]?.discountPercent || BLIND_BOX_DISCOUNT_PERCENT}% off unlocked!
@@ -5405,7 +5508,7 @@ function CommerceInner() {
                                         alignItems: 'center',
                                         gap: 1.5
                                     }}>
-                                        <LocalOfferIcon sx={{ color: '#2e7d32', fontSize: '1.5rem' }} />
+                                        <LocalOfferIcon sx={{ color: '#2e7d32', fontSize: '1.6rem' }} />
                                         <Box>
                                             <Typography variant="body2" sx={{ color: '#2e7d32', fontWeight: 600, fontSize: '1.6rem' }}>
                                                 Add {blindBoxesNeededForDiscount} more for {BLIND_BOX_DISCOUNT_PERCENT}% off!
@@ -5443,17 +5546,18 @@ function CommerceInner() {
                                                 paddingTop: '100%', 
                                                 backgroundColor: 'grey.200' 
                                             }}>
-                                                <img 
-                                                    src={item.imageUrl || PLACEHOLDER_IMAGE} 
-                                                    alt={item.title} 
-                                                    style={{ 
-                                                        position: 'absolute', 
-                                                        top: 0, 
-                                                        left: 0, 
-                                                        width: '100%', 
-                                                        height: '100%', 
-                                                        objectFit: 'cover' 
-                                                    }} 
+                                                <img
+                                                    src={item.imageUrl || PLACEHOLDER_IMAGE}
+                                                    alt={item.title}
+                                                    loading="lazy"
+                                                    style={{
+                                                        position: 'absolute',
+                                                        top: 0,
+                                                        left: 0,
+                                                        width: '100%',
+                                                        height: '100%',
+                                                        objectFit: 'cover'
+                                                    }}
                                                 />
                                                 {/* Discount badge - show when discount applied OR when showing potential */}
                                                 {(item.hasDiscount || showPotentialDiscount) && (
@@ -5556,20 +5660,25 @@ function CommerceInner() {
                                     })}
                                     
                                     {/* Add another box CTA - always show */}
-                                    <Box 
+                                    <Box
+                                        role="button"
+                                        tabIndex={0}
+                                        aria-label="Add another blind box"
                                         onClick={() => {
                                             setShowBlindBoxSelector(true);
                                         }}
-                                        sx={{ 
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowBlindBoxSelector(true); } }}
+                                        sx={{
                                             cursor: 'pointer',
                                             width: 'calc(50% - 8px)',
                                             maxWidth: 'calc(50% - 8px)',
-                                            '&:hover': { 
+                                            '&:hover': {
                                                 '& .add-box': {
                                                     borderColor: '#000',
                                                     bgcolor: '#f5f5f5'
                                                 }
-                                            }
+                                            },
+                                            '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2, borderRadius: 1 },
                                         }}
                                     >
                                         <Box 
@@ -5616,155 +5725,7 @@ function CommerceInner() {
                                     </Box>
                                 </Box>
                             </Container>
-                        ) : (
-                            /* Regular Recommendations Section - For non-blind-box products */
-                            getAddedToCartRecommendations().length > 0 && (
-                            <Container maxWidth="md" sx={{ mt: 4, px: 2 }}>
-                                {/* Promotion Banner */}
-                                {addedProduct?.crosssellPromotion && (
-                                    <Box 
-                                        sx={{ 
-                                            bgcolor: '#e8f5e9', 
-                                            borderRadius: 2, 
-                                            p: 2, 
-                                            mb: 2,
-                                            display: 'flex',
-                                            alignItems: 'flex-start',
-                                            gap: 1.5
-                                        }}
-                                    >
-                                        <LocalOfferIcon sx={{ color: '#2e7d32', flexShrink: 0, mt: 0.25 }} />
-                                        <Box>
-                                            {addedProduct.crosssellPromotion.title && (
-                                                <Typography variant="body1" sx={{ fontWeight: 600, color: '#2e7d32', fontSize: '1.6rem' }}>
-                                                    {addedProduct.crosssellPromotion.title}
-                                                </Typography>
-                                            )}
-                                            {addedProduct.crosssellPromotion.description && (
-                                                <Typography variant="body2" sx={{ color: '#1b5e20', fontSize: '1.6rem' }}>
-                                                    {addedProduct.crosssellPromotion.description}
-                                                </Typography>
-                                            )}
-                                            {addedProduct.crosssellPromotion.discount && !addedProduct.crosssellPromotion.description && (
-                                                <Typography variant="body2" sx={{ color: '#1b5e20', fontWeight: 600, fontSize: '1.6rem' }}>
-                                                    {addedProduct.crosssellPromotion.discount}
-                                                </Typography>
-                                            )}
-                                        </Box>
-                                    </Box>
-                                )}
-                                
-                                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                                    You might also like
-                                </Typography>
-                                <Box sx={{ 
-                                    display: 'flex', 
-                                    flexWrap: 'wrap', 
-                                    gap: 2
-                                }}>
-                                    {getAddedToCartRecommendations().map((product) => (
-                                        <Box 
-                                            key={product.id}
-                                            onClick={() => {
-                                                handleChooseProduct(product.id);
-                                            }}
-                                            sx={{ 
-                                                cursor: 'pointer', 
-                                                width: 'calc(50% - 8px)',
-                                                maxWidth: 'calc(50% - 8px)',
-                                                '&:hover': { opacity: 0.8 }
-                                            }}
-                                        >
-                                            <Box sx={{ 
-                                                position: 'relative', 
-                                                borderRadius: 2, 
-                                                overflow: 'hidden', 
-                                                paddingTop: '100%', 
-                                                backgroundColor: 'grey.200' 
-                                            }}>
-                                                <img 
-                                                    src={product.imageUrl || product.images?.[0]?.url || PLACEHOLDER_IMAGE} 
-                                                    alt={product.name || product.title} 
-                                                    style={{ 
-                                                        position: 'absolute', 
-                                                        top: 0, 
-                                                        left: 0, 
-                                                        width: '100%', 
-                                                        height: '100%', 
-                                                        objectFit: 'cover' 
-                                                    }} 
-                                                />
-                                                {/* Discount badge - if crosssell promotion exists */}
-                                                {addedProduct?.crosssellPromotion?.discount && (
-                                                    <Box
-                                                        sx={{
-                                                            position: 'absolute',
-                                                            top: 8,
-                                                            left: 8,
-                                                            bgcolor: '#2e7d32',
-                                                            color: 'white',
-                                                            px: 1,
-                                                            py: 0.5,
-                                                            borderRadius: 1,
-                                                            fontSize: '1.6rem',
-                                                            fontWeight: 700,
-                                                            boxShadow: 1
-                                                        }}
-                                                    >
-                                                        {addedProduct.crosssellPromotion.discount}
-                                                    </Box>
-                                                )}
-                                            </Box>
-                                            <Typography variant="body1" sx={{ mt: 1, fontWeight: 600 }}>
-                                                {product.name || product.title}
-                                            </Typography>
-                                            {/* Price with discount */}
-                                            {(() => {
-                                                const discount = addedProduct?.crosssellPromotion?.discount;
-                                                const originalPrice = parseFloat(product.price?.replace('$', '') || 0);
-                                                
-                                                if (discount && originalPrice > 0) {
-                                                    // Parse discount - handle formats like "50% OFF", "50%", "$5 OFF", "FREE"
-                                                    let discountedPrice = originalPrice;
-                                                    const discountLower = discount.toLowerCase();
-                                                    
-                                                    if (discountLower === 'free' || discountLower === '100% off' || discountLower === '100%') {
-                                                        discountedPrice = 0;
-                                                    } else if (discount.includes('%')) {
-                                                        const percent = parseFloat(discount.match(/(\d+)/)?.[1] || 0);
-                                                        discountedPrice = originalPrice * (1 - percent / 100);
-                                                    } else if (discount.includes('$')) {
-                                                        const amount = parseFloat(discount.match(/(\d+\.?\d*)/)?.[1] || 0);
-                                                        discountedPrice = Math.max(0, originalPrice - amount);
-                                                    }
-                                                    
-                                                    return (
-                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                            <Typography variant="body2" sx={{ color: '#2e7d32', fontWeight: 600, fontSize: '1.6rem' }}>
-                                                                ${discountedPrice.toFixed(2)}
-                                                            </Typography>
-                                                            <Typography 
-                                                                variant="body2" 
-                                                                sx={{ textDecoration: 'line-through', color: 'text.disabled', fontSize: '1.6rem' }}
-                                                            >
-                                                                {product.price}
-                                                            </Typography>
-                                                        </Box>
-                                                    );
-                                                }
-                                                
-                                                return (
-                                                    <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>
-                                                        {product.price}
-                                                    </Typography>
-                                                );
-                                            })()}
-                                        </Box>
-                                    ))}
-                                </Box>
-                            </Container>
-                            )
-                        )}
+                        ) : null}
                         
                     </Box>
                 ) : (
@@ -5773,7 +5734,46 @@ function CommerceInner() {
                 {/* BEATS-STYLE HOMEPAGE */}
                 {/* ═══════════════════════════════════════════════════════════════════════════ */}
 
-                {(isHomepage || showHomepageBehindModal) && (
+                {(isHomepage || showHomepageBehindModal) && !pageConfig && (
+                <motion.div
+                    key="homepage-skeleton"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    style={{ width: '100%' }}
+                >
+                    {/* Hero Skeleton */}
+                    <Box sx={{ width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 48px)' }, maxWidth: 'lg', mx: 'auto', mt: 3 }}>
+                        <Skeleton variant="rounded" sx={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 2 }} animation="wave" />
+                    </Box>
+                    {/* Product Carousel Skeleton */}
+                    <Box sx={{ py: 6, px: 2 }}>
+                        <Container maxWidth="lg">
+                            <Skeleton variant="text" width={180} height={36} sx={{ mb: 1 }} animation="wave" />
+                            <Skeleton variant="text" width={240} height={24} sx={{ mb: 3 }} animation="wave" />
+                            <Box sx={{ display: 'flex', gap: 2, overflow: 'hidden' }}>
+                                {[...Array(4)].map((_, i) => (
+                                    <Box key={i} sx={{ flexShrink: 0, width: { xs: 200, sm: 240, md: 280 } }}>
+                                        <Skeleton variant="rounded" sx={{ width: '100%', paddingTop: '100%', borderRadius: 3 }} animation="wave" />
+                                        <Skeleton variant="text" width="70%" height={22} sx={{ mt: 1 }} animation="wave" />
+                                        <Skeleton variant="text" width="40%" height={18} animation="wave" />
+                                    </Box>
+                                ))}
+                            </Box>
+                        </Container>
+                    </Box>
+                    {/* Events Skeleton */}
+                    <Box sx={{ py: 6, px: 2 }}>
+                        <Container maxWidth="lg">
+                            <Skeleton variant="text" width={200} height={36} sx={{ mb: 1 }} animation="wave" />
+                            <Skeleton variant="text" width={280} height={24} sx={{ mb: 3 }} animation="wave" />
+                            <Skeleton variant="rounded" sx={{ width: '100%', height: 200, borderRadius: 3 }} animation="wave" />
+                        </Container>
+                    </Box>
+                </motion.div>
+                )}
+
+                {(isHomepage || showHomepageBehindModal) && pageConfig && (
                 <motion.div
                     key="homepage"
                     variants={pageTransitionVariants}
@@ -5887,10 +5887,16 @@ function CommerceInner() {
                                 fontSize: { xs: '1.6rem', sm: '1.8rem', md: '2rem' },
                                 fontWeight: 700,
                                 textAlign: 'left',
-                                px: { xs: 3, md: 6 },
+                                mx: { xs: 3, md: 6 },
                                 mb: 3,
+                                px: 2,
+                                py: 1,
                                 lineHeight: 1.4,
                                 whiteSpace: 'pre-line',
+                                backgroundColor: 'rgba(255,255,255,0.85)',
+                                borderRadius: 2,
+                                border: '2px solid white',
+                                display: 'inline-block',
                             }}
                         >
                             {heroConfig.subtitle}
@@ -5923,7 +5929,7 @@ function CommerceInner() {
                                         backgroundColor: '#d81b60',
                                         color: 'white',
                                         border: '2px solid black',
-                                        fontSize: { xs: '1.3rem', sm: '1.5rem' },
+                                        fontSize: '1.6rem',
                                         fontWeight: 800,
                                         textTransform: 'none',
                                         px: { xs: 2.5, sm: 3.5 },
@@ -5935,10 +5941,10 @@ function CommerceInner() {
                                             boxShadow: 'none',
                                         },
                                     } : {
-                                        backgroundColor: '#3BBCE0',
+                                        backgroundColor: '#0A6E88',
                                         color: 'white',
                                         border: '2px solid black',
-                                        fontSize: { xs: '1.3rem', sm: '1.5rem' },
+                                        fontSize: '1.6rem',
                                         fontWeight: 800,
                                         textTransform: 'none',
                                         px: { xs: 2.5, sm: 3.5 },
@@ -5946,7 +5952,7 @@ function CommerceInner() {
                                         borderRadius: '30px',
                                         boxShadow: 'none',
                                         '&:hover': {
-                                            backgroundColor: '#2ea8cc',
+                                            backgroundColor: '#085A6F',
                                             boxShadow: 'none',
                                         },
                                     }}
@@ -5970,9 +5976,10 @@ function CommerceInner() {
                     >
                         <Container maxWidth="lg">
                             <Typography
-                                variant="h4"
+                                variant="h2"
                                 sx={{
                                     fontWeight: 700,
+                                    fontSize: 'h4.fontSize',
                                     mb: 1,
                                     px: 2,
                                 }}
@@ -6018,19 +6025,16 @@ function CommerceInner() {
                                 {/* Filter products based on config: manual selection or latest */}
                                 {(() => {
                                     if (productCarouselConfig.productSource === 'manual' && productCarouselConfig.productIds?.length > 0) {
-                                        // For manual selection, map catalog SKUs to Shopify products via platformIds
+                                        // For manual selection, map catalog SKUs to products
                                         return productCarouselConfig.productIds.map(sku => {
                                             const skuUpper = sku?.toUpperCase();
 
-                                            // First, find the catalog product to get Shopify ID
+                                            // Find the catalog product by SKU
                                             const catalogProduct = catalog?.products?.find(p =>
                                                 p.sku?.toUpperCase() === skuUpper
                                             );
-                                            const shopifyGid = catalogProduct?.platformIds?.shopify;
-
-                                            // Then find Shopify product by GID or by matching variant SKU
-                                            return shopifyProducts.find(p => {
-                                                if (shopifyGid && p.shopifyId === shopifyGid) return true;
+                                            return allProducts.find(p => {
+                                                if (p.sku?.toUpperCase() === skuUpper) return true;
                                                 if (p.variants?.some(v => v.sku?.toUpperCase() === skuUpper)) return true;
                                                 if (catalogProduct?.variants?.some(cv =>
                                                     p.variants?.some(v => v.sku?.toUpperCase() === cv.sku?.toUpperCase())
@@ -6078,6 +6082,7 @@ function CommerceInner() {
                                             <img
                                                 src={product.imageUrl || product.images?.[0]?.url || 'https://placehold.co/300x300/f0f0f0/999?text=Product'}
                                                 alt={product.name}
+                                                loading="lazy"
                                                 style={{
                                                     position: 'absolute',
                                                     top: 0,
@@ -6094,7 +6099,7 @@ function CommerceInner() {
                                             <Typography
                                                 sx={{
                                                     fontWeight: 600,
-                                                    fontSize: '1.4rem',
+                                                    fontSize: '1.6rem',
                                                     mb: 0.5,
                                                     overflow: 'hidden',
                                                     textOverflow: 'ellipsis',
@@ -6106,7 +6111,7 @@ function CommerceInner() {
                                             <Typography
                                                 sx={{
                                                     color: 'text.secondary',
-                                                    fontSize: '1.4rem',
+                                                    fontSize: '1.6rem',
                                                 }}
                                             >
                                                 {product.price || `$${product.variants?.[0]?.price || '0.00'}`}
@@ -6146,14 +6151,14 @@ function CommerceInner() {
                                                     left: '50%',
                                                     transform: 'translate(-50%, -50%)',
                                                     color: '#ccc',
-                                                    fontSize: '1.2rem',
+                                                    fontSize: '1.6rem',
                                                 }}
                                             >
                                                 Coming Soon
                                             </Typography>
                                         </Box>
                                         <Box sx={{ p: 2 }}>
-                                            <Typography sx={{ color: '#ccc', fontSize: '1.4rem' }}>
+                                            <Typography sx={{ color: '#ccc', fontSize: '1.6rem' }}>
                                                 New Product
                                             </Typography>
                                         </Box>
@@ -6164,7 +6169,8 @@ function CommerceInner() {
                     </Box>
                 </motion.div>
 
-                {/* Upcoming Events Section */}
+                {/* Upcoming Events Section — hidden when no events */}
+                {filteredEvents.length > 0 && (
                 <motion.div variants={childFadeUp}>
                     <Box
                         sx={{
@@ -6176,9 +6182,10 @@ function CommerceInner() {
                     >
                         <Container maxWidth="lg">
                             <Typography
-                                variant="h4"
+                                variant="h2"
                                 sx={{
                                     fontWeight: 700,
+                                    fontSize: 'h4.fontSize',
                                     mb: 1,
                                     px: 2,
                                 }}
@@ -6203,7 +6210,7 @@ function CommerceInner() {
 
                                 if (count === 0) {
                                     return (
-                                        <Typography sx={{ color: 'text.secondary', fontSize: '1.4rem', p: 2 }}>
+                                        <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem', p: 2 }}>
                                             No upcoming events
                                         </Typography>
                                     );
@@ -6257,7 +6264,7 @@ function CommerceInner() {
                                                             left: '50%',
                                                             transform: 'translate(-50%, -50%)',
                                                             color: '#999',
-                                                            fontSize: '1.4rem',
+                                                            fontSize: '1.6rem',
                                                         }}
                                                     >
                                                         {event.title?.charAt(0) || 'E'}
@@ -6269,14 +6276,15 @@ function CommerceInner() {
                                                     {event.title}
                                                 </Typography>
                                                 <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem', mb: 2 }}>
-                                                    {event.startDate ? new Date(event.startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date TBD'}
-                                                    {event.eventTimes?.[0] && ` • ${event.eventTimes[0]}`}
+                                                    {event.startDate ? new Date(event.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Date TBD'}
+                                                    {event.endDate && event.endDate !== event.startDate && ` – ${new Date(event.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
                                                 </Typography>
                                                 <Button
                                                     variant="outlined"
                                                     size="small"
                                                     sx={{
                                                         textTransform: 'none',
+                                                        fontSize: '1.6rem',
                                                         borderColor: 'black',
                                                         color: 'black',
                                                         '&:hover': { borderColor: 'black', backgroundColor: 'rgba(0,0,0,0.05)' },
@@ -6348,7 +6356,7 @@ function CommerceInner() {
                                                                     left: '50%',
                                                                     transform: 'translate(-50%, -50%)',
                                                                     color: '#999',
-                                                                    fontSize: '1.4rem',
+                                                                    fontSize: '1.6rem',
                                                                 }}
                                                             >
                                                                 {event.title?.charAt(0) || 'E'}
@@ -6359,7 +6367,7 @@ function CommerceInner() {
                                                         <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', mb: 1 }} noWrap>
                                                             {event.title}
                                                         </Typography>
-                                                        <Typography sx={{ color: 'text.secondary', fontSize: '1.4rem', mb: 2 }}>
+                                                        <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem', mb: 2 }}>
                                                             {event.startDate ? new Date(event.startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date TBD'}
                                                             {event.eventTimes?.[0] && ` • ${event.eventTimes[0]}`}
                                                         </Typography>
@@ -6369,6 +6377,7 @@ function CommerceInner() {
                                                             aria-label={`Learn more about ${event.title}`}
                                                             sx={{
                                                                 textTransform: 'none',
+                                                                fontSize: '1.6rem',
                                                                 borderColor: 'black',
                                                                 color: 'black',
                                                                 '&:hover': { borderColor: 'black', backgroundColor: 'rgba(0,0,0,0.05)' },
@@ -6457,7 +6466,7 @@ function CommerceInner() {
                                                                 left: '50%',
                                                                 transform: 'translate(-50%, -50%)',
                                                                 color: '#999',
-                                                                fontSize: '1.4rem',
+                                                                fontSize: '1.6rem',
                                                             }}
                                                         >
                                                             {event.title?.charAt(0) || 'E'}
@@ -6468,7 +6477,7 @@ function CommerceInner() {
                                                     <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', mb: 1 }}>
                                                         {event.title}
                                                     </Typography>
-                                                    <Typography sx={{ color: 'text.secondary', fontSize: '1.4rem', mb: 2 }}>
+                                                    <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem', mb: 2 }}>
                                                         {event.startDate ? new Date(event.startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date TBD'}
                                                         {event.eventTimes?.[0] && ` • ${event.eventTimes[0]}`}
                                                     </Typography>
@@ -6478,6 +6487,7 @@ function CommerceInner() {
                                                         aria-label={`Learn more about ${event.title}`}
                                                         sx={{
                                                             textTransform: 'none',
+                                                            fontSize: '1.6rem',
                                                             borderColor: 'black',
                                                             color: 'black',
                                                             '&:hover': { borderColor: 'black', backgroundColor: 'rgba(0,0,0,0.05)' },
@@ -6494,6 +6504,7 @@ function CommerceInner() {
                         </Container>
                     </Box>
                 </motion.div>
+                )}
 
                 </motion.div>
                 )}
@@ -6529,6 +6540,8 @@ function CommerceInner() {
                 orderDiscounts={orderDiscounts}
                 onAddBlindBox={() => setShowBlindBoxSelector(true)}
                 localCart={localCart}
+                crossSellProducts={cartCrossSellProducts}
+                crossSellTriggerProductId={addedProduct?.id || addedProduct?.sku}
             />
 
             {/* Blind Box Selector Modal */}
@@ -6590,7 +6603,11 @@ function CommerceInner() {
                         {getAvailableBlindBoxes.map((product) => (
                             <Box
                                 key={product.id}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`Add ${product.name} to cart`}
                                 onClick={() => handleAddBlindBoxFromSelector(product)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleAddBlindBoxFromSelector(product); } }}
                                 sx={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -6605,6 +6622,7 @@ function CommerceInner() {
                                         bgcolor: '#f5f5f5',
                                         borderColor: '#333'
                                     },
+                                    '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2 },
                                     '&:last-child': {
                                         mb: 0
                                     }
@@ -6625,6 +6643,7 @@ function CommerceInner() {
                                     <img
                                         src={product.imageUrl || product.images?.[0]?.url || PLACEHOLDER_IMAGE}
                                         alt={product.name}
+                                        loading="lazy"
                                         style={{
                                             width: '100%',
                                             height: '100%',
@@ -6688,7 +6707,7 @@ function CommerceInner() {
                 </Box>
             </Modal>
 
-        </>
+        </Box>
     );
 }
 

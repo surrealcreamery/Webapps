@@ -198,18 +198,15 @@ export async function getStoresWithDistances(locations) {
  * @param {Array} locations - Array of store locations with lat/lon
  * @returns {Promise<Object>} Nearest location with distance
  */
-const MAX_AUTO_SELECT_DISTANCE = 25; // miles — beyond this, don't auto-select a store
-
-export async function findNearestStore(locations) {
+export async function findNearestStore(locations, maxDistance = 25) {
   try {
     const storesWithDistances = await getStoresWithDistances(locations);
     const nearest = storesWithDistances[0];
 
     if (nearest.distance !== null) {
       console.log(`Nearest store: ${nearest.name} (${nearest.distanceText} away)`);
-      // Don't auto-select if nearest store is beyond 25 miles
-      if (nearest.distance > MAX_AUTO_SELECT_DISTANCE) {
-        console.log(`Nearest store is ${nearest.distanceText} away (>${MAX_AUTO_SELECT_DISTANCE} mi) — no auto-selection`);
+      if (nearest.distance > maxDistance) {
+        console.log(`Nearest store is ${nearest.distanceText} away (>${maxDistance} mi) — no auto-selection`);
         return null;
       }
     }
@@ -225,7 +222,7 @@ export async function findNearestStore(locations) {
  * Initialize location selection with geolocation
  * Call this on app load
  */
-export async function initializeLocationSelection(locations) {
+export async function initializeLocationSelection(locations, maxDistance = 25) {
   // Check if user has previously selected a location
   const savedLocationId = localStorage.getItem('selectedLocation');
   
@@ -254,7 +251,7 @@ export async function initializeLocationSelection(locations) {
   
   // No saved location - use IP geolocation to find nearest
   console.log('No saved location, detecting nearest store...');
-  const nearest = await findNearestStore(locations);
+  const nearest = await findNearestStore(locations, maxDistance);
   if (nearest) {
     // Auto-select and save for future visits
     localStorage.setItem('selectedLocation', nearest.id);

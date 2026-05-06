@@ -12,7 +12,7 @@ import CheckIcon from '@mui/icons-material/Check';
  */
 export const BlindBoxProgressIndicator = ({ current = 0, required = 3, onClickIncomplete }) => {
     return (
-        <Box sx={{
+        <Box role="group" aria-label={`Blind box progress: ${current} of ${required} added`} sx={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -27,7 +27,16 @@ export const BlindBoxProgressIndicator = ({ current = 0, required = 3, onClickIn
                 return (
                     <Box
                         key={stepNumber}
+                        role={isClickable ? 'button' : undefined}
+                        tabIndex={isClickable ? 0 : -1}
+                        aria-label={isCompleted ? `Step ${stepNumber}: completed` : `Step ${stepNumber}: add blind box ${stepNumber}`}
                         onClick={isClickable ? () => onClickIncomplete(stepNumber) : undefined}
+                        onKeyDown={isClickable ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                onClickIncomplete(stepNumber);
+                            }
+                        } : undefined}
                         sx={{
                             width: 40,
                             height: 40,
@@ -43,11 +52,15 @@ export const BlindBoxProgressIndicator = ({ current = 0, required = 3, onClickIn
                             '&:hover': isClickable ? {
                                 bgcolor: 'rgba(0, 0, 0, 0.04)',
                                 borderColor: '#000'
-                            } : {}
+                            } : {},
+                            '&:focus-visible': {
+                                outline: '2px solid #1976d2',
+                                outlineOffset: '2px'
+                            }
                         }}
                     >
                         {isCompleted ? (
-                            <CheckIcon sx={{ color: 'white', fontSize: '1.8rem' }} />
+                            <CheckIcon aria-hidden="true" sx={{ color: 'white', fontSize: '1.8rem' }} />
                         ) : (
                             <Typography sx={{
                                 fontSize: '1.6rem',

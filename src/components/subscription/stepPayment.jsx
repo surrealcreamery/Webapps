@@ -10,6 +10,7 @@ import { isValidPhoneNumber } from 'react-phone-number-input';
 import OtpInput from '@/components/subscription/otpInput.jsx';
 import CardBrandIcon from '@/components/subscription/cardBrandIcon.jsx';
 import SquarePaymentForm from '@/components/subscription/squarePaymentForm.jsx';
+import { trackSubscriptionPaymentAttempted } from '@/services/analytics';
 
 const StepPayment = ({ send, current, onSnackbar }) => {
 const { context } = current;
@@ -98,18 +99,18 @@ if (current.matches({ displayFlow: { authenticationOrPayment: { authentication: 
 }
 
 if (isSending) {
-    return <Box sx={{ textAlign: 'center' }}><CircularProgress /><Typography>Sending code...</Typography></Box>;
+    return <Box sx={{ textAlign: 'center' }} role="status" aria-live="polite"><CircularProgress aria-label="Sending code" /><Typography>Sending code...</Typography></Box>;
 }
 
 if (current.matches({ displayFlow: { authenticationOrPayment: { authentication: 'enterCode' } } }) || isVerifying) {
     return (
         <>
-            <Typography variant="h5" gutterBottom>Enter Verification Code</Typography>
+            <Typography variant="h5" component="h1" gutterBottom>Enter Verification Code</Typography>
             <Typography sx={{ mb: 2 }}>
                 A 6-digit code was sent to your {context.otpMethod === 'email' ? customerForms[0].email : maskedPhone}.
             </Typography>
             {isVerifying ?
-                <Box sx={{ textAlign: 'center', my: 2 }}><CircularProgress /><Typography>Verifying code...</Typography></Box>
+                <Box sx={{ textAlign: 'center', my: 2 }} role="status" aria-live="polite"><CircularProgress aria-label="Verifying code" /><Typography>Verifying code...</Typography></Box>
                 :
                 <OtpInput onCodeChange={code => send({ type: 'UPDATE_OTP_CODE', code })} />
             }
@@ -122,7 +123,7 @@ if (current.matches({ displayFlow: { authenticationOrPayment: { authentication: 
 }
 
 if (current.matches({ displayFlow: { authenticationOrPayment: 'fetchingCardDetails' } })) {
-    return <Box sx={{ textAlign: 'center' }}><CircularProgress /><Typography>Loading your saved cards...</Typography></Box>;
+    return <Box sx={{ textAlign: 'center' }} role="status" aria-live="polite"><CircularProgress aria-label="Loading saved cards" /><Typography>Loading your saved cards...</Typography></Box>;
 }
 
 if (current.matches({ displayFlow: { authenticationOrPayment: { payment: 'confirmSavedCard' } } })) {
@@ -161,8 +162,8 @@ if (current.matches({ displayFlow: { authenticationOrPayment: { payment: 'confir
                 {(savedCards || []).map(card => (
                     <Button key={card.id} variant="text" onClick={() => send({ type: 'SELECT_SAVED_CARD', cardId: card.id })} sx={{ width: '100%', border: '1px solid', borderWidth: card.id === selectedSavedCardId ? '2px' : '1px', borderColor: card.id === selectedSavedCardId ? 'primary.main' : 'rgba(0, 0, 0, 0.23)', borderRadius: 2, p: 1, textTransform: 'none', color: 'text.primary', '&:hover': { backgroundColor: 'action.hover', borderColor: card.id === selectedSavedCardId ? 'primary.main' : 'rgba(0, 0, 0, 0.87)', } }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                            <Radio checked={selectedSavedCardId === card.id} />
-                            <Box sx={{ width: 40, height: 25, borderRadius: '4px', overflow: 'hidden', display: 'flex', alignItems: 'center', ml: 1 }}>
+                            <Radio checked={selectedSavedCardId === card.id} inputProps={{ 'aria-label': `Select ${formatCardBrand(card.card_brand)} ending in ${card.last_4}` }} />
+                            <Box sx={{ width: 40, height: 25, borderRadius: '4px', overflow: 'hidden', display: 'flex', alignItems: 'center', ml: 1 }} aria-hidden="true">
                                 <CardBrandIcon brand={card.card_brand} />
                             </Box>
                             <Box ml={2} sx={{ textAlign: 'left' }}>
@@ -177,8 +178,8 @@ if (current.matches({ displayFlow: { authenticationOrPayment: { payment: 'confir
                 </Button>
             </Box>
             <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Button fullWidth variant="contained" onClick={() => send({ type: 'PAY_WITH_SAVED_CARD' })} disabled={!selectedSavedCardId || isProcessingPayment}>
-                    {isProcessingPayment ? <CircularProgress size={24} /> : 'Subscribe'}
+                <Button fullWidth variant="contained" onClick={() => { trackSubscriptionPaymentAttempted(planId, plan?.price); send({ type: 'PAY_WITH_SAVED_CARD' }); }} disabled={!selectedSavedCardId || isProcessingPayment} aria-label={isProcessingPayment ? "Processing payment" : "Subscribe"}>
+                    {isProcessingPayment ? <CircularProgress size={24} aria-label="Processing payment" /> : 'Subscribe'}
                 </Button>
                 <Button variant="grey-back" fullWidth onClick={() => send({ type: 'BACK' })}>Back</Button>
             </Box>
@@ -194,7 +195,7 @@ if (current.matches({ displayFlow: { authenticationOrPayment: { payment: 'enterN
                 <SquarePaymentForm
                     ref={squareFormRef}
                     isProcessing={isProcessingPayment}
-                    onNonceReceived={(nonce) => send({ type: 'SUBMIT_NONCE', nonce })}
+                    onNonceReceived={(nonce) => { trackSubscriptionPaymentAttempted(planId, plan?.price); send({ type: 'SUBMIT_NONCE', nonce }); }}
                     onTokenizationError={(message) => onSnackbar({ open: true, message, severity: 'error' })}
                     savedCards={savedCards}
                     onSnackbar={onSnackbar}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
  import {
      Box,
      Container,
@@ -16,6 +16,7 @@ import React, { useState, useEffect } from 'react';
 
  const Footer = () => {
      const [openModal, setOpenModal] = useState(null);
+     const tableSx = { width: '100%', borderCollapse: 'collapse', mb: 2, '& td, & th': { border: '1px solid #ddd', p: 1, fontSize: '1.6rem', textAlign: 'left', verticalAlign: 'top' }, '& th': { bgcolor: '#f5f5f5', fontWeight: 600 } };
 
      const handleOpenModal = (modalName) => {
          setOpenModal(modalName);
@@ -25,23 +26,6 @@ import React, { useState, useEffect } from 'react';
          setOpenModal(null);
      };
 
-     useEffect(() => {
-         const appRoot = document.getElementById('root');
-         if (!appRoot) {
-             console.error("ACCESSIBILITY FIX FAILED: Could not find the main app root element to apply aria-hidden.");
-             return;
-         }
-
-         if (openModal !== null) {
-             appRoot.setAttribute('aria-hidden', 'true');
-         } else {
-             appRoot.removeAttribute('aria-hidden');
-         }
-
-         return () => {
-             appRoot.removeAttribute('aria-hidden');
-         };
-     }, [openModal]);
 
      return (
          <>
@@ -70,7 +54,7 @@ import React, { useState, useEffect } from 'react';
                              component="button"
                              variant="body1"
                              onClick={() => handleOpenModal('accessibility')}
-                             color="text.secondary"
+                             color="text.primary"
                              underline="hover"
                          >
                              Accessibility Statement
@@ -79,7 +63,7 @@ import React, { useState, useEffect } from 'react';
                              component="button"
                              variant="body1"
                              onClick={() => handleOpenModal('terms')}
-                             color="text.secondary"
+                             color="text.primary"
                              underline="hover"
                          >
                              Terms & Conditions
@@ -88,7 +72,7 @@ import React, { useState, useEffect } from 'react';
                              component="button"
                              variant="body1"
                              onClick={() => handleOpenModal('privacy')}
-                             color="text.secondary"
+                             color="text.primary"
                              underline="hover"
                          >
                              Privacy Policy
@@ -125,11 +109,12 @@ import React, { useState, useEffect } from 'react';
                  fullScreen
                  open={openModal === 'accessibility'}
                  onClose={handleCloseModal}
+                 aria-labelledby="accessibility-dialog-title"
                  sx={{ '& .MuiDialog-paper': { display: 'flex', flexDirection: 'column', maxHeight: '100vh' }}}
              >
                  <DialogTitle sx={{ bgcolor: 'black', color: 'white', m: 0, p: 2, flexShrink: 0 }}>
                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                         <Typography variant="h1" component="h1">
+                         <Typography id="accessibility-dialog-title" variant="h1" component="h1">
                              Accessibility Statement
                          </Typography>
                          <IconButton aria-label="close" onClick={handleCloseModal} sx={{ color: 'white' }}>
@@ -139,24 +124,26 @@ import React, { useState, useEffect } from 'react';
                  </DialogTitle>
                  <DialogContent dividers sx={{ flexGrow: 1, p: { xs: 2, sm: 3, md: 4 } }}>
                      <Container maxWidth="md">
-                        {/* ✅ ACCESSIBILITY STATEMENT UPDATED */}
                          <Typography paragraph sx={{ mt: 2 }}>
-                            Surreal Creamery is committed to ensuring digital accessibility for people with disabilities. We are continually improving the user experience for everyone and applying the relevant accessibility standards.
+                            Surreal Creamery is committed to ensuring digital accessibility for people with disabilities. We continually improve the user experience for everyone and apply the relevant accessibility standards.
                          </Typography>
-                         <Typography variant="h3" component="h3" sx={{ mt: 4, mb: '32px !important' }}>
+                         <Typography variant="h3" component="h2" sx={{ mt: 4, mb: '32px !important' }}>
                             Conformance Status
                          </Typography>
                          <Typography paragraph>
                             The Web Content Accessibility Guidelines (WCAG) defines requirements for designers and developers to improve accessibility for people with disabilities. It defines three levels of conformance: Level A, Level AA, and Level AAA.
                          </Typography>
                          <Typography paragraph>
-                            Surreal Creamery Events is fully conformant with WCAG 2.1 level AAA. Fully conformant means that the content completely conforms to the accessibility standard without any exceptions.
+                            Surreal Creamery Events is fully conformant with <b>WCAG 2.1 Level AA</b>. Fully conformant means that the content fully meets the accessibility standard without any exceptions.
                          </Typography>
-                         <Typography variant="h3" component="h3" sx={{ mt: 4, mb: '32px !important' }}>
+                         <Typography paragraph sx={{ color: 'text.secondary', fontSize: '0.9rem' }}>
+                            Assessment date: May 4, 2026
+                         </Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 4, mb: '32px !important' }}>
                             Feedback
                          </Typography>
                          <Typography paragraph>
-                            We welcome your feedback on the accessibility of Surreal Creamery Events. Please let us know if you encounter accessibility barriers:
+                            We welcome your feedback on the accessibility of Surreal Creamery. Please let us know if you encounter accessibility barriers:
                          </Typography>
                          <ul>
                             <li><Typography><b>Phone:</b> 917-539-9700</Typography></li>
@@ -165,18 +152,151 @@ import React, { useState, useEffect } from 'react';
                          <Typography paragraph>
                             We try to respond to feedback within 5 business days.
                          </Typography>
-                         <Typography variant="h3" component="h3" sx={{ mt: 4, mb: '32px !important' }}>
+                         <Typography variant="h3" component="h2" sx={{ mt: 4, mb: '32px !important' }}>
+                            Accessibility Assessment
+                         </Typography>
+                         <Typography paragraph>
+                            Surreal Creamery takes the following measures to ensure accessibility on the Events page. Techniques reference WCAG 2.1 sufficient techniques.
+                         </Typography>
+
+                         {/* 1. Perceivable */}
+                         <Typography variant="h4" component="h3" sx={{ mt: 3, mb: 1 }}>
+                            1. Perceivable
+                         </Typography>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            1.1 Text Alternatives (SC 1.1.1)
+                         </Typography>
+                         <Box component="table" sx={tableSx}>
+                            <thead><tr><Box component="th">Technique</Box><Box component="th">Implementation</Box></tr></thead>
+                            <tbody>
+                               <tr><td>H37</td><td>Event images use the event title as alternative text</td></tr>
+                            </tbody>
+                         </Box>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            1.2 Time-based Media
+                         </Typography>
+                         <Typography paragraph>Not applicable.</Typography>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            1.3 Adaptable (SC 1.3.1)
+                         </Typography>
+                         <Box component="table" sx={tableSx}>
+                            <thead><tr><Box component="th">Technique</Box><Box component="th">Implementation</Box></tr></thead>
+                            <tbody>
+                               <tr><td>H42</td><td>Visually-hidden heading: "Fundraiser Events"</td></tr>
+                               <tr><td>H42</td><td>Section headings use proper heading hierarchy</td></tr>
+                               <tr><td>G140</td><td>Max-width container for responsive reflow</td></tr>
+                               <tr><td>H48</td><td>Semantic list markup for location items</td></tr>
+                            </tbody>
+                         </Box>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            1.4 Distinguishable
+                         </Typography>
+                         <Typography paragraph>No contrast issues; relies on MUI theme defaults.</Typography>
+
+                         {/* 2. Operable */}
+                         <Typography variant="h4" component="h3" sx={{ mt: 3, mb: 1 }}>
+                            2. Operable
+                         </Typography>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            2.1 Keyboard Accessible (SC 2.1.1)
+                         </Typography>
+                         <Box component="table" sx={tableSx}>
+                            <thead><tr><Box component="th">Technique</Box><Box component="th">Implementation</Box></tr></thead>
+                            <tbody>
+                               <tr><td>H91</td><td>All navigation uses native button elements</td></tr>
+                            </tbody>
+                         </Box>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            2.2 Enough Time
+                         </Typography>
+                         <Typography paragraph>Not applicable.</Typography>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            2.3 Seizures
+                         </Typography>
+                         <Typography paragraph>Not applicable.</Typography>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            2.4 Navigable (SC 2.4.1, 2.4.2)
+                         </Typography>
+                         <Box component="table" sx={tableSx}>
+                            <thead><tr><Box component="th">Technique</Box><Box component="th">Implementation</Box></tr></thead>
+                            <tbody>
+                               <tr><td>H25</td><td>Page title: "Events | Surreal Creamery"</td></tr>
+                               <tr><td>H42</td><td>Visually-hidden page heading for screen readers</td></tr>
+                               <tr><td>ARIA1</td><td>Loading states announced to screen readers via live region</td></tr>
+                               <tr><td>ARIA19</td><td>Error messages announced immediately to screen readers</td></tr>
+                               <tr><td>H49</td><td>Main content landmark on page container</td></tr>
+                            </tbody>
+                         </Box>
+
+                         {/* 3. Understandable */}
+                         <Typography variant="h4" component="h3" sx={{ mt: 3, mb: 1 }}>
+                            3. Understandable
+                         </Typography>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            3.1 Readable
+                         </Typography>
+                         <Typography paragraph>Plain language with human-readable date formatting.</Typography>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            3.2 Predictable (SC 3.2.1)
+                         </Typography>
+                         <Box component="table" sx={tableSx}>
+                            <thead><tr><Box component="th">Technique</Box><Box component="th">Implementation</Box></tr></thead>
+                            <tbody>
+                               <tr><td>G61</td><td>State machine drives predictable navigation flow</td></tr>
+                            </tbody>
+                         </Box>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            3.3 Input Assistance (SC 3.3.1)
+                         </Typography>
+                         <Box component="table" sx={tableSx}>
+                            <thead><tr><Box component="th">Technique</Box><Box component="th">Implementation</Box></tr></thead>
+                            <tbody>
+                               <tr><td>G83</td><td>Form validation errors displayed inline next to each field</td></tr>
+                               <tr><td>ARIA19</td><td>Error and success messages announced immediately to screen readers</td></tr>
+                            </tbody>
+                         </Box>
+
+                         {/* 4. Robust */}
+                         <Typography variant="h4" component="h3" sx={{ mt: 3, mb: 1 }}>
+                            4. Robust
+                         </Typography>
+
+                         <Typography variant="subtitle1" component="h4" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+                            4.1 Compatible (SC 4.1.1, 4.1.2)
+                         </Typography>
+                         <Box component="table" sx={tableSx}>
+                            <thead><tr><Box component="th">Technique</Box><Box component="th">Implementation</Box></tr></thead>
+                            <tbody>
+                               <tr><td>H88</td><td>Valid, well-formed HTML markup</td></tr>
+                               <tr><td>ARIA5</td><td>Loading states communicated to assistive technologies</td></tr>
+                            </tbody>
+                         </Box>
+                         <Typography variant="h3" component="h2" sx={{ mt: 4, mb: '32px !important' }}>
                             Technical Specifications
                          </Typography>
                          <Typography paragraph>
-                            Accessibility of Surreal Creamery Events relies on the following technologies to work with the particular combination of web browser and any assistive technologies or plugins installed on your computer:
+                            Accessibility of Surreal Creamery Events relies on the following technologies:
                          </Typography>
                          <ul>
-                            <li><Typography>HTML</Typography></li>
-                            <li><Typography>WAI-ARIA</Typography></li>
-                            <li><Typography>CSS</Typography></li>
-                            <li><Typography>JavaScript</Typography></li>
+                            <li><Typography>HTML5</Typography></li>
+                            <li><Typography>WAI-ARIA 1.2</Typography></li>
+                            <li><Typography>CSS3</Typography></li>
+                            <li><Typography>JavaScript (React 18)</Typography></li>
                          </ul>
+                         <Typography paragraph sx={{ mt: 2 }}>
+                            These technologies are relied upon for conformance with the accessibility standards used.
+                         </Typography>
                      </Container>
                  </DialogContent>
              </Dialog>
@@ -186,11 +306,12 @@ import React, { useState, useEffect } from 'react';
                  fullScreen
                  open={openModal === 'terms'}
                  onClose={handleCloseModal}
+                 aria-labelledby="terms-dialog-title"
                  sx={{ '& .MuiDialog-paper': { display: 'flex', flexDirection: 'column', maxHeight: '100vh' }}}
              >
                  <DialogTitle sx={{ bgcolor: 'black', color: 'white', m: 0, p: 2, flexShrink: 0 }}>
                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                         <Typography variant="h1" component="h1">
+                         <Typography id="terms-dialog-title" variant="h1" component="h1">
                              Terms & Conditions
                          </Typography>
                          <IconButton aria-label="close" onClick={handleCloseModal} sx={{ color: 'white' }}>
@@ -201,60 +322,60 @@ import React, { useState, useEffect } from 'react';
                  <DialogContent dividers sx={{ flexGrow: 1, p: { xs: 2, sm: 3, md: 4 } }}>
                      <Container maxWidth="md">
                         {/* ✅ TERMS AND CONDITIONS UPDATED */}
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>1. Eligibility</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>1. Eligibility</Typography>
                          <Typography paragraph>Fundraisers, Ice Cream Socials or all other Events requests must be submitted by an authorized representative of a verified organization (e.g., school, club, non-profit, team, or community group).</Typography>
                          <Typography paragraph>The hosting organization must be based in the United States and have an active EIN or school/club verification if applicable.</Typography>
                          <Typography paragraph>We reserve the right to approve or deny event requests at our discretion.</Typography>
 
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>2. Event Approval</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>2. Event Approval</Typography>
                          <Typography paragraph>All event requests are subject to review and approval by Surreal Creamery.</Typography>
                          <Typography paragraph>Approval confirmation will be sent via email and on the website once all details are finalized.</Typography>
                          <Typography paragraph>We may require additional information before confirming your event.</Typography>
                          <Typography paragraph>Event times and dates are not guaranteed until officially confirmed in writing.</Typography>
 
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>3. Fundraiser Structure</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>3. Fundraiser Structure</Typography>
                          <Typography paragraph>Approved organizations will receive 10% of net sales generated from customers who participate during their event.</Typography>
                          <Typography paragraph>Optional bonuses (such as matching donations or seasonal incentives) will be stated in your event confirmation email & marketing materials provided.</Typography>
                          <Typography paragraph>Event proceeds apply only to in-store sales at the designated location and within the event’s scheduled time. Online orders, delivery, or third-party app sales are typically excluded unless explicitly stated otherwise.</Typography>
                          
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>4. Gift Card & Incentive Policy</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>4. Gift Card & Incentive Policy</Typography>
                          <Typography paragraph>From time to time, we may offer additional incentives (e.g., a $25 gift card for fundraising goals).</Typography>
                          <Typography paragraph>These incentives are subject to availability and may change without prior notice.</Typography>
                          <Typography paragraph>Gift cards may be used for future raffles, giveaways, or as directed by the organization.</Typography>
 
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>5. Payouts</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>5. Payouts</Typography>
                          <Typography paragraph>Fundraising payouts will be calculated within 10–14 business days after the event concludes.</Typography>
                          <Typography paragraph>Organizations will be contacted to confirm payout preferences (e.g., electronic transfer or check).</Typography>
                          <Typography paragraph>Failure to provide payout details within 90 days of notification may result in forfeiture of funds.</Typography>
                          
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>6. Event Promotion</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>6. Event Promotion</Typography>
                          <Typography paragraph>Surreal Creamery may promote your event on our website or social media channels.</Typography>
                          <Typography paragraph>The organization is encouraged to share promotional materials provided by us.</Typography>
                          <Typography paragraph>Promotional content must not misrepresent Surreal Creamery or imply endorsements beyond the scope of the event.</Typography>
                          
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>7. Cancellations & Rescheduling</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>7. Cancellations & Rescheduling</Typography>
                          <Typography paragraph>Organizations must notify us at least 7 days prior to cancel or reschedule.</Typography>
                          <Typography paragraph>Repeated cancellations may affect eligibility for future fundraisers or events.</Typography>
                          <Typography paragraph>We reserve the right to cancel or reschedule an event due to unforeseen circumstances (e.g., weather, store closures, emergencies).</Typography>
                          
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>8. Conduct & Responsibility</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>8. Conduct & Responsibility</Typography>
                          <Typography paragraph>All participants must adhere to store policies and maintain a respectful environment.</Typography>
                          <Typography paragraph>The organization is responsible for its members’ conduct during the event.</Typography>
                          <Typography paragraph>Any damage, disturbance, or violation of store policies may result in immediate termination of the event and forfeiture of proceeds.</Typography>
 
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>9. Use of Data</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>9. Use of Data</Typography>
                          <Typography paragraph>Information collected through the event request form (such as contact info or organization details) will be used solely for event coordination.</Typography>
                          <Typography paragraph>We will not share or sell your information to third parties, except as necessary to process payments or comply with the law.</Typography>
                          
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>10. Limitation of Liability</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>10. Limitation of Liability</Typography>
                          <Typography paragraph>Surreal Creamery is not liable for any loss, damage, or injury incurred during or related to the event.</Typography>
                          <Typography paragraph>By participating, the organization agrees to hold harmless and indemnify Surreal Creamery from all claims or liabilities arising from the event.</Typography>
                          
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>11. Policy Changes</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>11. Policy Changes</Typography>
                          <Typography paragraph>Surreal Creamery reserves the right to modify or update these Terms & Conditions at any time without prior notice.</Typography>
                          <Typography paragraph>The most current version will always be available on our website.</Typography>
 
-                         <Typography variant="h3" component="h3" sx={{ mt: 3, mb: '24px !important' }}>12. Agreement</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 3, mb: '24px !important' }}>12. Agreement</Typography>
                          <Typography paragraph>By submitting an Ice Cream Social or Fundraiser request, you acknowledge that you have read, understood, and agreed to these Terms & Conditions on behalf of your organization.</Typography>
                      </Container>
                  </DialogContent>
@@ -265,11 +386,12 @@ import React, { useState, useEffect } from 'react';
                  fullScreen
                  open={openModal === 'privacy'}
                  onClose={handleCloseModal}
+                 aria-labelledby="privacy-dialog-title"
                  sx={{ '& .MuiDialog-paper': { display: 'flex', flexDirection: 'column', maxHeight: '100vh' }}}
              >
                  <DialogTitle sx={{ bgcolor: 'black', color: 'white', m: 0, p: 2, flexShrink: 0 }}>
                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                         <Typography variant="h1" component="h1">
+                         <Typography id="privacy-dialog-title" variant="h1" component="h1">
                              Privacy Policy
                          </Typography>
                          <IconButton aria-label="close" onClick={handleCloseModal} sx={{ color: 'white' }}>
@@ -300,12 +422,12 @@ import React, { useState, useEffect } from 'react';
                             <li><Typography paragraph sx={{ mb: 1 }}>By subscribing or otherwise using the service, you acknowledge and agree that we will have the right to change and/or terminate the service at any time, with or without cause and/or advance notice.</Typography></li>
                          </ul>
 
-                         <Typography variant="h3" component="h3" sx={{ mt: 4, mb: '24px !important' }}>Will I be charged for the text messages I receive?</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 4, mb: '24px !important' }}>Will I be charged for the text messages I receive?</Typography>
                          <Typography paragraph>
                              Though Surreal Creamery will never charge you for the text messages you receive, depending on your phone plan, you may see some charges from your mobile provider. Please reach out to your wireless provider if you have questions about your text or data plan.
                          </Typography>
 
-                         <Typography variant="h3" component="h3" sx={{ mt: 4, mb: '24px !important' }}>Data Sharing Policy</Typography>
+                         <Typography variant="h3" component="h2" sx={{ mt: 4, mb: '24px !important' }}>Data Sharing Policy</Typography>
                          <Typography paragraph>
                             No mobile information will be shared with third parties/affiliates for marketing/promotional purposes. All the above categories exclude text messaging originator opt-in data and consent; this information will not be shared with any third parties.
                          </Typography>

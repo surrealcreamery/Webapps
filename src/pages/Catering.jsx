@@ -31,6 +31,7 @@ import { ResolvingCateringMatch } from '@/components/catering/ResolvingCateringM
 import { LoginForm } from '@/components/catering/LoginForm';
 import { ResolvingCateringLoginMatch } from '@/components/catering/ResolvingCateringLoginMatch';
 import { OrdersView } from '@/components/catering/OrdersView';
+import { trackCateringCheckoutStarted } from '@/services/analytics';
 
 
 export default function CateringMenu() {
@@ -73,8 +74,8 @@ export default function CateringMenu() {
         // Loading state
         if (cateringState.matches('loadingMenu')) {
             return (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}>
-                    <CircularProgress />
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true">
+                    <CircularProgress aria-label="Loading" />
                 </Box>
             );
         }
@@ -84,7 +85,7 @@ export default function CateringMenu() {
             !cateringState.matches('loginFlow.awaitingAuthentication.enteringOtp') &&
             !cateringState.matches('loginFlow.enteringLoginContactInfo')
         ) {
-            return <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>;
+            return <Alert severity="error" role="alert" sx={{ m: 2 }}>{error}</Alert>;
         }
 
         // Date selection view
@@ -107,26 +108,26 @@ export default function CateringMenu() {
         
         if (cateringState.matches('guestCheckoutFlow.checkingAccountStatus')) {
             return (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}>
-                    <CircularProgress />
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true">
+                    <CircularProgress aria-label="Loading" />
                     <Typography sx={{ml: 2}}>Checking account...</Typography>
                 </Box>
             );
         }
-        
+
         if (cateringState.matches('guestCheckoutFlow.savingCart')) {
             return (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}>
-                    <CircularProgress />
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true">
+                    <CircularProgress aria-label="Loading" />
                     <Typography sx={{ml: 2}}>Saving your order...</Typography>
                 </Box>
             );
         }
-        
+
         if (cateringState.matches('guestCheckoutFlow.creatingAccount')) {
             return (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}>
-                    <CircularProgress />
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true">
+                    <CircularProgress aria-label="Loading" />
                     <Typography sx={{ml: 2}}>Creating account...</Typography>
                 </Box>
             );
@@ -152,8 +153,8 @@ export default function CateringMenu() {
         
         if (cateringState.matches('guestCheckoutFlow.updatingOrgAndAccountType')) {
              return (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 4, flexDirection: 'column', gap: 2 }}>
-                    <CircularProgress />
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 4, flexDirection: 'column', gap: 2 }} role="status" aria-live="polite" aria-busy="true">
+                    <CircularProgress aria-label="Loading" />
                     <Typography>Updating account details...</Typography>
                 </Box>
             );
@@ -173,17 +174,17 @@ export default function CateringMenu() {
         
         if (cateringState.matches('loginFlow.checkingLoginAccountStatus')) {
             return (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}>
-                    <CircularProgress />
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true">
+                    <CircularProgress aria-label="Loading" />
                     <Typography sx={{ml: 2}}>Checking account...</Typography>
                 </Box>
             );
         }
-        
+
         if (cateringState.matches('loginFlow.creatingAccount')) {
             return (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}>
-                    <CircularProgress />
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true">
+                    <CircularProgress aria-label="Loading" />
                     <Typography sx={{ml: 2}}>Creating account...</Typography>
                 </Box>
             );
@@ -202,8 +203,8 @@ export default function CateringMenu() {
         
         if (cateringState.matches('loginFlow.awaitingAuthentication.sendingOtp')) {
             return (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}>
-                    <CircularProgress />
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true">
+                    <CircularProgress aria-label="Loading" />
                     <Typography sx={{ml: 2}}>Sending verification code...</Typography>
                 </Box>
             );
@@ -276,8 +277,8 @@ export default function CateringMenu() {
             if (!menu[selectedCategory] || !menu[selectedCategory].items) {
                 console.warn("Browsing items but category data is missing for:", selectedCategory);
                 return (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-                        <CircularProgress />
+                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }} role="status" aria-live="polite" aria-busy="true">
+                        <CircularProgress aria-label="Loading" />
                     </Box>
                 );
             }
@@ -303,6 +304,7 @@ export default function CateringMenu() {
 
         // --- PLACEHOLDER STATES ---
         if (cateringState.matches('checkoutPlaceholder')) {
+            trackCateringCheckoutStarted();
             return <Checkout sendToCatering={sendToCatering} cateringState={cateringState} />;
         }
         
@@ -318,9 +320,9 @@ export default function CateringMenu() {
         // Fallback
         console.error("Unhandled state reached:", JSON.stringify(cateringState.value));
         return (
-            <Typography>
-                Something went wrong. Current state: {JSON.stringify(cateringState.value)}
-            </Typography>
+            <Alert severity="error" role="alert">
+                Something went wrong. Please refresh the page and try again.
+            </Alert>
         );
     };
 
@@ -331,7 +333,8 @@ export default function CateringMenu() {
                 <meta name="description" content="Order catering from Surreal Creamery. Cake jars, cupcakes, and more for your events and parties." />
             </Helmet>
 
-            <Container maxWidth="sm" sx={{ pt: 0, pb: 4 }}>
+            <Container component="main" maxWidth="sm" sx={{ pt: 0, pb: 4 }}>
+                <Typography variant="h1" component="h1" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Catering Menu</Typography>
                 {renderContent()}
             </Container>
 

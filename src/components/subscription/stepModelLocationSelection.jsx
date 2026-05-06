@@ -79,7 +79,7 @@ const StepModelLocationSelection = ({
                         }}
                     >
                         <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{model.name}</Typography>
-                        {priceInfo && (<Typography variant="body2" color="rgba(255,255,255,0.7)">{priceInfo.text}</Typography>)}
+                        {priceInfo && (<Typography variant="body2" color="rgba(255,255,255,0.87)">{priceInfo.text}</Typography>)}
                     </Button>
                 );
             })}
@@ -94,6 +94,7 @@ const StepModelLocationSelection = ({
                     variant="contained"
                     fullWidth
                     onClick={() => send({ type: 'SELECT_LOCATION', value: location.id })}
+                    aria-pressed={location.id === locationId}
                     sx={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                         py: 2, px: 2,
@@ -102,7 +103,7 @@ const StepModelLocationSelection = ({
                     }}
                 >
                     <Typography variant="body1" sx={{ flexGrow: 1, textAlign: 'left', fontWeight: 'bold' }}>{location.name}</Typography>
-                    {location.id === locationId && <CheckCircleIcon />}
+                    {location.id === locationId && <CheckCircleIcon aria-hidden="true" />}
                 </Button>
             ))}
         </Box>
@@ -132,7 +133,7 @@ const StepModelLocationSelection = ({
                     </Box>
                     <Divider />
                     <Box sx={{ pt: 2 }}>
-                        <Button variant="grey-back" fullWidth>View All Drinks</Button>
+                        <Button variant="grey-back" fullWidth disabled>View All Drinks</Button>
                     </Box>
                  </Box>
             )}
@@ -153,11 +154,11 @@ const StepModelLocationSelection = ({
                     {/* NEW: Model summary is now here, above the location list */}
                     {selectedModel && (
                         <Box sx={{ mb: 3 }}>
-                            <Typography variant="h3">{selectedModel.name}</Typography>
-                            <Typography variant="h3" color="text.secondary">{getPriceForModel(selectedModel.id)?.text}</Typography>
+                            <Typography variant="h3" component="h2">{selectedModel.name}</Typography>
+                            <Typography variant="h3" component="h2" color="text.secondary">{getPriceForModel(selectedModel.id)?.text}</Typography>
                         </Box>
                     )}
-                    <Typography variant="h3" gutterBottom>Select a Location</Typography>
+                    <Typography variant="h3" component="h2" gutterBottom>Select a Location</Typography>
                     {renderLocationList()}
                 </Box>
             )}

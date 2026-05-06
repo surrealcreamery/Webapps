@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { trackCateringCartViewed, trackCateringItemRemoved } from '@/services/analytics';
 import {
     Drawer,
     Box,
@@ -110,12 +111,16 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
     const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
     useEffect(() => {
+        if (open) trackCateringCartViewed();
+    }, [open]);
+
+    useEffect(() => {
         setLocalFulfillmentType(type);
         setLocalLocationId(locationId || '');
     }, [type, locationId]);
 
     const handleQuantityChange = (cartItemId, change) => sendToCatering({ type: 'UPDATE_QUANTITY', cartItemId, change });
-    const handleRemoveItem = (cartItemId) => sendToCatering({ type: 'REMOVE_ITEM', cartItemId });
+    const handleRemoveItem = (cartItemId) => { trackCateringItemRemoved(cartItemId); sendToCatering({ type: 'REMOVE_ITEM', cartItemId }); };
 
     const handleContinueShopping = () => {
         onClose();
@@ -451,7 +456,7 @@ export const CateringCartDrawer = ({ open, onClose, cart, sendToCatering, cateri
                                                                     <Typography
                                                                         variant="body2"
                                                                         sx={{
-                                                                            fontSize: '1.2rem',
+                                                                            fontSize: '1.6rem',
                                                                             color: 'text.secondary',
                                                                             fontWeight: 600,
                                                                             textTransform: 'uppercase',

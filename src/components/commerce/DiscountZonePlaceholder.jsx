@@ -179,6 +179,10 @@ function renderDiscount(discount, variant, colors, onOpenModal, subcategoryName 
             return (
                 <Box
                     onClick={onOpenModal}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenModal(e); } }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="View discount details"
                     sx={{
                         position: 'absolute',
                         top: 8,
@@ -198,6 +202,10 @@ function renderDiscount(discount, variant, colors, onOpenModal, subcategoryName 
                         cursor: 'pointer',
                         '&:hover': {
                             opacity: 0.9
+                        },
+                        '&:focus-visible': {
+                            outline: '2px solid white',
+                            outlineOffset: '2px'
                         }
                     }}
                 >
@@ -236,6 +244,10 @@ function renderDiscount(discount, variant, colors, onOpenModal, subcategoryName 
             return (
                 <Box
                     onClick={onOpenModal}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenModal(e); } }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="View discount details"
                     sx={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -249,6 +261,12 @@ function renderDiscount(discount, variant, colors, onOpenModal, subcategoryName 
                         cursor: 'pointer',
                         '&:hover': {
                             textDecoration: 'underline'
+                        },
+                        '&:focus-visible': {
+                            outline: '2px solid',
+                            outlineColor: colors.text,
+                            outlineOffset: '2px',
+                            borderRadius: 1
                         }
                     }}
                 >
@@ -288,6 +306,10 @@ function renderDiscount(discount, variant, colors, onOpenModal, subcategoryName 
         return (
             <Box
                 onClick={onOpenModal}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenModal(e); } }}
+                role="button"
+                tabIndex={0}
+                aria-label="View discount details"
                 sx={{
                     bgcolor: isZone1or2 ? 'transparent' : colors.bg,
                     border: isZone1or2 ? 'none' : `1px solid ${colors.border}`,
@@ -301,6 +323,11 @@ function renderDiscount(discount, variant, colors, onOpenModal, subcategoryName 
                     '&:hover': {
                         textDecoration: isZone1or2 ? 'underline' : 'none',
                         opacity: isZone1or2 ? 1 : 0.9
+                    },
+                    '&:focus-visible': {
+                        outline: '2px solid',
+                        outlineColor: colors.text,
+                        outlineOffset: '2px'
                     }
                 }}
             >
@@ -404,6 +431,7 @@ function DiscountModal({ open, onClose, discount, subcategoryName = 'items', pro
             onClose={onClose}
             maxWidth="sm"
             fullWidth
+            aria-labelledby="discount-zone-dialog-title"
             PaperProps={{
                 sx: {
                     borderRadius: 2,
@@ -417,10 +445,10 @@ function DiscountModal({ open, onClose, discount, subcategoryName = 'items', pro
                 justifyContent: 'space-between',
                 pb: 1
             }}>
-                <Typography sx={{ fontWeight: 700, fontSize: '1.8rem' }}>
+                <Typography id="discount-zone-dialog-title" sx={{ fontWeight: 700, fontSize: '1.8rem' }}>
                     Special Offer
                 </Typography>
-                <IconButton onClick={onClose} size="small">
+                <IconButton onClick={onClose} size="small" aria-label="Close">
                     <CloseIcon />
                 </IconButton>
             </DialogTitle>
@@ -476,7 +504,7 @@ function DiscountModal({ open, onClose, discount, subcategoryName = 'items', pro
                                                 <Box
                                                     component="img"
                                                     src={gift.imageUrl || PLACEHOLDER_IMAGE}
-                                                    alt={gift.title}
+                                                    alt={gift.title || 'Free gift item'}
                                                     sx={{
                                                         width: 60,
                                                         height: 60,
@@ -503,7 +531,7 @@ function DiscountModal({ open, onClose, discount, subcategoryName = 'items', pro
                         )}
 
                         {current > 0 && (
-                            <Box sx={{
+                            <Box role="status" aria-live="polite" sx={{
                                 bgcolor: '#e8f5e9',
                                 borderRadius: 2,
                                 p: 2,

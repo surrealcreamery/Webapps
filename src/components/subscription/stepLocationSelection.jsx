@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Box, Typography, Button, Divider, IconButton, TextField, CircularProgress } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import HeroImage from '@/assets/images/Surreal Creamery/Hero.png';
+import { trackSubscriptionLocationSelected } from '@/services/analytics';
 
 // A sub-component for displaying the main offer details.
 const OfferDetails = ({ onViewAllDrinks }) => {
@@ -127,7 +128,7 @@ const handleSearch = async () => {
                     key={location.id}
                     variant="outlined"
                     fullWidth
-                    onClick={() => send({ type: 'SELECT_LOCATION', value: location.id })}
+                    onClick={() => { trackSubscriptionLocationSelected(location.id); send({ type: 'SELECT_LOCATION', value: location.id }); }}
                     sx={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                         py: 2, px: 2,
