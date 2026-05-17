@@ -17,7 +17,7 @@ import AddIcon from '@mui/icons-material/Add';
 import { useCatalog } from '@/contexts/commerce/CatalogContext';
 import { getMaxQuantityAtLocation } from '@/utils/fulfillmentRouter';
 import { BlindBoxProgressIndicator } from '@/components/commerce/BlindBoxProgressIndicator';
-import { trackCartViewed, trackRemovedFromCart, trackCheckoutStarted, trackCartClosed, trackCartQuantityChanged, trackPromoCodeApplied, trackPromoCodeRemoved, trackPromoCodeError, trackBlindBoxAdded, trackRewardSelected, trackFulfillmentSelected, trackCrossSellShown, trackCrossSellProductClicked, trackCrossSellAddedToCart } from '@/services/analytics';
+import { trackCartViewed, trackRemovedFromCart, trackCheckoutStarted, trackCartClosed, trackCartQuantityChanged, trackPromoCodeApplied, trackPromoCodeRemoved, trackPromoCodeError, trackBlindBoxAdded, trackRewardSelected, trackFulfillmentSelected, trackCrossSellShown, trackCrossSellProductClicked, trackCrossSellAddedToCart, trackTerminalCheckoutCancelled } from '@/services/analytics';
 const TERMINAL_API_URL = 'https://oquxxk2q56me3ve7mk7nz2gav40apced.lambda-url.us-east-1.on.aws';
 const CHECKOUT_API_URL = 'https://viif6favb73jr3pm2ph6qcten40ethnp.lambda-url.us-east-1.on.aws';
 const SHIPPING_API_URL = 'https://thugumzwi4445lq5q7qhnjfwoe0mrwjl.lambda-url.us-east-1.on.aws';
@@ -166,6 +166,7 @@ export function CartDrawer({
     onKioskCartChange,
     kioskTerminal,
     kioskRemoteCheckout,
+    kioskCancelSignal,
 }) {
   const { allProducts: products, storeLocations, selectedLocation } = useCatalog();
   const navigate = useNavigate();
@@ -180,6 +181,20 @@ export function CartDrawer({
   // Local cart items and subtotal (defined early so callbacks can reference them)
   const cartItems = localCart?.cart || [];
   const localSubtotal = localCart?.getSubtotal?.() || 0;
+
+  // Kiosk paired subtotal + tax (defined early so terminal checkout callback can reference them)
+  const pairedSubtotal = useMemo(() => {
+    if (!isPairedKiosk) return 0;
+    return kioskCart.reduce((sum, item) => {
+      const modTotal = (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0);
+      return sum + (parseFloat(item.unitPrice || 0) + modTotal) * item.quantity;
+    }, 0);
+  }, [isPairedKiosk, kioskCart]);
+
+  const subtotal = isPairedKiosk ? pairedSubtotal : localSubtotal;
+  const kioskTaxRate = isKioskMode && kioskTerminal?.taxRate != null ? Number(kioskTerminal.taxRate) : 0;
+  const kioskTax = isKioskMode ? Math.round(subtotal * kioskTaxRate * 100) / 100 : 0;
+  const kioskTotal = subtotal + kioskTax;
 
   // Compute max quantity per cart item based on fulfillment location inventory
   const maxQtyByItemId = useMemo(() => {
@@ -197,6 +212,16 @@ export function CartDrawer({
     if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
     if (timeoutTimer.current) { clearTimeout(timeoutTimer.current); timeoutTimer.current = null; }
   }, []);
+
+  // Handle cancel signal from POS (via WebSocket → useKioskMode → kioskCancelSignal)
+  useEffect(() => {
+    if (kioskCancelSignal && terminalStatus === 'waiting') {
+      stopPolling();
+      setTerminalStatus('idle');
+      setTerminalError(null);
+      terminalCheckoutId.current = null;
+    }
+  }, [kioskCancelSignal, stopPolling]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Analytics: track cart view when drawer opens
   useEffect(() => {
@@ -290,31 +315,35 @@ export function CartDrawer({
     let amountCents, note, terminalLineItems;
 
     if (isPairedKiosk && kioskCart.length > 0) {
-      // Paired kiosk: use synced kioskCart items
-      amountCents = Math.round(kioskCart.reduce((sum, item) => {
+      // Paired kiosk: use synced kioskCart items (include tax)
+      const pairedSub = kioskCart.reduce((sum, item) => {
         const modTotal = (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0);
         return sum + (parseFloat(item.unitPrice || 0) + modTotal) * item.quantity;
-      }, 0) * 100);
+      }, 0);
+      const pairedTax = kioskTaxRate > 0 ? Math.round(pairedSub * kioskTaxRate * 100) / 100 : 0;
+      amountCents = Math.round((pairedSub + pairedTax) * 100);
       note = kioskCart.map(item => `${item.quantity}x ${item.name}`).join(', ');
       terminalLineItems = kioskCart.map(item => {
-        const modTotal = (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0);
+        const modTotal = (item.modifiers || []).reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
+        const modNames = (item.modifiers || []).flatMap(m => m.value ? m.value.split(', ') : (m.name ? [m.name] : []));
         return {
           name: item.name + (item.variantName ? ` - ${item.variantName}` : '') +
-            (item.modifiers?.length ? ` (${item.modifiers.map(m => m.name).join(', ')})` : ''),
+            (modNames.length ? ` (${modNames.join(', ')})` : ''),
           quantity: item.quantity,
           basePriceCents: Math.round((parseFloat(item.unitPrice || 0) + modTotal) * 100),
         };
       });
     } else {
-      // Standalone kiosk: use local cart
+      // Standalone kiosk: use local cart (include tax)
       if (!cartItems.length) return;
-      amountCents = Math.round(localSubtotal * 100);
+      amountCents = Math.round(kioskTotal * 100);
       note = cartItems.map(item => `${item.quantity}x ${item.name}`).join(', ');
       terminalLineItems = cartItems.map(item => {
         const modTotal = (item.modifiers || []).reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
+        const modNames = (item.modifiers || []).flatMap(m => m.value ? m.value.split(', ') : (m.name ? [m.name] : []));
         return {
           name: item.name + (item.variantName ? ` - ${item.variantName}` : '') +
-            (item.modifiers?.length ? ` (${item.modifiers.map(m => `${m.key}: ${m.value}`).join(', ')})` : ''),
+            (modNames.length ? ` (${modNames.join(', ')})` : ''),
           quantity: item.quantity,
           basePriceCents: Math.round((item.unitPrice + modTotal) * 100),
         };
@@ -364,37 +393,38 @@ export function CartDrawer({
       setTerminalStatus('failed');
       setTerminalError('Failed to connect to terminal. Please try again.');
     }
-  }, [cartItems, localSubtotal, pollTerminalStatus, kioskTerminal, isPairedKiosk, kioskCart, kioskSendForward]);
+  }, [cartItems, localSubtotal, kioskTotal, kioskTaxRate, pollTerminalStatus, kioskTerminal, isPairedKiosk, kioskCart, kioskSendForward]);
 
   const handleCancelTerminal = useCallback(async () => {
-    if (terminalCheckoutId.current) {
+    trackTerminalCheckoutCancelled();
+    // Stop polling first to prevent race conditions
+    stopPolling();
+    const checkoutId = terminalCheckoutId.current;
+    if (checkoutId) {
+      setTerminalStatus('sending'); // Show loading while cancelling
       try {
-        await fetch(TERMINAL_API_URL, {
+        const res = await fetch(TERMINAL_API_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'cancelTerminalCheckout', checkoutId: terminalCheckoutId.current }),
+          body: JSON.stringify({ action: 'cancelTerminalCheckout', checkoutId }),
         });
-      } catch (e) { /* ignore */ }
+        const data = await res.json();
+        const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;
+        if (result.error) {
+          console.error('[Terminal] Cancel error:', result.error);
+        }
+      } catch (e) {
+        console.error('[Terminal] Cancel request failed:', e);
+      }
     }
     if (isPairedKiosk && kioskSendForward) {
-      kioskSendForward('checkout_status', { checkoutId: terminalCheckoutId.current, status: 'canceled' });
+      kioskSendForward('checkout_status', { checkoutId, status: 'canceled' });
     }
-    stopPolling();
     setTerminalStatus('idle');
     setTerminalError(null);
     terminalCheckoutId.current = null;
   }, [stopPolling, isPairedKiosk, kioskSendForward]);
 
-  // In paired kiosk mode, derive totals from kioskCart
-  const pairedSubtotal = useMemo(() => {
-    if (!isPairedKiosk) return 0;
-    return kioskCart.reduce((sum, item) => {
-      const modTotal = (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0);
-      return sum + (parseFloat(item.unitPrice || 0) + modTotal) * item.quantity;
-    }, 0);
-  }, [isPairedKiosk, kioskCart]);
-
-  const subtotal = isPairedKiosk ? pairedSubtotal : localSubtotal;
   const lineItemsSubtotal = subtotal; // No server-side discount allocations in local cart
   const totalItems = isPairedKiosk
     ? kioskCart.reduce((sum, item) => sum + item.quantity, 0)
@@ -1167,9 +1197,9 @@ export function CartDrawer({
                             {/* Modifiers */}
                             {item.modifiers?.length > 0 && (
                               <Box sx={{ mt: 0.5 }}>
-                                {item.modifiers.map((mod, idx) => (
+                                {item.modifiers.flatMap(mod => mod.value ? mod.value.split(', ') : (mod.name ? [mod.name] : [])).map((name, idx) => (
                                   <Typography key={idx} variant="body2" sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>
-                                    {mod.name}{mod.price > 0 ? ` (+$${mod.price.toFixed(2)})` : ''}
+                                    {name}
                                   </Typography>
                                 ))}
                               </Box>
@@ -1288,7 +1318,7 @@ export function CartDrawer({
                                     )}
                                     {item.modifiers?.length > 0 && (
                                       <Box sx={{ mt: 0.5 }}>
-                                        {item.modifiers.flatMap(mod => mod.value.split(', ')).map((name, idx) => (
+                                        {item.modifiers.flatMap(mod => mod.value ? mod.value.split(', ') : (mod.name ? [mod.name] : [])).map((name, idx) => (
                                           <Typography key={idx} variant="body2" sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>
                                             {name}
                                           </Typography>
@@ -1480,6 +1510,22 @@ export function CartDrawer({
                     </Typography>
                   </Box>
                 </Box>
+              ) : isKioskMode && kioskTaxRate > 0 ? (
+                <Box sx={{ mb: 1.5 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
+                    <Typography variant="body2" color="text.secondary">Subtotal</Typography>
+                    <Typography variant="body2">${parseFloat(subtotal).toFixed(2)}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
+                    <Typography variant="body2" color="text.secondary">Tax</Typography>
+                    <Typography variant="body2">${kioskTax.toFixed(2)}</Typography>
+                  </Box>
+                  <Divider sx={{ my: 0.75 }} />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="body2" fontWeight="bold">Total</Typography>
+                    <Typography variant="body2" fontWeight="bold">${kioskTotal.toFixed(2)}</Typography>
+                  </Box>
+                </Box>
               ) : (
                 <Box sx={{ mb: 1.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
@@ -1493,7 +1539,7 @@ export function CartDrawer({
                     )}
                   </Box>
                   <Typography variant="body2" color="text.secondary">
-                    {isKioskMode ? 'Tax calculated at terminal' : orderCalcLoading ? 'Calculating tax...' : 'Tax calculated at checkout'}
+                    {orderCalcLoading ? 'Calculating tax...' : 'Tax calculated at checkout'}
                   </Typography>
                 </Box>
               )}
@@ -1707,7 +1753,7 @@ export function CartDrawer({
                   Complete payment on the terminal
                 </Typography>
                 <Typography variant="h5" sx={{ fontWeight: 700, mb: 4 }}>
-                  ${parseFloat(subtotal).toFixed(2)}
+                  ${parseFloat(kioskTotal).toFixed(2)}
                 </Typography>
                 <Button variant="outlined" color="inherit" onClick={handleCancelTerminal}>
                   Cancel
@@ -1758,12 +1804,17 @@ export function CartDrawer({
             {kioskRemoteCheckout.status === 'waiting' && (
               <>
                 <ContactlessIcon sx={{ fontSize: 64, color: 'primary.main', mb: 2, animation: 'pulse 1.5s ease-in-out infinite', '@keyframes pulse': { '0%, 100%': { opacity: 1 }, '50%': { opacity: 0.4 } } }} />
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
-                  Payment in progress
+                <Typography variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
+                  Please complete payment on the terminal
                 </Typography>
                 <Typography variant="body1" color="text.secondary">
-                  Payment initiated from POS
+                  Tap, insert, or swipe your card
                 </Typography>
+                {kioskTotal > 0 && (
+                  <Typography variant="h4" sx={{ fontWeight: 700, mt: 2 }}>
+                    ${parseFloat(kioskTotal).toFixed(2)}
+                  </Typography>
+                )}
               </>
             )}
             {kioskRemoteCheckout.status === 'completed' && (

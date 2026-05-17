@@ -14,7 +14,7 @@ import {
 import InstagramIcon from '@mui/icons-material/Instagram';
 import FacebookIcon from '@mui/icons-material/Facebook';
 import CloseIcon from '@mui/icons-material/Close';
-import { trackFooterLinkClicked, trackSocialLinkClicked } from '@/services/analytics';
+import { trackFooterLinkClicked, trackSocialLinkClicked, trackFooterModalClosed } from '@/services/analytics';
 
 const tableSx = { width: '100%', borderCollapse: 'collapse', mb: 2, '& td, & th': { border: '1px solid #ddd', p: 1, fontSize: '1.6rem', textAlign: 'left', verticalAlign: 'top' }, '& th': { bgcolor: '#f5f5f5', fontWeight: 600 } };
 
@@ -28,6 +28,7 @@ const Footer = () => {
     };
 
     const handleCloseModal = () => {
+        if (openModal) trackFooterModalClosed(openModal);
         setOpenModal(null);
     };
 

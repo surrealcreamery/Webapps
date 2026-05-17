@@ -17,6 +17,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 // Import components
 import { Section } from '@/components/commerce/Section';
 import { CartDrawer } from '@/components/commerce/CartDrawer';
+import { CrossSellModal } from '@/components/commerce/CrossSellModal';
 import { useDiscounts } from '@/components/commerce/useDiscounts';
 import { BlindBoxProgressIndicator } from '@/components/commerce/BlindBoxProgressIndicator';
 import { DiscountZonePlaceholder } from '@/components/commerce/DiscountZonePlaceholder';
@@ -32,11 +33,12 @@ import { getTextColorForBackground, getItemBackground, resolveDisplayModifiers }
 import { useLocationAvailability } from '@/hooks/useLocationAvailability';
 import { useRealTimeInventory } from '@/hooks/useRealTimeInventory';
 import { resolveFulfillmentLocation } from '@/utils/fulfillmentRouter';
-import { trackProductClicked, trackProductViewed, trackVariantSelected, trackAddedToCart, setCartId } from '@/services/analytics';
+import { trackProductClicked, trackProductViewed, trackVariantSelected, trackAddedToCart, setCartId, trackExternalLinkClicked, trackEventCardClicked, trackCrossSellAddedToCart, trackCrossSellProductClicked } from '@/services/analytics';
 import { useSegment } from '@/contexts/commerce/SegmentContext';
 import { StoreLocatorPrompt } from '@/components/commerce/StoreLocatorPrompt';
 import JsonLd from '@/components/seo/JsonLd';
 import { buildProductSchema, buildItemListSchema } from '@/components/seo/schemas';
+import { KioskContext } from '@/components/kiosk/KioskOverlay';
 
 // Placeholder image for variants without images
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=No+Image';
@@ -808,8 +810,19 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 
         // Gate: require a store location to be selected
         if (!localStorage.getItem('selectedLocation')) {
-            setShowStoreLocator(true);
-            return;
+            // On kiosk, auto-set from terminal location instead of showing store locator
+            try {
+                const kt = JSON.parse(localStorage.getItem('kioskTerminal'));
+                if (kt?.locationId) {
+                    localStorage.setItem('selectedLocation', kt.locationId);
+                } else {
+                    setShowStoreLocator(true);
+                    return;
+                }
+            } catch {
+                setShowStoreLocator(true);
+                return;
+            }
         }
 
         // Check for unmet required modifier selections
@@ -828,12 +841,13 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                 const { selections, categories } = myoSelectionsRef.current;
                 categories.forEach(cat => {
                     const selectedIds = selections[cat.id] || [];
-                    const names = selectedIds.map(id => {
-                        const mod = cat.modifiers.find(m => m.id === id);
-                        return mod?.name || id;
-                    });
-                    if (names.length > 0) {
-                        customAttributes.push({ key: cat.name, value: names.join(', ') });
+                    const selectedMods = selectedIds.map(id => cat.modifiers.find(m => m.id === id)).filter(Boolean);
+                    if (selectedMods.length > 0) {
+                        customAttributes.push({
+                            key: cat.name,
+                            value: selectedMods.map(m => m.name).join(', '),
+                            price: selectedMods.reduce((s, m) => s + (m.price || 0), 0),
+                        });
                     }
                 });
             }
@@ -1920,7 +1934,7 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 
                                 const noStoreSelected = !selectedLocationObj;
                                 const pickupAvailable = productFulfillmentMethods.includes('pickup') && !selectedLocationObj?.disablePickup && (noStoreSelected || localQty === null || localQty > 0);
-                                const deliveryAvailable = productFulfillmentMethods.includes('delivery') && !selectedLocationObj?.disableDelivery && (noStoreSelected || (selectedLocationObj?.deliveryEnabled && (localQty === null || localQty > 0)));
+                                const deliveryAvailable = productFulfillmentMethods.includes('delivery') && !noStoreSelected && !selectedLocationObj?.disableDelivery && selectedLocationObj?.deliveryEnabled && (localQty === null || localQty > 0);
                                 const shippingAvailable = productFulfillmentMethods.includes('shipping') && !!shipFromLoc;
                                 const availableMethods = [
                                     ...(pickupAvailable ? ['pickup'] : []),
@@ -2434,13 +2448,19 @@ class CommerceErrorBoundary extends React.Component {
  * Full product catalog moved to /directory
  */
 function CommerceInner() {
-    const { commerceState, sendToCommerce, setActiveTextColor, setIsProductDetail, setOnCloseProductDetail, setCartCount, setEffectivePath } = useContext(LayoutContext);
+    const { commerceState, sendToCommerce, setActiveTextColor, setIsProductDetail, setOnCloseProductDetail, setCartCount, effectivePath, setEffectivePath } = useContext(LayoutContext);
     const { allProducts, catalog, categories, categoryHelpers, subcategories: CATALOG_DESSERT_SUBCATEGORIES, collectiblesSubcategories: CATALOG_COLLECTIBLES_SUBCATEGORIES, locationFilteredProducts, storeLocations, selectedLocation: selectedLocationForFilter, mergedProductOrder: getMergedProductOrder, isLoading: catalogLoading, isReady: catalogReady, isError: catalogErrorFlag, error: catalogError, refresh: catalogRefresh } = useCatalog();
     const productsLoading = catalogLoading;
     const productsError = catalogError;
     const { getProductHierarchy, getSubcategories } = categoryHelpers || {};
     const { currentSegment, recordProductView, recordCategoryView, recordAddToCart, recordVariantSelect, getSegmentCrossSells } = useSegment();
-    const localCart = useCart();
+    const ownCart = useCart();
+
+    // Kiosk mode detection
+    const kioskCtx = useContext(KioskContext);
+    const isKiosk = !!kioskCtx;
+    // In kiosk mode, use the shared cart from KioskOverlay (synced with POS)
+    const localCart = isKiosk && kioskCtx?.localCart ? kioskCtx.localCart : ownCart;
     useEffect(() => { setCartId(localCart.cartId); }, [localCart.cartId]);
 
     // State for reward selection (for quantity-based discounts with multiple options)
@@ -2457,10 +2477,10 @@ function CommerceInner() {
 
     // State for card grid + vertical feed
     // On fresh page load at /product/*, don't restore feed state (URL was set via pushState for SEO)
-    const isProductUrl = window.location.pathname.startsWith('/product/');
+    const isProductUrl = window.location.pathname.startsWith('/product/') || window.location.pathname.includes('/kiosk/product/');
     const [feedIndex, setFeedIndex] = useState(() => isProductUrl ? 0 : (commerceState?.context?.feedIndex ?? 0));
     feedIndexRef.current = feedIndex;
-    const isHomepageLoad = window.location.pathname === '/';
+    const isHomepageLoad = window.location.pathname === '/' || window.location.pathname === '/kiosk';
     const [feedActive, setFeedActive] = useState(() => {
         // Never restore feedActive on product URLs or homepage — it's only for category pages
         if (isProductUrl || isHomepageLoad) return false;
@@ -2620,7 +2640,7 @@ function CommerceInner() {
 
     // If we just arrived at homepage from a product page (browser back/close), redirect to /desserts
     useEffect(() => {
-        if (isHomepageLoad && sessionStorage.getItem('sc-from-product')) {
+        if (!isKiosk && isHomepageLoad && sessionStorage.getItem('sc-from-product')) {
             sessionStorage.removeItem('sc-from-product');
             navigate('/desserts', { replace: true });
         }
@@ -2781,8 +2801,11 @@ function CommerceInner() {
     }, [events, storeLocations]);
 
     // Determine what to show based on route
-    const currentPath = location.pathname;
-    const isHomepage = currentPath === '/';
+    // In kiosk mode, use effectivePath from header toggle (defaults to /desserts)
+    const currentPath = isKiosk && !location.pathname.includes('/product/')
+        ? (effectivePath || '/desserts')
+        : location.pathname;
+    const isHomepage = !isKiosk && currentPath === '/';
 
     // Dynamic category detection from API
     // Extract category handle from path (e.g., "/desserts" -> "desserts")
@@ -2886,6 +2909,10 @@ function CommerceInner() {
         }
     });
     
+    // Cross-sell modal state
+    const [showCrossSellModal, setShowCrossSellModal] = useState(false);
+    const [crossSellTrigger, setCrossSellTrigger] = useState(null); // { product, variant, quantity, modifiers }
+
     // (Delivery check moved to /delivery-check page)
 
     // Refs for tracking navigation intent
@@ -3091,6 +3118,15 @@ function CommerceInner() {
     // Handle closing product page — dismiss product and show category grid
     const handleCloseProduct = () => {
         if (productId) {
+            // Kiosk mode: simple navigate back to /kiosk
+            if (isKiosk) {
+                setActiveTextColor('black');
+                setIsProductDetail(false);
+                setOnCloseProductDetail(null);
+                navigate('/kiosk', { replace: true });
+                return;
+            }
+
             skipScrollToTop.current = true;
 
             if (showAddedToCart) {
@@ -3124,9 +3160,7 @@ function CommerceInner() {
 
             // Start close animation: keep ProductDetailPage visible (closing=true) while grid appears behind
             setClosingProduct(true);
-            if (targetPath !== '/') {
-                setDismissedCategory(dismissCategory);
-            }
+            setDismissedCategory(dismissCategory);
             window.history.replaceState(window.history.state, '', targetPath);
 
             // Restore header immediately (like closeProductDetail does)
@@ -3172,6 +3206,7 @@ function CommerceInner() {
             }
 
             // After animations complete (700ms matches closeProductDetail), clean up
+            const closePath = targetPath;
             setTimeout(() => {
                 setClosingProduct(false);
                 setCollapseTransition(null);
@@ -3180,6 +3215,9 @@ function CommerceInner() {
                 savedScrollPosition.current = 0;
                 selectedVariantInfo.current = null;
                 preSelectedModifierRef.current = null;
+                // Navigate via React Router to clear productId from useParams()
+                // (replaceState alone doesn't update React Router)
+                navigate(closePath, { replace: true });
             }, 700);
         }
     };
@@ -3226,9 +3264,9 @@ function CommerceInner() {
         console.log('📦 Available products:', allProducts.length);
         console.log('🔍 Looking up product:', lookupId);
         
-        navigate(`/product/${lookupId}`, { replace: false });
+        navigate(isKiosk ? `/kiosk/product/${lookupId}` : `/product/${lookupId}`, { replace: false });
     };
-    
+
     // Handle add to cart
     const handleAddToCart = async (productOrId, variantOrId, quantity = 1, customAttributes = []) => {
         console.log('🛒 handleAddToCart called:', { productOrId, variantOrId, quantity, customAttributes });
@@ -3251,7 +3289,7 @@ function CommerceInner() {
             // Add to local cart
             const modifiers = (customAttributes || [])
                 .filter(a => !a.key?.startsWith('_'))
-                .map(a => ({ key: a.key, value: a.value, price: 0 }));
+                .map(a => ({ key: a.key, value: a.value, price: a.price || 0 }));
 
             // If delivery: check for saved address or navigate to delivery check page
             if (fulfillmentMethod === 'delivery') {
@@ -3284,6 +3322,34 @@ function CommerceInner() {
 
             localCart.addToCart(product, variant, quantity, modifiers, { fulfillmentMethod, fulfillmentLocationId, fulfillmentLocationName });
             console.log('✅ Added to local cart');
+
+            // Check for cross-sell products — show modal if available
+            // Look up from allProducts to get canonical version with crosssellProducts
+            // (feed item product objects may not carry this field)
+            const catalogProduct = allProducts.find(p => p.sku === product.sku) || product;
+            const crossSells = (catalogProduct.crosssellProducts || [])
+                .map(cs => allProducts.find(p => p.sku === cs.sku))
+                .filter(Boolean);
+
+            if (crossSells.length > 0) {
+                // Show cross-sell modal instead of normal post-add flow
+                setAddedProduct(product);
+                setCrossSellTrigger({ product, variant, quantity, modifiers });
+                setShowCrossSellModal(true);
+                sendToCommerce({ type: 'CLOSE_PRODUCT' });
+                setIsProductDetail(false);
+                return;
+            }
+
+            // Kiosk mode: skip banner, navigate back to grid, open cart
+            // Cart sync to POS is handled automatically by the broadcast effect in useKioskMode
+            if (isKiosk) {
+                sendToCommerce({ type: 'CLOSE_PRODUCT' });
+                setIsProductDetail(false);
+                navigate('/kiosk', { replace: true });
+                setTimeout(() => sendToCommerce({ type: 'OPEN_CART' }), 300);
+                return;
+            }
 
             // Close the modal via state machine and reset product detail mode
             sendToCommerce({ type: 'CLOSE_PRODUCT' });
@@ -3375,6 +3441,66 @@ function CommerceInner() {
         }
         return staticCrossSells;
     }, [addedProduct, allProducts, currentSegment, getSegmentCrossSells]);
+
+    // Cross-sell modal handlers
+    const handleCloseCrossSellModal = useCallback(() => {
+        setShowCrossSellModal(false);
+        if (!crossSellTrigger) return;
+        const { product, variant, quantity, modifiers } = crossSellTrigger;
+        setCrossSellTrigger(null);
+
+        // Kiosk mode: navigate back to grid and open cart
+        if (isKiosk) {
+            sendToCommerce({ type: 'CLOSE_PRODUCT' });
+            setIsProductDetail(false);
+            navigate('/kiosk', { replace: true });
+            setTimeout(() => sendToCommerce({ type: 'OPEN_CART' }), 300);
+            return;
+        }
+
+        // Resume normal "Added to Cart" flow
+        setAddedVariant(variant);
+        setAddedQuantity(quantity);
+        setAddedModifiers(modifiers);
+        setShowAddedToCart(true);
+        sessionStorage.setItem('addedToCart', JSON.stringify({ show: true, product, variant, quantity, modifiers }));
+        returningFromProductModal.current = true;
+        returningFromAddToCart.current = true;
+        const origin = returnPath.current || originPathRef.current;
+        if (origin && origin !== '/' && !origin.startsWith('/product/')) {
+            navigate(origin, { replace: true });
+        } else {
+            const HANDLE_TO_PATH = { merchandise: 'collectibles' };
+            const categoryPath = HANDLE_TO_PATH[product?.category] || product?.category;
+            navigate(`/${categoryPath || 'desserts'}`, { replace: true });
+        }
+        window.scrollTo(0, 0);
+        returnPath.current = null;
+        savedScrollPosition.current = 0;
+    }, [crossSellTrigger, navigate, isKiosk, sendToCommerce]);
+
+    const handleCrossSellAdd = useCallback((crossSellProduct, position) => {
+        const triggerId = addedProduct?.id || addedProduct?.sku;
+        const hasModifiers = crossSellProduct.modifierIds?.length > 0 || crossSellProduct.isMYO;
+        trackCrossSellProductClicked(crossSellProduct.id, position, triggerId);
+        if (hasModifiers) {
+            setShowCrossSellModal(false);
+            setCrossSellTrigger(null);
+            handleChooseProduct(crossSellProduct.id);
+        } else {
+            const firstVariant = crossSellProduct.variants?.[0];
+            const discount = crossSellProduct.crossSellDiscount;
+            const originalPrice = parseFloat(firstVariant?.price || crossSellProduct.price || 0);
+            const displayPrice = discount
+                ? Math.max(0, discount.valueType === 'PERCENTAGE' ? originalPrice * (1 - discount.value / 100) : originalPrice - discount.value / 100)
+                : originalPrice;
+            trackCrossSellAddedToCart(crossSellProduct.id, firstVariant?.id, displayPrice, triggerId);
+            localCart.addToCart(crossSellProduct, firstVariant, 1, [], {
+                crossSellDiscount: discount ? { id: discount.id, valueType: discount.valueType, value: discount.value } : null,
+                triggerProductId: triggerId,
+            });
+        }
+    }, [localCart, handleChooseProduct, addedProduct]);
 
     // Count blind boxes in cart
     const blindBoxesInCart = useMemo(() => {
@@ -4831,7 +4957,7 @@ function CommerceInner() {
 
 
 
-            {(() => {
+            {!isKiosk && (() => {
                 const activeProduct = productId && activeProductItem?.product
                     ? activeProductItem.product
                     : feedActive && feedItems[feedIndex]?.product
@@ -4854,7 +4980,7 @@ function CommerceInner() {
             })()}
 
             {/* Structured data for SEO */}
-            {(() => {
+            {!isKiosk && (() => {
                 const activeProduct = productId && activeProductItem?.product
                     ? activeProductItem.product
                     : feedActive && feedItems[feedIndex]?.product
@@ -5920,6 +6046,7 @@ function CommerceInner() {
                                     variant="contained"
                                     onClick={() => {
                                         if (button.link?.startsWith('http')) {
+                                            trackExternalLinkClicked(button.link, button.label);
                                             window.open(button.link, '_blank');
                                         } else {
                                             navigate(button.link);
@@ -6224,8 +6351,8 @@ function CommerceInner() {
                                             role="link"
                                             tabIndex={0}
                                             aria-label={`View event: ${event.title}`}
-                                            onClick={() => navigate('/events', { state: { selectedEventId: event.id } })}
-                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/events', { state: { selectedEventId: event.id } }); } }}
+                                            onClick={() => { trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
+                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); } }}
                                             sx={{
                                                 mx: 2,
                                                 borderRadius: 3,
@@ -6315,8 +6442,8 @@ function CommerceInner() {
                                                     role="link"
                                                     tabIndex={0}
                                                     aria-label={`View event: ${event.title}`}
-                                                    onClick={() => navigate('/events', { state: { selectedEventId: event.id } })}
-                                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/events', { state: { selectedEventId: event.id } }); } }}
+                                                    onClick={() => { trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
+                                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); } }}
                                                     sx={{
                                                         flex: 1,
                                                         minWidth: 0,
@@ -6424,8 +6551,8 @@ function CommerceInner() {
                                                 role="link"
                                                 tabIndex={0}
                                                 aria-label={`View event: ${event.title}`}
-                                                onClick={() => navigate('/events', { state: { selectedEventId: event.id } })}
-                                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/events', { state: { selectedEventId: event.id } }); } }}
+                                                onClick={() => { trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
+                                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); } }}
                                                 sx={{
                                                     flexShrink: 0,
                                                     width: { xs: '280px', sm: '320px', md: '360px' },
@@ -6526,7 +6653,7 @@ function CommerceInner() {
             </Box>
 
             {/* Footer - after all content, hidden during product detail */}
-            {(!feedActive || closingDetail || closingProduct) && !showProduct && <Footer />}
+            {!isKiosk && (!feedActive || closingDetail || closingProduct) && !showProduct && <Footer />}
 
             {/* Cart Drawer */}
             <CartDrawer
@@ -6542,6 +6669,44 @@ function CommerceInner() {
                 localCart={localCart}
                 crossSellProducts={cartCrossSellProducts}
                 crossSellTriggerProductId={addedProduct?.id || addedProduct?.sku}
+                {...(isKiosk && kioskCtx ? {
+                    isKioskMode: !!kioskCtx.kioskTerminal,
+                    isPairedKiosk: kioskCtx.isKioskPaired,
+                    kioskCart: (localCart?.cart || []).map(item => ({
+                        sku: item.sku || item.productId,
+                        variantSku: item.variantSku || item.variantId,
+                        name: item.name || '',
+                        variantName: item.variantName || '',
+                        unitPrice: item.unitPrice || 0,
+                        quantity: item.quantity || 1,
+                        modifiers: item.modifiers || [],
+                        image: item.image || '',
+                    })),
+                    onKioskCartChange: (updatedItems) => {
+                        localCart.clearCart();
+                        updatedItems.forEach(item => {
+                            localCart.addToCart(
+                                { id: item.sku, name: item.name, imageUrl: item.image },
+                                { id: item.variantSku, sku: item.variantSku, title: item.variantName, price: item.unitPrice },
+                                item.quantity,
+                                item.modifiers || []
+                            );
+                        });
+                    },
+                    kioskTerminal: kioskCtx.kioskTerminal,
+                    kioskRemoteCheckout: kioskCtx.kioskRemoteCheckout,
+                    kioskSendForward: kioskCtx.kioskSendForward,
+                    kioskCancelSignal: kioskCtx.kioskCancelSignal,
+                } : {})}
+            />
+
+            {/* Cross-Sell Modal */}
+            <CrossSellModal
+                open={showCrossSellModal}
+                onClose={handleCloseCrossSellModal}
+                products={cartCrossSellProducts}
+                onAdd={handleCrossSellAdd}
+                triggerProduct={crossSellTrigger?.product}
             />
 
             {/* Blind Box Selector Modal */}

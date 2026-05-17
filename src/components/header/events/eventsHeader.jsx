@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Box, Typography } from '@mui/material';
 import Logo from '@/assets/images/svg/logo.svg';
 import { LayoutContext } from '@/contexts/events/EventsLayoutContext';
+import { trackNavItemClicked, trackLogoClicked } from '@/services/analytics';
 
 // Navigation items - cross-app nav
 const NAV_ITEMS = [
@@ -24,6 +25,7 @@ const Header = () => {
     
     const handleLogoClick = (e) => {
         e.preventDefault();
+        trackLogoClicked();
         sendToFundraiser({ type: 'RESET' });
         navigate('/');
     };
@@ -38,10 +40,10 @@ const Header = () => {
     };
     
     const handleNavClick = (item) => {
+        trackNavItemClicked(item.label, item.path);
         if (item.external) {
             window.location.href = item.path;
         } else if (item.isCurrentApp) {
-            // Already on this app, navigate to root
             navigate('/');
         } else {
             navigate(item.path);

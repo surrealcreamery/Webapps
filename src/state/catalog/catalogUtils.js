@@ -228,6 +228,8 @@ export const buildAllProducts = (catalog) => {
             merchandiseType: isBlindBox ? 'blind_box_collectible' : null,
             tags: cp.tags || [],
             crosssellProducts: cp.crossSellProducts || [],
+            modifierIds: cp.modifierIds || [],
+            isMYO: (cp.name || '').toLowerCase().includes('make your own'),
         };
     });
 };
@@ -405,6 +407,7 @@ export const buildSubcategoriesFromCatalog = (catalog, _unused = {}, locationSlu
                 id: catalogProduct.productId || catalogProduct.sku || catalogProduct.name,
                 platformIds: catalogProduct.platformIds,
                 name: catalogProduct.name,
+                sku: catalogProduct.sku || null,
                 description: catalogProduct.description || '',
                 category: catalogProduct.categoryIds?.[0] || null,
                 categoryIds: catalogProduct.categoryIds || [],
@@ -413,6 +416,7 @@ export const buildSubcategoriesFromCatalog = (catalog, _unused = {}, locationSlu
                 imageUrl: s3Image,
                 fulfillmentMethods: catalogProduct.fulfillmentMethods || [],
                 crosssellProducts: catalogProduct.crossSellProducts || [],
+                modifierIds: catalogProduct.modifierIds || [],
             };
 
             return {

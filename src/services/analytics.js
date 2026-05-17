@@ -117,6 +117,50 @@ export function trackBackButtonClicked(fromPath) {
   track('back_button_clicked', { from_path: fromPath });
 }
 
+export function trackLocationCallClicked(locationName) {
+  track('location_call_clicked', { location_name: locationName });
+}
+
+export function trackLocationDirectionsClicked(locationName) {
+  track('location_directions_clicked', { location_name: locationName });
+}
+
+export function trackLocationSelectorClosed() {
+  track('location_selector_closed');
+}
+
+export function trackStoreLocatorSelected(locationId, locationName) {
+  track('store_locator_selected', { location_id: locationId, location_name: locationName });
+}
+
+export function trackStoreLocatorClosed() {
+  track('store_locator_closed');
+}
+
+export function trackTerminalCheckoutCancelled() {
+  track('terminal_checkout_cancelled');
+}
+
+export function trackExternalLinkClicked(url, label) {
+  track('external_link_clicked', { url, label });
+}
+
+export function trackEventCardClicked(eventId, eventTitle) {
+  track('event_card_clicked', { event_id: eventId, event_title: eventTitle });
+}
+
+export function trackRedeemButtonClicked() {
+  track('redeem_button_clicked');
+}
+
+export function trackFooterModalClosed(modalType) {
+  track('footer_modal_closed', { modal_type: modalType });
+}
+
+export function trackProductAlertDismissed(productId, errorMessage) {
+  track('product_alert_dismissed', { product_id: productId, error: errorMessage });
+}
+
 // ── Browse / Product funnel ──
 
 export function trackCategoryViewed(categoryId, categoryName) {

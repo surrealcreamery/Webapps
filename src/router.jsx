@@ -80,6 +80,9 @@ import AccountPage from '@/pages/AccountPage';
 import SignageLayout from '@/layouts/commerce/signageLayout';
 import Signage from '@/pages/Signage';
 
+import KioskLayout from '@/layouts/commerce/kioskLayout';
+import { KioskOverlay } from '@/components/kiosk/KioskOverlay';
+
 // --- APP CONFIGURATION OBJECT ---
 const appConfigs = {
   SUBSCRIPTION: {
@@ -387,6 +390,24 @@ const router = createBrowserRouter([
             element: <Signage />,
             errorElement: <RouteErrorBoundary />,
           }
+        ]
+      }] : []),
+      // Kiosk route — Commerce wrapped in KioskOverlay for tablet ordering
+      ...(VITE_APP_MODE === 'COMMERCE' ? [{
+        path: '/kiosk',
+        element: <KioskLayout />,
+        errorElement: <RouteErrorBoundary />,
+        children: [
+          {
+            index: true,
+            element: <KioskOverlay><Commerce /></KioskOverlay>,
+            errorElement: <RouteErrorBoundary />,
+          },
+          {
+            path: 'product/:productId',
+            element: <KioskOverlay><Commerce /></KioskOverlay>,
+            errorElement: <RouteErrorBoundary />,
+          },
         ]
       }] : []),
     ]

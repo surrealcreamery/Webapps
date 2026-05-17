@@ -12,10 +12,14 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import PhoneIcon from '@mui/icons-material/Phone';
 import DirectionsIcon from '@mui/icons-material/Directions';
-import { trackLocationChanged } from '@/services/analytics';
+import { trackLocationChanged, trackLocationCallClicked, trackLocationDirectionsClicked, trackLocationSelectorClosed } from '@/services/analytics';
+import { useSegment } from '@/contexts/commerce/SegmentContext';
+
+const STATE_NAMES = { PA: 'Pennsylvania', NY: 'New York', NJ: 'New Jersey', DE: 'Delaware' };
 
 export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocation, locations = [] }) => {
     const theme = useTheme();
+    const { recordDirectionsClicked, recordCallClicked } = useSegment();
     const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
 
     const handleSelectLocation = (locationId) => {
@@ -24,10 +28,15 @@ export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocat
         onClose();
     };
 
+    const handleClose = () => {
+        trackLocationSelectorClosed();
+        onClose();
+    };
+
     return (
         <Dialog
             open={open}
-            onClose={onClose}
+            onClose={handleClose}
             fullScreen={isSmallScreen}
             maxWidth="md"
             fullWidth
@@ -50,7 +59,7 @@ export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocat
             {/* Close Button */}
             <IconButton
                 aria-label="Close location selector"
-                onClick={onClose}
+                onClick={handleClose}
                 sx={{
                     position: 'absolute',
                     right: 12,
@@ -113,6 +122,7 @@ export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocat
                                         <IconButton
                                             component="a"
                                             href={`tel:${location.phone}`}
+                                            onClick={() => { trackLocationCallClicked(location.name); recordCallClicked(); }}
                                             aria-label="Call store"
                                             sx={{
                                                 backgroundColor: 'grey.100',
@@ -141,6 +151,7 @@ export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocat
                                             href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.address)}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
+                                            onClick={() => { trackLocationDirectionsClicked(location.name); recordDirectionsClicked(); }}
                                             aria-label="Get directions"
                                             sx={{
                                                 backgroundColor: 'grey.100',
@@ -189,71 +200,88 @@ export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocat
                     </>
                 )}
 
-                {/* Locations List - Show all locations if none selected, or non-selected ones if one is selected */}
+                {/* Locations List - Grouped by state */}
                 <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                    {locations.filter(loc => loc.id !== selectedLocationId).map((location, index, filteredArray) => (
-                        <React.Fragment key={location.id}>
-                            <Box
-                                sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    py: 3,
-                                }}
-                            >
-                                {/* Location Info - Left aligned */}
-                                <Box sx={{ flex: 1 }}>
-                                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                                        {location.name}
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                        {location.address}
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                        {location.phone}
-                                    </Typography>
-                                    <Button
-                                        variant="text"
-                                        component="a"
-                                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.address)}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
+                    {Object.entries(
+                        locations
+                            .filter(loc => loc.id !== selectedLocationId)
+                            .reduce((groups, loc) => {
+                                const state = loc.state || 'Other';
+                                if (!groups[state]) groups[state] = [];
+                                groups[state].push(loc);
+                                return groups;
+                            }, {})
+                    ).map(([state, stateLocations]) => (
+                        <Box key={state} role="group" aria-labelledby={`state-heading-${state}`}>
+                            <Typography id={`state-heading-${state}`} component="h3" variant="subtitle1" sx={{ fontWeight: 700, color: 'text.secondary', mt: 2, mb: 1 }}>
+                                {STATE_NAMES[state] || state}
+                            </Typography>
+                            {stateLocations.map((location, index) => (
+                                <React.Fragment key={location.id}>
+                                    <Box
                                         sx={{
-                                            mt: 0.5,
-                                            p: 0,
-                                            minWidth: 'auto',
-                                            textDecoration: 'underline',
-                                            fontSize: 'inherit',
-                                            textTransform: 'none',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            py: 3,
                                         }}
                                     >
-                                        Get Directions
-                                    </Button>
-                                </Box>
+                                        {/* Location Info - Left aligned */}
+                                        <Box sx={{ flex: 1 }}>
+                                            <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+                                                {location.name}
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {location.address}
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {location.phone}
+                                            </Typography>
+                                            <Button
+                                                variant="text"
+                                                component="a"
+                                                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.address)}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={() => { trackLocationDirectionsClicked(location.name); recordDirectionsClicked(); }}
+                                                sx={{
+                                                    mt: 0.5,
+                                                    p: 0,
+                                                    minWidth: 'auto',
+                                                    textDecoration: 'underline',
+                                                    fontSize: 'inherit',
+                                                    textTransform: 'none',
+                                                }}
+                                            >
+                                                Get Directions
+                                            </Button>
+                                        </Box>
 
-                                {/* Select Button - Right aligned */}
-                                <Button
-                                    variant="contained"
-                                    onClick={() => handleSelectLocation(location.id)}
-                                    aria-label={`Select ${location.name}`}
-                                    sx={{
-                                        backgroundColor: '#000000',
-                                        color: '#ffffff',
-                                        '&:hover': {
-                                            backgroundColor: '#333333'
-                                        },
-                                        ml: 2
-                                    }}
-                                >
-                                    Select
-                                </Button>
-                            </Box>
-                            
-                            {/* Divider - Don't show after last item */}
-                            {index < filteredArray.length - 1 && (
-                                <Box sx={{ borderBottom: 1, borderColor: 'divider' }} />
-                            )}
-                        </React.Fragment>
+                                        {/* Select Button - Right aligned */}
+                                        <Button
+                                            variant="contained"
+                                            onClick={() => handleSelectLocation(location.id)}
+                                            aria-label={`Select ${location.name}`}
+                                            sx={{
+                                                backgroundColor: '#000000',
+                                                color: '#ffffff',
+                                                '&:hover': {
+                                                    backgroundColor: '#333333'
+                                                },
+                                                ml: 2
+                                            }}
+                                        >
+                                            Select
+                                        </Button>
+                                    </Box>
+
+                                    {/* Divider - Don't show after last item in group */}
+                                    {index < stateLocations.length - 1 && (
+                                        <Box sx={{ borderBottom: 1, borderColor: 'divider' }} />
+                                    )}
+                                </React.Fragment>
+                            ))}
+                        </Box>
                     ))}
                 </Box>
             </DialogContent>

@@ -734,6 +734,7 @@ export default function CheckoutPage() {
   const [addressFields, setAddressFields] = useState(savedAddress.fields || { address1: '', address2: '', city: '', provinceCode: '', zip: '' });
   const [addressInput, setAddressInput] = useState(savedAddress.input || '');
   const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [addressActiveIndex, setAddressActiveIndex] = useState(-1);
   const [useManualAddress, setUseManualAddress] = useState(false);
   const [addressValidated, setAddressValidated] = useState(!!savedAddress.fields?.address1);
 
@@ -756,8 +757,13 @@ export default function CheckoutPage() {
   const [billingSameAsAddress, setBillingSameAsAddress] = useState(true);
   const [billingInput, setBillingInput] = useState('');
   const [billingSuggestions, setBillingSuggestions] = useState([]);
+  const [billingActiveIndex, setBillingActiveIndex] = useState(-1);
   const [useManualBillingAddress, setUseManualBillingAddress] = useState(false);
   const [billingValidated, setBillingValidated] = useState(false);
+
+  // Communications opt-in
+  const [optInEmail, setOptInEmail] = useState(true);
+  const [optInSms, setOptInSms] = useState(true);
 
   // Focus management refs
   const nextSectionRef = useRef(null);
@@ -1190,12 +1196,13 @@ export default function CheckoutPage() {
     }
     autocompleteServiceRef.current.getPlacePredictions(
       { input: value, componentRestrictions: { country: 'us' }, types: ['address'], sessionToken: sessionTokenRef.current },
-      (predictions) => setAddressSuggestions(predictions || []),
+      (predictions) => { setAddressSuggestions(predictions || []); setAddressActiveIndex(-1); },
     );
   }, []);
 
   const handleSelectAddressSuggestion = useCallback((suggestion) => {
     setAddressSuggestions([]);
+    setAddressActiveIndex(-1);
     setAddressInput(suggestion.description);
     if (!placesServiceRef.current) return;
     placesServiceRef.current.getDetails(
@@ -1234,12 +1241,13 @@ export default function CheckoutPage() {
     }
     autocompleteServiceRef.current.getPlacePredictions(
       { input: value, componentRestrictions: { country: 'us' }, types: ['address'], sessionToken: sessionTokenRef.current },
-      (predictions) => setBillingSuggestions(predictions || []),
+      (predictions) => { setBillingSuggestions(predictions || []); setBillingActiveIndex(-1); },
     );
   }, []);
 
   const handleSelectBillingSuggestion = useCallback((suggestion) => {
     setBillingSuggestions([]);
+    setBillingActiveIndex(-1);
     setBillingInput(suggestion.description);
     if (!placesServiceRef.current) return;
     placesServiceRef.current.getDetails(
@@ -1456,6 +1464,8 @@ export default function CheckoutPage() {
         phone: formattedPhone || undefined,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
+        optInEmail,
+        optInSms: phone.replace(/\D/g, '').length >= 10 ? optInSms : false,
       });
       setCustomerMatch(result);
       // Store resolved customer identity
@@ -1499,7 +1509,7 @@ export default function CheckoutPage() {
       callApi('saveCart', {
         cartId,
         items: cart,
-        contact: { email: email.trim(), phone: phone.trim(), firstName: firstName.trim(), lastName: lastName.trim() },
+        contact: { email: email.trim(), phone: phone.trim(), firstName: firstName.trim(), lastName: lastName.trim(), optInEmail, optInSms: phone.replace(/\D/g, '').length >= 10 ? optInSms : false },
         address: addressFields.address1 ? addressFields : undefined,
         fulfillmentMethods,
         locationSlug: selectedLocationSlug || undefined,
@@ -1515,7 +1525,7 @@ export default function CheckoutPage() {
     // Trigger order calculation now that contact is verified
     // Skip if we already have a cached calc, or if shipping is needed but rates haven't loaded yet
     if (cart.length > 0 && !checkoutOrderCalc && (!needsShippingAddress || selectedShippingTierId)) fetchOrderCalc();
-  }, [firstName, lastName, email, phone, cart, fetchOrderCalc, cartId, addressFields, fulfillmentMethods, selectedLocationSlug, subtotalCents, checkoutOrderCalc, needsShippingAddress, selectedShippingTierId]);
+  }, [firstName, lastName, email, phone, optInEmail, optInSms, cart, fetchOrderCalc, cartId, addressFields, fulfillmentMethods, selectedLocationSlug, subtotalCents, checkoutOrderCalc, needsShippingAddress, selectedShippingTierId]);
 
   const handleEditContact = useCallback(() => {
     setContactVerified(false);
@@ -1630,6 +1640,8 @@ export default function CheckoutPage() {
       lastName: lastName.trim(),
       email: email.trim(),
       phone: formattedPhone,
+      optInEmail,
+      optInSms: phone.replace(/\D/g, '').length >= 10 ? optInSms : false,
     };
     setCheckoutCustomer(customer);
     setCheckoutFulfillment({
@@ -1733,6 +1745,8 @@ export default function CheckoutPage() {
         lastName: walletLastName,
         email: walletEmail,
         phone: walletPhone,
+        optInEmail,
+        optInSms: phone.replace(/\D/g, '').length >= 10 ? optInSms : false,
       };
 
       // Use wallet shipping address for delivery/shipping if available
@@ -2165,8 +2179,20 @@ export default function CheckoutPage() {
               helperText={fieldsTouched.email && !email.trim() ? 'Email is required' : fieldsTouched.email && !/^\S+@\S+\.\S+$/.test(email.trim()) ? 'Please enter a valid email address' : ''}
               inputProps={{ 'aria-invalid': fieldsTouched.email && (!email.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())) }}
             />
-            <TextField label="Phone (optional)" fullWidth value={phone}
+            <TextField label="Phone (for order updates)" fullWidth value={phone}
               onChange={e => setPhone(formatPhone(e.target.value))} />
+          </Stack>
+          <Stack spacing={0} sx={{ mt: -0.5, mb: 1 }}>
+            <FormControlLabel
+              control={<Checkbox size="small" checked={optInEmail} onChange={e => setOptInEmail(e.target.checked)} inputProps={{ 'aria-label': 'Send me my receipt and order updates via email' }} />}
+              label={<Typography variant="caption" color="text.secondary">Send me my receipt and order updates</Typography>}
+            />
+            {phone.replace(/\D/g, '').length >= 10 && (
+              <FormControlLabel
+                control={<Checkbox size="small" checked={optInSms} onChange={e => setOptInSms(e.target.checked)} inputProps={{ 'aria-label': 'Text me order updates via SMS' }} />}
+                label={<Typography variant="caption" color="text.secondary">Text me order updates</Typography>}
+              />
+            )}
           </Stack>
           <Button
             fullWidth
@@ -2324,6 +2350,13 @@ export default function CheckoutPage() {
                 fullWidth
                 value={addressInput}
                 onChange={e => handleAddressInputChange(e.target.value)}
+                onKeyDown={e => {
+                  if (!addressSuggestions.length) return;
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setAddressActiveIndex(i => Math.min(i + 1, addressSuggestions.length - 1)); }
+                  else if (e.key === 'ArrowUp') { e.preventDefault(); setAddressActiveIndex(i => Math.max(i - 1, 0)); }
+                  else if (e.key === 'Enter' && addressActiveIndex >= 0) { e.preventDefault(); handleSelectAddressSuggestion(addressSuggestions[addressActiveIndex]); }
+                  else if (e.key === 'Escape') { setAddressSuggestions([]); setAddressActiveIndex(-1); }
+                }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -2334,8 +2367,9 @@ export default function CheckoutPage() {
                 inputProps={{
                   role: 'combobox',
                   'aria-expanded': addressSuggestions.length > 0,
-                  'aria-controls': 'address-suggestions-listbox',
+                  'aria-controls': addressSuggestions.length > 0 ? 'address-suggestions-listbox' : undefined,
                   'aria-autocomplete': 'list',
+                  'aria-activedescendant': addressActiveIndex >= 0 ? `address-option-${addressActiveIndex}` : undefined,
                 }}
                 sx={{ '& .MuiOutlinedInput-root': { height: 50 } }}
               />
@@ -2347,18 +2381,18 @@ export default function CheckoutPage() {
                   aria-label="Address suggestions"
                   sx={{ mt: 0.5, maxHeight: 240, overflow: 'auto' }}
                 >
-                  {addressSuggestions.map((s) => (
+                  {addressSuggestions.map((s, idx) => (
                     <Box
                       key={s.place_id}
+                      id={`address-option-${idx}`}
                       role="option"
-                      aria-selected={false}
-                      tabIndex={0}
+                      aria-selected={idx === addressActiveIndex}
+                      tabIndex={-1}
                       onClick={() => handleSelectAddressSuggestion(s)}
-                      onKeyDown={e => { if (e.key === 'Enter') handleSelectAddressSuggestion(s); }}
                       sx={{
                         px: 2, py: 1.5, cursor: 'pointer',
+                        bgcolor: idx === addressActiveIndex ? 'action.hover' : 'transparent',
                         '&:hover': { bgcolor: 'action.hover' },
-                        '&:focus': { bgcolor: 'action.hover', outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 },
                         borderBottom: '1px solid', borderColor: 'divider',
                       }}
                     >
@@ -2409,16 +2443,16 @@ export default function CheckoutPage() {
 
           {/* Delivery availability result */}
           {needsDeliveryAddress && (deliveryChecking || deliveryResult) && (
-            <Box sx={{ mb: 3 }}>
+            <Box sx={{ mb: 3 }} aria-live="polite" aria-atomic="true">
               {deliveryChecking ? (
-                <Paper variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Paper variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5 }} role="status">
                   <CircularProgress size={20} aria-label="Checking delivery availability" />
                   <Typography variant="body2" color="text.secondary">Checking delivery availability...</Typography>
                 </Paper>
               ) : deliveryResult?.available ? (
-                <Paper variant="outlined" sx={{ p: 2, bgcolor: '#e8f5e9', borderColor: '#2e7d32' }}>
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: '#e8f5e9', borderColor: '#2e7d32' }} role="status">
                   <Stack direction="row" alignItems="center" spacing={1}>
-                    <CheckCircleIcon sx={{ color: '#2e7d32', fontSize: 20 }} />
+                    <CheckCircleIcon sx={{ color: '#2e7d32', fontSize: 20 }} aria-hidden="true" />
                     <Typography variant="body2" fontWeight={600} color="#2e7d32">Delivery Available</Typography>
                   </Stack>
                   {deliveryResult.switchedLocation && deliveryResult.storeName && (
@@ -2440,7 +2474,7 @@ export default function CheckoutPage() {
                   </Stack>
                 </Paper>
               ) : deliveryResult ? (
-                <Paper variant="outlined" sx={{ p: 2, bgcolor: '#fbe9e7', borderColor: '#f44336' }}>
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: '#fbe9e7', borderColor: '#f44336' }} role="alert">
                   <Typography variant="body2" color="error" fontWeight={600}>
                     Delivery Not Available
                   </Typography>
@@ -2712,6 +2746,13 @@ export default function CheckoutPage() {
                 fullWidth
                 value={billingInput}
                 onChange={e => handleBillingInputChange(e.target.value)}
+                onKeyDown={e => {
+                  if (!billingSuggestions.length) return;
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setBillingActiveIndex(i => Math.min(i + 1, billingSuggestions.length - 1)); }
+                  else if (e.key === 'ArrowUp') { e.preventDefault(); setBillingActiveIndex(i => Math.max(i - 1, 0)); }
+                  else if (e.key === 'Enter' && billingActiveIndex >= 0) { e.preventDefault(); handleSelectBillingSuggestion(billingSuggestions[billingActiveIndex]); }
+                  else if (e.key === 'Escape') { setBillingSuggestions([]); setBillingActiveIndex(-1); }
+                }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -2722,8 +2763,9 @@ export default function CheckoutPage() {
                 inputProps={{
                   role: 'combobox',
                   'aria-expanded': billingSuggestions.length > 0,
-                  'aria-controls': 'billing-suggestions-listbox',
+                  'aria-controls': billingSuggestions.length > 0 ? 'billing-suggestions-listbox' : undefined,
                   'aria-autocomplete': 'list',
+                  'aria-activedescendant': billingActiveIndex >= 0 ? `billing-option-${billingActiveIndex}` : undefined,
                 }}
                 sx={{ '& .MuiOutlinedInput-root': { height: 50 } }}
               />
@@ -2735,18 +2777,18 @@ export default function CheckoutPage() {
                   aria-label="Billing address suggestions"
                   sx={{ mt: 0.5, maxHeight: 240, overflow: 'auto' }}
                 >
-                  {billingSuggestions.map((s) => (
+                  {billingSuggestions.map((s, idx) => (
                     <Box
                       key={s.place_id}
+                      id={`billing-option-${idx}`}
                       role="option"
-                      aria-selected={false}
-                      tabIndex={0}
+                      aria-selected={idx === billingActiveIndex}
+                      tabIndex={-1}
                       onClick={() => handleSelectBillingSuggestion(s)}
-                      onKeyDown={e => { if (e.key === 'Enter') handleSelectBillingSuggestion(s); }}
                       sx={{
                         px: 2, py: 1.5, cursor: 'pointer',
+                        bgcolor: idx === billingActiveIndex ? 'action.hover' : 'transparent',
                         '&:hover': { bgcolor: 'action.hover' },
-                        '&:focus': { bgcolor: 'action.hover', outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 },
                         borderBottom: '1px solid', borderColor: 'divider',
                       }}
                     >

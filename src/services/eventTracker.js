@@ -57,8 +57,35 @@ function getSession() {
       return parsed.id;
     }
   }
+  // New session (first visit or session expired) — fire visitor event
   const id = uuid();
   sessionStorage.setItem('evt_session', JSON.stringify({ id, lastActivity: now }));
+  if (stored && visitorId) {
+    // Session expired mid-visit — re-fire returning_visitor so the new session has one
+    const meta = (() => { try { return JSON.parse(localStorage.getItem(VISITOR_META_KEY)); } catch { return null; } })();
+    if (meta) {
+      const sessionCount = meta.sessionCount || 1;
+      const daysSinceLastVisit = meta.lastVisit ? Math.round((now - new Date(meta.lastVisit).getTime()) / 86400000) : null;
+      let label = `Visit #${sessionCount}${daysSinceLastVisit !== null ? `, ${daysSinceLastVisit}d ago` : ''}`;
+      const utmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+      const rawUtm = utmKeys.filter(k => attribution?.[k]).map(k => `${k}=${attribution[k]}`).join('\n');
+      if (rawUtm) label += `\n${rawUtm}`;
+      queue.push({
+        eventType: 'returning_visitor',
+        eventData: {
+          sessionCount,
+          ...(daysSinceLastVisit !== null ? { daysSinceLastVisit } : {}),
+          referrer: document.referrer || null,
+          landingPage: window.location.pathname,
+          ...(attribution && Object.keys(attribution).length > 2 ? { attribution } : {}),
+          label,
+        },
+        eventId: uuid(),
+        timestamp: new Date().toISOString(),
+        page: window.location.pathname,
+      });
+    }
+  }
   return id;
 }
 
@@ -127,6 +154,8 @@ function flush(useBeacon = false) {
   const fbp = document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/)?.[1] || undefined;
   // TikTok browser ID from _ttp cookie (set by TikTok Pixel)
   const ttp = document.cookie.match(/(?:^|;\s*)_ttp=([^;]*)/)?.[1] || undefined;
+  // DEBUG: check if pixel cookies exist
+  console.log('[Tracker Flush] fbp:', fbp, '| ttp:', ttp, '| fbc:', fbc, '| cookies:', document.cookie.substring(0, 200));
   // GA4 client_id from _ga cookie (format: GA1.1.<client_id> — take everything after second dot)
   const gaRaw = document.cookie.match(/(?:^|;\s*)_ga=([^;]*)/)?.[1];
   const gaClientId = gaRaw ? gaRaw.split('.').slice(2).join('.') : undefined;

@@ -76,6 +76,8 @@ export const SegmentProvider = ({ children }) => {
     productViews: 0,
     addToCartCount: 0,
     variantSelects: 0,
+    directionsClicked: 0,
+    callClicked: 0,
   });
 
   // Persistent visitor ID (never expires, stored in localStorage)
@@ -204,6 +206,12 @@ export const SegmentProvider = ({ children }) => {
         if (rules.behaviorWeights.variantExplorer) {
           score += signals.variantSelects * rules.behaviorWeights.variantExplorer;
         }
+        if (rules.behaviorWeights.directionsClicked) {
+          score += signals.directionsClicked * rules.behaviorWeights.directionsClicked;
+        }
+        if (rules.behaviorWeights.callClicked) {
+          score += signals.callClicked * rules.behaviorWeights.callClicked;
+        }
       }
 
       return { segmentId: seg.segmentId, name: seg.name, score, minScore: rules.minScore || 0 };
@@ -328,6 +336,16 @@ export const SegmentProvider = ({ children }) => {
     triggerScore();
   }, [triggerScore]);
 
+  const recordDirectionsClicked = useCallback(() => {
+    signalsRef.current.directionsClicked += 1;
+    triggerScore();
+  }, [triggerScore]);
+
+  const recordCallClicked = useCallback(() => {
+    signalsRef.current.callClicked += 1;
+    triggerScore();
+  }, [triggerScore]);
+
   /** Get segment-aware cross-sells for a product (cached or async fetch) */
   const getSegmentCrossSells = useCallback((productSku) => {
     if (!currentSegment || !productSku) return [];
@@ -409,8 +427,10 @@ export const SegmentProvider = ({ children }) => {
     recordCategoryView,
     recordAddToCart,
     recordVariantSelect,
+    recordDirectionsClicked,
+    recordCallClicked,
   }), [currentSegment, allScores, isUnknown, getSegmentCrossSells, previousSegment, segmentChanged,
-       recordProductView, recordCategoryView, recordAddToCart, recordVariantSelect, crossSellVersion]);
+       recordProductView, recordCategoryView, recordAddToCart, recordVariantSelect, recordDirectionsClicked, recordCallClicked, crossSellVersion]);
 
   return (
     <SegmentContext.Provider value={value}>

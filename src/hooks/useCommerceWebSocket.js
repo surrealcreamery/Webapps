@@ -97,12 +97,17 @@ export function useCommerceWebSocket({ enabled = true, customerId = null, custom
     const visitorId = getVisitorId();
     const clientUUID = getClientUUID();
     const traits = customerTraitsRef.current || {};
+    // Include kioskDeviceId so the connection record links to the device,
+    // allowing sendDeviceCommand to find this browser connection by deviceId.
+    let deviceId = null;
+    try { deviceId = localStorage.getItem('surreal_kiosk_device_id') || null; } catch { /* ignore */ }
     send({
       action: 'identify',
       role: 'consumer',
       visitorId,
       customerId: customerIdRef.current || null,
       clientUUID,
+      ...(deviceId ? { deviceId } : {}),
       userEmail: traits.email || null,
       userName: traits.name || null,
       userPhone: traits.phone || null,
@@ -216,6 +221,20 @@ export function useCommerceWebSocket({ enabled = true, customerId = null, custom
         // Ignore system messages
         if (parsed.type === 'pong' || parsed.type === 'identified' ||
             parsed.type === 'subscribed' || parsed.type === 'unsubscribed') return;
+
+        // Handle device commands (refresh, lockout)
+        if (parsed.type === 'command') {
+          if (parsed.command === 'refresh') {
+            window.location.reload();
+            return;
+          }
+          if (parsed.command === 'lockout') {
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.reload();
+            return;
+          }
+        }
 
         // Protocol v1 envelope?
         if (parsed.v === 1) {

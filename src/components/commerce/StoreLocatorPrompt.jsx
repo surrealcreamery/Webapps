@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { getLocationFromIP } from '@/components/commerce/geolocation';
+import { trackStoreLocatorSelected, trackStoreLocatorClosed } from '@/services/analytics';
 
 const SlideUpTransition = React.forwardRef(function Transition(props, ref) {
     return <Slide direction="up" ref={ref} {...props} />;
@@ -74,7 +75,7 @@ export const StoreLocatorPrompt = ({
     return (
         <Dialog
             open={open}
-            onClose={onClose}
+            onClose={() => { trackStoreLocatorClosed(); onClose(); }}
             fullScreen={isSmallScreen}
             maxWidth="md"
             fullWidth
@@ -97,7 +98,7 @@ export const StoreLocatorPrompt = ({
         >
             <DialogContent sx={{ p: 0 }}>
                 <IconButton
-                    onClick={onClose}
+                    onClick={() => { trackStoreLocatorClosed(); onClose(); }}
                     aria-label="Close store selector"
                     sx={{ position: 'absolute', right: 12, top: 12, zIndex: 1 }}
                 >
@@ -171,7 +172,7 @@ export const StoreLocatorPrompt = ({
                             <Button
                                 variant="contained"
                                 size="small"
-                                onClick={() => onSelectStore(location.id)}
+                                onClick={() => { trackStoreLocatorSelected(location.id, location.name); onSelectStore(location.id); }}
                                 sx={{
                                     backgroundColor: '#000000',
                                     color: '#ffffff',

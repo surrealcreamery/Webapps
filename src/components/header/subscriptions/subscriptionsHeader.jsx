@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Button, Box, Typography } from '@mui/material';
 import Logo from '@/assets/images/svg/dbc_logo.svg';
 import { LayoutContext } from '@/contexts/subscriptions/SubscriptionsLayoutContext';
+import { trackNavItemClicked, trackLogoClicked, trackRedeemButtonClicked } from '@/services/analytics';
 
 // Navigation items
 const NAV_ITEMS = [
@@ -34,6 +35,7 @@ const Header = () => {
 
     const handleLogoClick = (e) => {
         e.preventDefault();
+        trackLogoClicked();
         if (resetWizardFlow) {
             resetWizardFlow();
         }
@@ -48,6 +50,7 @@ const Header = () => {
     };
 
     const handleNavClick = (item) => {
+        trackNavItemClicked(item.label, item.path);
         if (item.external) {
             window.location.href = item.path;
         } else if (item.isCurrentApp) {
@@ -165,7 +168,7 @@ const Header = () => {
                                     if (showRedeemButton) {
                                         console.log('%c[Header] Decision: Rendering Redeem Button', 'color: green');
                                         return (
-                                            <Button variant="outlined" href={`${basePath}/redeem`} sx={buttonStyles}>Redeem</Button>
+                                            <Button variant="outlined" href={`${basePath}/redeem`} onClick={() => trackRedeemButtonClicked()} sx={buttonStyles}>Redeem</Button>
                                         );
                                     }
                                     console.log('%c[Header] Decision: Rendering NO button.', 'color: red');

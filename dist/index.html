@@ -20,26 +20,65 @@
 
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-		<title>Surreal Creamery Events & Fundraisers</title>
+		<!-- LeadPipe visitor identification (skip localhost to preserve ID quota) -->
+		<script>
+		if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+			var s = document.createElement('script');
+			s.src = 'https://leadpipe.aws53.cloud/p/cff7d60b-dcea-4f50-a959-141ec7020d1c.js';
+			s.async = true;
+			document.head.appendChild(s);
+		}
+		</script>
+
+		<title>Surreal Creamery | Ice Cream, Desserts & Collectibles</title>
+		<meta name="description" content="Shop exclusive tokidoki x Surreal Creamery ice cream, desserts, and blind box collectibles. Order online for pickup, delivery, or shipping." />
 
 		<link rel="preconnect" href="https://fonts.googleapis.com">
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 		<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300..700&family=Outfit:wght@100..900&family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap" rel="stylesheet">
 		
-		<script type="module" crossorigin src="/assets/index-Csd2-1xB.js"></script>
-		<link rel="stylesheet" crossorigin href="/assets/index-FqXFpuN_.css">
-	</head>
-	<!-- Google tag (gtag.js) -->
-	<script async src="https://www.googletagmanager.com/gtag/js?id=G-YFQKBRHWNV"></script>
+	<!-- GA4 -->
+	<script async src="https://www.googletagmanager.com/gtag/js?id=G-CHP81EGC14"></script>
 	<script>
 	window.dataLayer = window.dataLayer || [];
 	function gtag(){dataLayer.push(arguments);}
+	gtag('consent', 'default', {
+		analytics_storage: 'granted',
+		ad_storage: 'granted',
+		ad_user_data: 'granted',
+		ad_personalization: 'granted'
+	});
 	gtag('js', new Date());
-
-	gtag('config', 'G-YFQKBRHWNV');
+	var _dbg = location.hostname.indexOf('beta') === 0 || location.search.indexOf('ga_debug') > -1;
+	gtag('config', 'G-CHP81EGC14', _dbg ? { debug_mode: true } : {});
 	</script>
+
+	<!-- Meta Pixel -->
+	<script>
+	!function(f,b,e,v,n,t,s)
+	{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+	n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+	if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+	n.queue=[];t=b.createElement(e);t.async=!0;
+	t.src=v;s=b.getElementsByTagName(e)[0];
+	s.parentNode.insertBefore(t,s)}(window, document,'script',
+	'https://connect.facebook.net/en_US/fbevents.js');
+	fbq('init', '4321747928087288');
+	fbq('track', 'PageView');
+	</script>
+	<!-- TikTok Pixel -->
+	<script>
+	!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie","holdConsent","revokeConsent","grantConsent"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var r="https://analytics.tiktok.com/i18n/pixel/events.js",o=n&&n.partner;ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=r,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};n=document.createElement("script");n.type="text/javascript",n.async=!0,n.src=r+"?sdkid="+e+"&lib="+t;e=document.getElementsByTagName("script")[0];e.parentNode.insertBefore(n,e)};
+	ttq.load('D7RBV6RC77U3CRQJSUM0');
+	ttq.page();
+	}(window, document, 'ttq');
+	</script>
+
+		<script type="module" crossorigin src="/assets/index-BASypl3V.js"></script>
+		<link rel="stylesheet" crossorigin href="/assets/index-f3AwpyYW.css">
+	</head>
 	<body>
-		<div id="error-display" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:yellow;color:red;padding:20px;font-family:monospace;font-size:14px;white-space:pre-wrap;max-height:50vh;overflow:auto;border-bottom:3px solid red"></div>
+		<div id="error-display" role="alert" aria-live="assertive" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:yellow;color:red;padding:20px;font-family:monospace;font-size:14px;white-space:pre-wrap;max-height:50vh;overflow:auto;border-bottom:3px solid red"></div>
 		<script>
 		window.addEventListener('error', function(e) {
 			var el = document.getElementById('error-display');

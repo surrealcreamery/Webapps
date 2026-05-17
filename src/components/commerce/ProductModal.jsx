@@ -23,7 +23,7 @@ import { DiscountZonePlaceholder } from './DiscountZonePlaceholder';
 import { getBestDeliveryEstimate, getShippingEstimate, getEstimatedDeliveryDates } from '@/components/commerce/geolocation';
 import { ModifierSelector } from './ModifierSelector';
 import { selectionsToCustomAttributes } from '@/services/squareModifiers';
-import { trackProductModalClosed, trackQuantityChanged, trackModifiersCompleted } from '@/services/analytics';
+import { trackProductModalClosed, trackQuantityChanged, trackModifiersCompleted, trackProductAlertDismissed } from '@/services/analytics';
 import { resolveFulfillmentLocation } from '@/utils/fulfillmentRouter';
 import { StoreLocatorPrompt } from './StoreLocatorPrompt';
 
@@ -218,7 +218,7 @@ export const ProductModal = ({
     const selectedLoc = storeLocations.find(l => l.id === selectedSlug);
     const fulfillmentMethods = rawFulfillmentMethods.filter(m => {
         if (m === 'pickup' && selectedLoc?.disablePickup) return false;
-        if (m === 'delivery' && selectedLoc?.disableDelivery) return false;
+        if (m === 'delivery' && (!selectedLoc || selectedLoc.disableDelivery || !selectedLoc.deliveryEnabled)) return false;
         if (m === 'shipping' && selectedLoc?.disableShipping) return false;
         return true;
     });
@@ -707,7 +707,7 @@ export const ProductModal = ({
 
                     {/* Inline error display (ADA-compliant replacement for native alert()) */}
                     {inlineError && (
-                        <Alert role="alert" severity="error" onClose={() => setInlineError(null)} sx={{ mb: 2 }}>
+                        <Alert role="alert" severity="error" onClose={() => { trackProductAlertDismissed(product?.id, inlineError); setInlineError(null); }} sx={{ mb: 2 }}>
                             {inlineError}
                         </Alert>
                     )}

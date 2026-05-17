@@ -34,7 +34,7 @@ body {
 		font-size: 1.8rem;		
 	}
 
-	> div {
+	> #root {
 		min-height: 100svh;
 		display: grid;
 		grid-template-columns: 1fr;

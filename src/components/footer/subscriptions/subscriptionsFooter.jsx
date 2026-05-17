@@ -13,6 +13,7 @@ import React, { useState } from 'react';
  import InstagramIcon from '@mui/icons-material/Instagram';
  import FacebookIcon from '@mui/icons-material/Facebook';
  import CloseIcon from '@mui/icons-material/Close';
+ import { trackFooterLinkClicked, trackSocialLinkClicked, trackFooterModalClosed } from '@/services/analytics';
 
  const Footer = () => {
      const [openModal, setOpenModal] = useState(null);
@@ -20,10 +21,12 @@ import React, { useState } from 'react';
      const tableSx = { width: '100%', borderCollapse: 'collapse', mb: 2, '& td, & th': { border: '1px solid #ddd', p: 1, fontSize: '1.6rem', textAlign: 'left', verticalAlign: 'top' }, '& th': { bgcolor: '#f5f5f5', fontWeight: 600 } };
 
      const handleOpenModal = (modalName) => {
+         trackFooterLinkClicked(modalName);
          setOpenModal(modalName);
      };
 
      const handleCloseModal = () => {
+         if (openModal) trackFooterModalClosed(openModal);
          setOpenModal(null);
      };
 
@@ -88,6 +91,7 @@ import React, { useState } from 'react';
                              href="https://www.instagram.com/dollarbobaclub?igsh=M3o4Z2Jsc2tnemxu&utm_source=qr"
                              target="_blank"
                              rel="noopener noreferrer"
+                             onClick={() => trackSocialLinkClicked('instagram')}
                              sx={{ color: 'text.secondary' }}
                          >
                              <InstagramIcon sx={{ width: 45, height: 45 }} />
@@ -97,6 +101,7 @@ import React, { useState } from 'react';
                              href="https://www.facebook.com/profile.php?id=61573998035365"
                              target="_blank"
                              rel="noopener noreferrer"
+                             onClick={() => trackSocialLinkClicked('facebook')}
                              sx={{ color: 'text.secondary' }}
                          >
                              <FacebookIcon sx={{ width: 45, height: 45 }} />

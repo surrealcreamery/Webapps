@@ -86,6 +86,7 @@ const Header = () => {
         kioskCartCount = 0,
         cartCount = 0,
         effectivePath = null,
+        setEffectivePath,
     } = useContext(LayoutContext);
 
     // Debug log
@@ -99,9 +100,10 @@ const Header = () => {
     // Events context (only available on /events routes)
     const eventsContext = useContext(EventsLayoutContext);
 
-    // Determine if we're in catering or events mode
+    // Determine if we're in catering, events, or kiosk mode
     const isCateringMode = location.pathname.startsWith('/catering');
     const isEventsMode = location.pathname.startsWith('/events');
+    const isKioskMode = location.pathname.startsWith('/kiosk');
     const isCheckoutPage = location.pathname === '/checkout';
 
     // Extract catering state if available
@@ -130,6 +132,18 @@ const Header = () => {
     const [locationModalOpen, setLocationModalOpen] = useState(false);
     const [menuDrawerOpen, setMenuDrawerOpen] = useState(false);
 
+    // In kiosk mode, listen for location_sync updates from POS
+    useEffect(() => {
+        if (!isKioskMode) return;
+        const handler = (e) => {
+            if (e.key === 'selectedLocation' && e.newValue) {
+                setSelectedLocation(e.newValue);
+            }
+        };
+        window.addEventListener('storage', handler);
+        return () => window.removeEventListener('storage', handler);
+    }, [isKioskMode]);
+
     // Determine active nav item based on current path
     const getActiveNavItem = () => {
         const currentPath = effectivePath || location.pathname;
@@ -144,14 +158,15 @@ const Header = () => {
             return '/catering';
         }
 
-        // Shop includes root, desserts and merchandise
+        // Shop includes root, desserts, merchandise, and kiosk
         if (currentPath === '/' ||
             currentPath === '/shop' ||
             currentPath.startsWith('/shop/') ||
             currentPath === '/desserts' ||
             currentPath.startsWith('/desserts/') ||
             currentPath === '/collectibles' ||
-            currentPath.startsWith('/collectibles/')) {
+            currentPath.startsWith('/collectibles/') ||
+            currentPath.startsWith('/kiosk')) {
             return '/shop';
         }
 
@@ -208,7 +223,7 @@ const Header = () => {
     // Show commerce account button on shop pages (not catering, events, checkout, subscriptions, or product detail)
     const isSubscriptionsMode = location.pathname.startsWith('/subscriptions');
     const isAccountPage = location.pathname === '/account';
-    const showCommerceAccountButton = !isCateringMode && !isEventsMode && !isCheckoutPage && !isSubscriptionsMode && !isProductDetail && !isAccountPage;
+    const showCommerceAccountButton = !isCateringMode && !isEventsMode && !isKioskMode && !isCheckoutPage && !isSubscriptionsMode && !isProductDetail && !isAccountPage;
 
     // Check if on orders page (for log out button)
     const isOnOrdersPage = isCateringMode && cateringState?.matches('viewingOrders');
@@ -235,6 +250,11 @@ const Header = () => {
             navigate('/events');
         } else if (isCateringMode && sendToCatering) {
             sendToCatering({ type: 'GO_TO_BROWSING' });
+        } else if (isKioskMode) {
+            sendToCommerce({ type: 'CLOSE_PRODUCT' });
+            sendToCommerce({ type: 'CLOSE_CART' });
+            setEffectivePath('/desserts');
+            navigate('/kiosk', { replace: true });
         } else {
             sessionStorage.removeItem('addedToCart');
             sendToCommerce({ type: 'RESET' });
@@ -313,9 +333,11 @@ const Header = () => {
 
     const activeNavPath = getActiveNavItem();
     const navPath = effectivePath || location.pathname;
-    const isShopSubcategory = activeNavPath === '/shop' && (
-        navPath.startsWith('/desserts') || navPath.startsWith('/collectibles')
-    );
+    // In kiosk mode, always show the subcategory toggle (default to desserts)
+    const kioskNavPath = isKioskMode ? (effectivePath || '/desserts') : navPath;
+    const isShopSubcategory = isKioskMode || (activeNavPath === '/shop' && (
+        kioskNavPath.startsWith('/desserts') || kioskNavPath.startsWith('/collectibles')
+    ));
     const SHOP_SUBCATEGORIES = [
         { label: 'Desserts', path: '/desserts' },
         { label: 'Collectibles', path: '/collectibles' },
@@ -393,7 +415,7 @@ const Header = () => {
                             }}
                         >
                             <Typography
-                                onClick={(e) => { if (isShopSubcategory) { e.stopPropagation(); navigate('/desserts'); } }}
+                                onClick={(e) => { if (isShopSubcategory) { e.stopPropagation(); if (isKioskMode) { setEffectivePath('/desserts'); } else { navigate('/desserts'); } } }}
                                 sx={{
                                     fontSize: '1.6rem',
                                     fontWeight: 600,
@@ -420,7 +442,7 @@ const Header = () => {
                                         style={{ overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center' }}
                                     >
                                         <ToggleButtonGroup
-                                            value={navPath.startsWith('/collectibles') ? '/collectibles' : '/desserts'}
+                                            value={kioskNavPath.startsWith('/collectibles') ? '/collectibles' : '/desserts'}
                                             exclusive
                                             sx={{
                                                 borderRadius: '4px',
@@ -436,7 +458,7 @@ const Header = () => {
                                                 <ToggleButton
                                                     key={sub.path}
                                                     value={sub.path}
-                                                    onClick={() => navigate(sub.path)}
+                                                    onClick={() => { if (isKioskMode) { setEffectivePath(sub.path); } else { navigate(sub.path); } }}
                                                     sx={{
                                                         textTransform: 'none',
                                                         color: '#fff',
@@ -577,23 +599,23 @@ const Header = () => {
                                         {/* Location Selector - directly under logo */}
                                         {showLocationSelector && (
                                             <Box
-                                                role="button"
-                                                tabIndex={0}
-                                                aria-label={`Change store location. Currently: ${selectedLocation ? locations.find(loc => loc.id === selectedLocation)?.name : 'none selected'}`}
-                                                aria-haspopup="dialog"
+                                                role={isKioskMode ? undefined : 'button'}
+                                                tabIndex={isKioskMode ? undefined : 0}
+                                                aria-label={isKioskMode ? undefined : `Change store location. Currently: ${selectedLocation ? locations.find(loc => loc.id === selectedLocation)?.name : 'none selected'}`}
+                                                aria-haspopup={isKioskMode ? undefined : 'dialog'}
                                                 sx={{
                                                     mt: -1.5,
                                                     display: 'flex',
                                                     justifyContent: 'center',
-                                                    cursor: 'pointer',
-                                                    '&:focus-visible': {
+                                                    cursor: isKioskMode ? 'default' : 'pointer',
+                                                    '&:focus-visible': isKioskMode ? {} : {
                                                         outline: '2px solid #1976d2',
                                                         outlineOffset: 2,
                                                         borderRadius: 1,
                                                     },
                                                 }}
-                                                onClick={handleLocationClick}
-                                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleLocationClick(); } }}
+                                                onClick={isKioskMode ? undefined : handleLocationClick}
+                                                onKeyDown={isKioskMode ? undefined : (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleLocationClick(); } }}
                                             >
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                                     {selectedLocation && locations.find(loc => loc.id === selectedLocation) ? (
@@ -608,7 +630,9 @@ const Header = () => {
                                                             </Typography>
                                                         </>
                                                     )}
-                                                    <KeyboardArrowDownIcon aria-hidden="true" sx={{ fontSize: 22, color: activeTextColor === 'white' || activeTextColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'text.secondary', transition: 'color 0.4s ease' }} />
+                                                    {!isKioskMode && (
+                                                        <KeyboardArrowDownIcon aria-hidden="true" sx={{ fontSize: 22, color: activeTextColor === 'white' || activeTextColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'text.secondary', transition: 'color 0.4s ease' }} />
+                                                    )}
                                                 </Box>
                                             </Box>
                                         )}
