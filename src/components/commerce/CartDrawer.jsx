@@ -15,6 +15,8 @@ import StorefrontIcon from '@mui/icons-material/Storefront';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import AddIcon from '@mui/icons-material/Add';
 import { useCatalog } from '@/contexts/commerce/CatalogContext';
+import { useLoyalty } from '@/contexts/commerce/LoyaltyContext';
+import StarIcon from '@mui/icons-material/Star';
 import { getMaxQuantityAtLocation } from '@/utils/fulfillmentRouter';
 import { BlindBoxProgressIndicator } from '@/components/commerce/BlindBoxProgressIndicator';
 import { trackCartViewed, trackRemovedFromCart, trackCheckoutStarted, trackCartClosed, trackCartQuantityChanged, trackPromoCodeApplied, trackPromoCodeRemoved, trackPromoCodeError, trackBlindBoxAdded, trackRewardSelected, trackFulfillmentSelected, trackCrossSellShown, trackCrossSellProductClicked, trackCrossSellAddedToCart, trackTerminalCheckoutCancelled } from '@/services/analytics';
@@ -169,12 +171,15 @@ export function CartDrawer({
     kioskCancelSignal,
 }) {
   const { allProducts: products, storeLocations, selectedLocation } = useCatalog();
+  const { isLoyaltyMember, loyaltyBalance, pointsPerDollar } = useLoyalty();
   const navigate = useNavigate();
 
   // Terminal payment state (kiosk mode)
-  const [terminalStatus, setTerminalStatus] = useState('idle'); // idle | sending | waiting | completed | failed | canceled
+  const [terminalStatus, setTerminalStatus] = useState('idle'); // idle | sending | waiting | creating | completed | failed | canceled
   const [terminalError, setTerminalError] = useState(null);
   const terminalCheckoutId = useRef(null);
+  const terminalCartSnapshot = useRef(null); // snapshot of cart items at checkout time for order creation payload
+  const terminalPayloadId = useRef(null); // payloadId for payload-first order architecture
   const pollTimer = useRef(null);
   const timeoutTimer = useRef(null);
 
@@ -256,6 +261,9 @@ export function CartDrawer({
     const checkoutId = terminalCheckoutId.current;
     if (!checkoutId) return;
 
+    // Always stop previous polling to prevent orphaned intervals
+    stopPolling();
+
     pollTimer.current = setInterval(async () => {
       try {
         const res = await fetch(TERMINAL_API_URL, {
@@ -268,16 +276,45 @@ export function CartDrawer({
 
         if (result.status === 'COMPLETED') {
           stopPolling();
-          setTerminalStatus('completed');
           if (isPairedKiosk && kioskSendForward) {
             kioskSendForward('checkout_status', { checkoutId, status: 'completed' });
           }
-          // Clear cart after showing success
+          // Primary path: create order in master-orders via checkout-api (blocking)
+          const sqOrderId = result.orderId;
+          const cartSnapshot = terminalCartSnapshot.current;
+          if (sqOrderId && cartSnapshot?.length) {
+            setTerminalStatus('creating');
+            try {
+              const ingestRes = await fetch(CHECKOUT_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'createKioskOrder',
+                  squareOrderId: sqOrderId,
+                  cartItems: cartSnapshot,
+                  locationId: kioskTerminal?.locationId || '',
+                  tipAmount: result.tipAmount || 0,
+                  ...(terminalPayloadId.current ? { payloadId: terminalPayloadId.current } : {}),
+                }),
+              });
+              const ingestData = await ingestRes.json();
+              const ingestResult = typeof ingestData.body === 'string' ? JSON.parse(ingestData.body) : ingestData;
+              if (ingestResult.error) {
+                console.warn('[Terminal] createKioskOrder returned error (Square webhook is fallback):', ingestResult.error);
+              }
+            } catch (err) {
+              console.warn('[Terminal] createKioskOrder failed (Square webhook is fallback):', err.message);
+            }
+          }
+          // Show success and clear cart
+          setTerminalStatus('completed');
           setTimeout(() => {
             if (isPairedKiosk) onKioskCartChange?.([]);
             else localCart?.clearCart?.();
             setTerminalStatus('idle');
             terminalCheckoutId.current = null;
+            terminalCartSnapshot.current = null;
+            terminalPayloadId.current = null;
             onClose();
           }, 3000);
         } else if (result.status === 'CANCELED' || result.status === 'CANCEL_REQUESTED') {
@@ -311,8 +348,11 @@ export function CartDrawer({
   }, [stopPolling, localCart, onClose, isPairedKiosk, kioskSendForward, onKioskCartChange]);
 
   const handleTerminalCheckout = useCallback(async () => {
+    // Prevent concurrent checkout attempts
+    if (terminalStatus !== 'idle') return;
+
     // Determine items and amount based on paired vs standalone kiosk
-    let amountCents, note, terminalLineItems;
+    let amountCents, taxCents = 0, note, terminalLineItems;
 
     if (isPairedKiosk && kioskCart.length > 0) {
       // Paired kiosk: use synced kioskCart items (include tax)
@@ -321,6 +361,7 @@ export function CartDrawer({
         return sum + (parseFloat(item.unitPrice || 0) + modTotal) * item.quantity;
       }, 0);
       const pairedTax = kioskTaxRate > 0 ? Math.round(pairedSub * kioskTaxRate * 100) / 100 : 0;
+      taxCents = Math.round(pairedTax * 100);
       amountCents = Math.round((pairedSub + pairedTax) * 100);
       note = kioskCart.map(item => `${item.quantity}x ${item.name}`).join(', ');
       terminalLineItems = kioskCart.map(item => {
@@ -331,6 +372,10 @@ export function CartDrawer({
             (modNames.length ? ` (${modNames.join(', ')})` : ''),
           quantity: item.quantity,
           basePriceCents: Math.round((parseFloat(item.unitPrice || 0) + modTotal) * 100),
+          modifiers: modNames.map(name => ({ name, priceCents: 0 })),
+          sku: item.sku || item.productId || null,
+          variantSku: item.variantSku || item.variantId || null,
+          variantName: item.variantName || '',
         };
       });
     } else {
@@ -346,6 +391,10 @@ export function CartDrawer({
             (modNames.length ? ` (${modNames.join(', ')})` : ''),
           quantity: item.quantity,
           basePriceCents: Math.round((item.unitPrice + modTotal) * 100),
+          modifiers: modNames.map(name => ({ name, priceCents: 0 })),
+          sku: item.sku || item.productId || null,
+          variantSku: item.variantSku || item.variantId || null,
+          variantName: item.variantName || '',
         };
       });
     }
@@ -355,6 +404,44 @@ export function CartDrawer({
     setTerminalStatus('sending');
     setTerminalError(null);
 
+    // Write payload BEFORE payment — source of truth for cart data with modifiers
+    let payloadId = null;
+    try {
+      payloadId = crypto.randomUUID();
+      const items = isPairedKiosk ? kioskCart : cartItems;
+      const payloadRes = await fetch(CHECKOUT_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'createPayload',
+          payloadId,
+          source: 'surreal-kiosk',
+          lineItems: items.map(item => ({
+            sku: item.sku || item.productId || null,
+            variantSku: item.variantSku || item.variantId || null,
+            name: item.name || '',
+            variantName: item.variantName || '',
+            quantity: item.quantity || 1,
+            unitPriceCents: Math.round(parseFloat(item.unitPrice || 0) * 100),
+            modifiers: item.modifiers || [],
+          })),
+          fulfillmentType: 'pickup',
+          locationId: kioskTerminal?.locationId || '',
+          taxCents,
+        }),
+      });
+      const payloadData = await payloadRes.json();
+      const payloadResult = typeof payloadData.body === 'string' ? JSON.parse(payloadData.body) : payloadData;
+      if (!payloadResult.success) {
+        console.warn('[Terminal] createPayload failed:', payloadResult.error);
+        payloadId = null;
+      }
+    } catch (e) {
+      console.warn('[Terminal] createPayload failed (non-blocking):', e.message);
+      payloadId = null;
+    }
+    terminalPayloadId.current = payloadId;
+
     try {
       const res = await fetch(TERMINAL_API_URL, {
         method: 'POST',
@@ -362,6 +449,7 @@ export function CartDrawer({
         body: JSON.stringify({
           action: 'createTerminalCheckout',
           amountCents,
+          taxCents,
           note,
           deviceId: kioskTerminal?.deviceId,
           locationId: kioskTerminal?.locationId,
@@ -378,6 +466,18 @@ export function CartDrawer({
       }
 
       terminalCheckoutId.current = result.checkoutId;
+      // Snapshot cart items for order creation payload to master-orders
+      terminalCartSnapshot.current = (isPairedKiosk ? kioskCart : cartItems).map(item => ({
+        name: item.name || '',
+        variantName: item.variantName || '',
+        sku: item.sku || item.productId || null,
+        variantSku: item.variantSku || item.variantId || null,
+        quantity: item.quantity || 1,
+        unitPrice: parseFloat(item.unitPrice || 0),
+        modifiers: item.modifiers || [],
+        ...(item.isFreeGift ? { isFreeGift: true } : {}),
+        ...(item.crossSellDiscount ? { crossSellDiscount: item.crossSellDiscount } : {}),
+      }));
       setTerminalStatus('waiting');
       // Broadcast checkout started to paired POS
       if (isPairedKiosk && kioskSendForward) {
@@ -393,7 +493,7 @@ export function CartDrawer({
       setTerminalStatus('failed');
       setTerminalError('Failed to connect to terminal. Please try again.');
     }
-  }, [cartItems, localSubtotal, kioskTotal, kioskTaxRate, pollTerminalStatus, kioskTerminal, isPairedKiosk, kioskCart, kioskSendForward]);
+  }, [cartItems, localSubtotal, kioskTotal, kioskTaxRate, pollTerminalStatus, kioskTerminal, isPairedKiosk, kioskCart, kioskSendForward, terminalStatus]);
 
   const handleCancelTerminal = useCallback(async () => {
     trackTerminalCheckoutCancelled();
@@ -563,6 +663,7 @@ export function CartDrawer({
               modifiers: item.modifiers || [],
               isFreeGift: item.isFreeGift || false,
               discountId: item.discountId || null,
+              ...(item.isBundle ? { isBundle: true, bundleItems: item.bundleItems || [] } : {}),
             })),
             pickupLocation: selectedLocation,
             fulfillmentMethods,
@@ -616,6 +717,7 @@ export function CartDrawer({
           fulfillmentMethod: item.fulfillmentMethod || null,
           fulfillmentLocationId: item.fulfillmentLocationId || null,
           fulfillmentLocationName: item.fulfillmentLocationName || null,
+          ...(item.isBundle ? { isBundle: true, bundleItems: item.bundleItems || [] } : {}),
         })),
         pickupLocation: selectedLocationSlug,
         cartSessionId: localCart?.cartId,
@@ -1325,6 +1427,26 @@ export function CartDrawer({
                                         ))}
                                       </Box>
                                     )}
+                                    {/* Bundle items */}
+                                    {item.isBundle && item.bundleItems?.length > 0 && (
+                                      <Box sx={{ mt: 0.5, pl: 1, borderLeft: '2px solid #7c3aed' }}>
+                                        {item.bundleItems.map((bi, biIdx) => (
+                                          <Box key={biIdx} sx={{ mb: 0.25 }}>
+                                            <Typography variant="body2" sx={{ fontSize: '1.4rem', fontWeight: 600, color: '#7c3aed' }}>
+                                              {bi.slotName}
+                                            </Typography>
+                                            <Typography variant="body2" sx={{ fontSize: '1.4rem', color: 'text.secondary', pl: 0.5 }}>
+                                              {bi.name}{bi.variantName ? ` — ${bi.variantName}` : ''}
+                                            </Typography>
+                                            {(bi.modifiers || []).map((m, mi) => (
+                                              <Typography key={mi} variant="body2" sx={{ fontSize: '1.2rem', color: 'text.secondary', pl: 1 }}>
+                                                + {m.name}: {m.value}
+                                              </Typography>
+                                            ))}
+                                          </Box>
+                                        ))}
+                                      </Box>
+                                    )}
                                     {isFreeGift ? (
                                       <Typography variant="body1" sx={{ mt: 0.5, fontSize: '1.6rem', color: '#2e7d32', fontWeight: 600 }}>
                                         FREE
@@ -1360,10 +1482,42 @@ export function CartDrawer({
                                           onDecrement={() => { trackCartQuantityChanged(item.sku, item.variantSku, item.quantity, item.quantity - 1); localCart.updateQuantity(item.id, item.quantity - 1); }}
                                         />
                                       )}
-                                      <Typography variant="body1" sx={{ fontWeight: 'bold', color: isFreeGift ? 'success.main' : 'inherit' }}>
-                                        {isFreeGift ? 'Free Gift' : `$${lineTotal.toFixed(2)}`}
+                                      <Typography variant="body1" sx={{ fontWeight: 'bold', color: isFreeGift ? 'success.main' : item.usePoints ? '#f57f17' : 'inherit', ...(item.usePoints ? {} : {}) }}>
+                                        {isFreeGift ? 'Free Gift' : item.usePoints ? `${Math.round(effectiveUnit * item.quantity * pointsPerDollar)} pts` : `$${lineTotal.toFixed(2)}`}
                                       </Typography>
                                     </Box>
+                                    {/* Pay with points toggle */}
+                                    {isLoyaltyMember && !isFreeGift && item.redeemableForPoints && (
+                                      (() => {
+                                        const itemPts = Math.round(effectiveUnit * item.quantity * pointsPerDollar);
+                                        const canAfford = loyaltyBalance >= itemPts;
+                                        return (
+                                          <Button
+                                            size="small"
+                                            onClick={() => localCart.toggleUsePoints(item.id)}
+                                            disabled={!item.usePoints && !canAfford}
+                                            sx={{
+                                              mt: 0.5,
+                                              textTransform: 'none',
+                                              fontSize: '0.75rem',
+                                              fontWeight: 600,
+                                              color: item.usePoints ? '#fff' : '#f57f17',
+                                              bgcolor: item.usePoints ? '#f57f17' : 'transparent',
+                                              border: '1px solid #f57f17',
+                                              borderRadius: '50px',
+                                              px: 1.5,
+                                              py: 0.25,
+                                              minHeight: 0,
+                                              '&:hover': { bgcolor: item.usePoints ? '#e65100' : 'rgba(245,127,23,0.08)' },
+                                              '&.Mui-disabled': { borderColor: 'grey.300', color: 'grey.400' },
+                                            }}
+                                          >
+                                            <StarIcon sx={{ fontSize: 14, mr: 0.5 }} />
+                                            {item.usePoints ? `Using ${itemPts} pts` : `Use ${itemPts} pts`}
+                                          </Button>
+                                        );
+                                      })()
+                                    )}
                                   </Box>
                                 </Box>
                               </Box>
@@ -1528,16 +1682,36 @@ export function CartDrawer({
                 </Box>
               ) : (
                 <Box sx={{ mb: 1.5 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-                    <Typography variant="body2" fontWeight="bold">
-                      ${parseFloat(subtotal).toFixed(2)}
-                    </Typography>
-                    {hasSavings && (
-                      <Typography variant="body2" sx={{ textDecoration: 'line-through', color: 'text.disabled' }}>
-                        ${parseFloat(lineItemsSubtotal).toFixed(2)}
+                  {/* Points + dollar split summary */}
+                  {isLoyaltyMember && cartItems.some(i => i.usePoints) ? (
+                    <>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
+                        <Typography variant="body2" sx={{ color: '#f57f17', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <StarIcon sx={{ fontSize: 14 }} /> Points
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: '#f57f17', fontWeight: 600 }}>
+                          {localCart?.getPointsTotal?.(pointsPerDollar) || 0} pts
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
+                        <Typography variant="body2" color="text.secondary">Card</Typography>
+                        <Typography variant="body2" fontWeight="bold">
+                          ${(localCart?.getDollarTotal?.() || 0).toFixed(2)}
+                        </Typography>
+                      </Box>
+                    </>
+                  ) : (
+                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                      <Typography variant="body2" fontWeight="bold">
+                        ${parseFloat(subtotal).toFixed(2)}
                       </Typography>
-                    )}
-                  </Box>
+                      {hasSavings && (
+                        <Typography variant="body2" sx={{ textDecoration: 'line-through', color: 'text.disabled' }}>
+                          ${parseFloat(lineItemsSubtotal).toFixed(2)}
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
                   <Typography variant="body2" color="text.secondary">
                     {orderCalcLoading ? 'Calculating tax...' : 'Tax calculated at checkout'}
                   </Typography>
@@ -1758,6 +1932,15 @@ export function CartDrawer({
                 <Button variant="outlined" color="inherit" onClick={handleCancelTerminal}>
                   Cancel
                 </Button>
+              </>
+            )}
+
+            {terminalStatus === 'creating' && (
+              <>
+                <CircularProgress size={48} sx={{ mb: 2 }} />
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                  Creating order...
+                </Typography>
               </>
             )}
 

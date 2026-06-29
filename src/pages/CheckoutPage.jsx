@@ -26,6 +26,8 @@ import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import useCart from '@/hooks/useCart';
 import { useCheckout } from '@/components/commerce/CheckoutContext';
+import { useLoyalty } from '@/contexts/commerce/LoyaltyContext';
+import { consumerRedeem } from '@/services/loyaltyService';
 import { useWebSocket } from '@/contexts/commerce/WebSocketContext';
 import { groupCartByFulfillmentOrigin } from '@/utils/fulfillmentRouter';
 import { trackFulfillmentSelected, trackPaymentAttempted, trackOrderCompleted, identifyUser, trackCheckoutContactEntered, trackCheckoutPickupLocationSelected, trackCheckoutShippingAddressEntered, trackCheckoutShippingRateSelected, trackCheckoutPromoApplied, trackCheckoutPromoError, trackTipSelected, trackCustomTipEntered, trackPaymentMethodSelected, trackPaymentFailed, trackOrderConfirmationViewed, trackOrderSummaryToggled } from '@/services/analytics';
@@ -387,26 +389,32 @@ function OrderSummaryPanel({ cart, checkoutOrderCalc, calcLoading, calcError, fe
 
       <Divider sx={{ my: 2 }} />
 
-      {/* Promo code */}
-      <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-        {checkoutPromoCode ? (
-          <Chip label={checkoutPromoCode} onDelete={handleRemovePromo} color="success" variant="outlined" />
-        ) : (
-          <>
-            <TextField
-              label="Discount code"
-              size="small"
-              value={promoInput}
-              onChange={e => setPromoInput(e.target.value)}
-              sx={{ flex: 1 }}
-            />
-            <Button variant="outlined" onClick={handleApplyPromo} disabled={!promoInput.trim()}
-              sx={{ height: 40, alignSelf: 'center' }}>
-              Apply
-            </Button>
-          </>
-        )}
-      </Stack>
+      {/* Promo code — hidden when using points */}
+      {cart.some(i => i.usePoints) ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontStyle: 'italic' }}>
+          Promo codes can't be combined with points redemption
+        </Typography>
+      ) : (
+        <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+          {checkoutPromoCode ? (
+            <Chip label={checkoutPromoCode} onDelete={handleRemovePromo} color="success" variant="outlined" />
+          ) : (
+            <>
+              <TextField
+                label="Discount code"
+                size="small"
+                value={promoInput}
+                onChange={e => setPromoInput(e.target.value)}
+                sx={{ flex: 1 }}
+              />
+              <Button variant="outlined" onClick={handleApplyPromo} disabled={!promoInput.trim()}
+                sx={{ height: 40, alignSelf: 'center' }}>
+                Apply
+              </Button>
+            </>
+          )}
+        </Stack>
+      )}
       {promoError && <Alert severity="error" sx={{ mb: 2 }}>{promoError}</Alert>}
 
       {/* Tip (pickup/delivery only, not shipping-only) */}
@@ -676,7 +684,8 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const { cart, cartId, getSubtotal, clearCart } = useCart();
+  const { cart, cartId, getSubtotal, clearCart, getPointsTotal, getDollarTotal, clearAllUsePoints } = useCart();
+  const { isLoyaltyMember, loyaltyBalance, pointsPerDollar, refreshLoyalty } = useLoyalty();
   const testModeEnabled = localStorage.getItem('testModeEnabled') === 'true';
   const {
     checkoutCustomer, setCheckoutCustomer,
@@ -685,8 +694,9 @@ export default function CheckoutPage() {
     checkoutPromoCode, setCheckoutPromoCode,
     checkoutTip, setCheckoutTip,
     checkoutConfirmation, setCheckoutConfirmation,
-    otpSessionToken, setOtpSessionToken,
-    authenticatedCustomerId, setAuthenticatedCustomerId,
+    otpSessionToken, authenticatedCustomerId,
+    setAuthenticatedCustomerId,
+    setOtpSession,
     savedAddresses, setSavedAddresses,
     savedPaymentMethods, setSavedPaymentMethods,
     resetCheckout,
@@ -1563,8 +1573,7 @@ export default function CheckoutPage() {
         setOtpStep('input');
         return;
       }
-      setOtpSessionToken(result.sessionToken);
-      setAuthenticatedCustomerId(result.customerId);
+      setOtpSession(result.sessionToken, result.customerId);
       if (result.customerId) identifyUser(result.customerId, { email: email.trim() });
 
       // Fetch saved addresses + payment methods
@@ -1581,7 +1590,7 @@ export default function CheckoutPage() {
       setOtpError(err.message || 'Verification failed');
       setOtpStep('input');
     }
-  }, [email, otpCode, setOtpSessionToken, setAuthenticatedCustomerId, setSavedAddresses, setSavedPaymentMethods]);
+  }, [email, otpCode, setOtpSession, setSavedAddresses, setSavedPaymentMethods]);
 
   const handleSkipOtp = useCallback(() => {
     setOtpStep(null);
@@ -1663,7 +1672,36 @@ export default function CheckoutPage() {
     setError(null);
     const pmLabel = cardData.savedPaymentMethodId ? 'saved_card' : cardData.stripeToken ? 'stripe' : cardData.encryptedCard ? 'evervault' : 'square';
     try {
+      // Redeem loyalty points before payment (if any items toggled to use points)
+      let loyaltyPromoCode = null;
+      const pointsItems = cart.filter(i => i.usePoints);
+      if (pointsItems.length > 0 && otpSessionToken && isLoyaltyMember) {
+        const totalPoints = getPointsTotal(pointsPerDollar);
+        if (totalPoints > 0 && totalPoints <= loyaltyBalance) {
+          try {
+            const redeemResult = await consumerRedeem(otpSessionToken, { pointsAmount: totalPoints });
+            if (redeemResult?.discountCode) {
+              loyaltyPromoCode = redeemResult.discountCode;
+            }
+          } catch (redeemErr) {
+            setError(`Points redemption failed: ${redeemErr.message}`);
+            setShowOverlay(false);
+            setPaymentProcessing(false);
+            return;
+          }
+        }
+      }
+
       const calcPayload = buildCalcPayload();
+      // If loyalty promo code was generated, override any existing promo code
+      if (loyaltyPromoCode) {
+        calcPayload.promoCode = loyaltyPromoCode;
+      }
+      // Defensive: ensure deliveryAddress is present for shipping/delivery orders
+      if (needsAddress && !calcPayload.deliveryAddress) {
+        calcPayload.deliveryAddress = addressFields.address1 ? addressFields : undefined;
+        console.warn('[handleCardPayment] deliveryAddress was missing from calcPayload, re-read from addressFields:', !!calcPayload.deliveryAddress);
+      }
       const payload = {
         ...calcPayload,
         customer,
@@ -1701,11 +1739,42 @@ export default function CheckoutPage() {
         if (otpSessionToken) payload.otpSessionToken = otpSessionToken;
       }
 
+      // Write payload BEFORE payment — source of truth for cart data with modifiers
+      let webPayloadId = null;
+      try {
+        webPayloadId = crypto.randomUUID();
+        await callApi('createPayload', {
+          payloadId: webPayloadId,
+          source: 'surreal-web',
+          lineItems: cart.map(item => ({
+            sku: item.sku,
+            variantSku: item.variantSku,
+            name: item.name,
+            variantName: item.variantName || '',
+            quantity: item.quantity,
+            unitPriceCents: Math.round((item.unitPrice || 0) * 100),
+            modifiers: item.modifiers || [],
+          })),
+          customer: { name: `${customer.firstName} ${customer.lastName}`.trim(), email: customer.email, phone: customer.phone },
+          fulfillmentType: fulfillmentMethods?.[0] || 'pickup',
+          locationId: selectedLocationSlug || '',
+          taxCents: checkoutOrderCalc?.taxCents || 0,
+          tipCents: checkoutTip || 0,
+          shippingAddress: calcPayload.deliveryAddress || null,
+        });
+      } catch (e) {
+        console.warn('[Checkout] createPayload failed (non-blocking):', e.message);
+        webPayloadId = null;
+      }
+      if (webPayloadId) payload.payloadId = webPayloadId;
+
       trackPaymentAttempted(pmLabel, displayTotal);
       const result = await callApi('createSquareCheckout', payload);
       trackOrderCompleted(result, { subtotal: result.subtotal, tax: result.tax, tip: checkoutTip, total: result.total, itemCount: cart.length, paymentMethod: pmLabel });
       trackOrderConfirmationViewed(result.orderId || result.receiptNumber);
       setCheckoutConfirmation(result);
+      // Refresh loyalty balance after points were used
+      if (loyaltyPromoCode) refreshLoyalty().catch(() => {});
       clearCart();
       callApi('completeCart', { cartId }).catch(err => console.warn('[completeCart] Error:', err));
       sessionStorage.removeItem('checkoutContact');
@@ -1792,6 +1861,35 @@ export default function CheckoutPage() {
       if (needsAddress && walletAddress) {
         payload.deliveryAddress = walletAddress;
       }
+
+      // Write payload BEFORE payment — source of truth for cart data with modifiers
+      let walletPayloadId = null;
+      try {
+        walletPayloadId = crypto.randomUUID();
+        await callApi('createPayload', {
+          payloadId: walletPayloadId,
+          source: 'surreal-web',
+          lineItems: cart.map(item => ({
+            sku: item.sku,
+            variantSku: item.variantSku,
+            name: item.name,
+            variantName: item.variantName || '',
+            quantity: item.quantity,
+            unitPriceCents: Math.round((item.unitPrice || 0) * 100),
+            modifiers: item.modifiers || [],
+          })),
+          customer: { name: `${walletFirstName} ${walletLastName}`.trim(), email: walletEmail, phone: walletPhone },
+          fulfillmentType: fulfillmentMethods?.[0] || 'pickup',
+          locationId: selectedLocationSlug || '',
+          taxCents: checkoutOrderCalc?.taxCents || 0,
+          tipCents: checkoutTip || 0,
+          shippingAddress: payload.deliveryAddress || calcPayload.deliveryAddress || null,
+        });
+      } catch (e) {
+        console.warn('[Checkout] createPayload failed (non-blocking):', e.message);
+        walletPayloadId = null;
+      }
+      if (walletPayloadId) payload.payloadId = walletPayloadId;
 
       trackPaymentAttempted('wallet', displayTotal);
       const result = await callApi('createSquareCheckout', payload);
@@ -3009,7 +3107,7 @@ export default function CheckoutPage() {
           onComplete={() => setShowOverlay(false)}
         />
       )}
-      <Box component="main" sx={{ width: '100%', maxWidth: 960, mx: 'auto', p: { xs: 2, sm: 3 }, pb: 8, boxSizing: 'border-box', minWidth: 0, overflowX: 'clip' }}>
+      <Box sx={{ width: '100%', maxWidth: 960, mx: 'auto', p: { xs: 2, sm: 3 }, pb: 8, boxSizing: 'border-box', minWidth: 0, overflowX: 'clip' }}>
         <Typography variant="h6" component="h1" sx={{ mb: 2 }}>Checkout</Typography>
         {isMobile ? (
           // Mobile: single column with collapsible summary at bottom
