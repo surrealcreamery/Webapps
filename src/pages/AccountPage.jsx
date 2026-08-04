@@ -51,6 +51,37 @@ export default function AccountPage() {
     }
   }, [fundraiserState?.value, sendToFundraiser]);
 
+  // Force one fresh fetch when the dashboard first becomes ready, so
+  // time-sensitive spot-confirmation status (a newly-reserved seat + its
+  // Confirm button) is current even if a cached copy was shown — no re-login.
+  const dashRefreshedRef = React.useRef(false);
+  useEffect(() => {
+    if (!fundraiserState || !sendToFundraiser) return;
+    if (fundraiserState.matches({ userDashboard: 'idle' }) && !dashRefreshedRef.current) {
+      dashRefreshedRef.current = true;
+      sendToFundraiser({ type: 'REFRESH_EVENTS' });
+    } else if (!fundraiserState.matches('userDashboard')) {
+      dashRefreshedRef.current = false; // allow another refresh next time we enter
+    }
+  }, [fundraiserState?.value, sendToFundraiser]);
+
+  // Keep it fresh while the user is on the page: refetch when the tab regains
+  // focus/visibility and via a light poll (covers returning from the SMS link).
+  useEffect(() => {
+    if (!sendToFundraiser) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') sendToFundraiser({ type: 'REFRESH_EVENTS' });
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    const poll = setInterval(refresh, 30000);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+      clearInterval(poll);
+    };
+  }, [sendToFundraiser]);
+
   if (!fundraiserState || !fundraiserState.context) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}>

@@ -8,7 +8,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import StorefrontIcon from '@mui/icons-material/Storefront';
-import { format, isValid, isPast, parse } from 'date-fns';
+import { format, isValid, parse } from 'date-fns';
 import { trackEventsDashboardViewed } from '@/services/analytics';
 import { EVENTS_API_URL } from '@/constants/events/eventsConstants';
 
@@ -38,6 +38,14 @@ const getEventDate = (event) => {
     return isValid(date) ? date : null;
 };
 
+// An event is "past" only once its day is over (its date is local midnight).
+const isBeforeToday = (date) => {
+    if (!date) return false;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    return date < startOfToday;
+};
+
 const formatCents = (cents) => {
     if (cents == null) return '$0.00';
     return `$${(cents / 100).toFixed(2)}`;
@@ -51,7 +59,7 @@ const formatOrderDate = (dateStr) => {
 
 const HostedEventCard = ({ event, eventDetails, onViewTransactions, onViewMarketingMaterials }) => {
     const eventDate = getEventDate(event);
-    const isEventInThePast = eventDate ? isPast(eventDate) : false;
+    const isEventInThePast = isBeforeToday(eventDate);
     const first = (arr) => (Array.isArray(arr) && arr.length > 0 ? arr[0] : arr || '');
     const imageUrl = first(event['Image URL']) || eventDetails?.imageUrl;
     const description = event['Description'] || eventDetails?.description || eventDetails?.['Description'];
@@ -188,7 +196,7 @@ const SpotConfirmSection = ({ event }) => {
 
 const ParticipantEventCard = ({ event }) => {
     const eventDate = getEventDate(event);
-    const isEventInThePast = eventDate ? isPast(eventDate) : false;
+    const isEventInThePast = isBeforeToday(eventDate);
     const first = (arr) => (Array.isArray(arr) && arr.length > 0 ? arr[0] : arr || '');
     const imageUrl = first(event['Image URL']) || event['Image URL'];
     const eventName = first(event['Event Name']) || event['Event Name'];
@@ -242,12 +250,15 @@ const EventsTab = ({ events, allEvents, view, onViewChange, onScheduleNew, onVie
         .map(e => ({ ...e, _isHostedEvent: false }));
     const allUserEvents = [...hostedEvents, ...participantEvents];
 
-    const now = new Date();
+    // Compare by day: an event stays "Active" through the end of the day it
+    // occurs (its date parses to local midnight, so use midnight-of-today).
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
     const filteredEvents = allUserEvents.filter(e => {
         const eventDate = getEventDate(e);
         if (view === 'All') return true;
         if (!eventDate) return view === 'Active';
-        return view === 'Active' ? eventDate >= now : eventDate < now;
+        return view === 'Active' ? eventDate >= startOfToday : eventDate < startOfToday;
     });
 
     const hasAnyEvents = allUserEvents.length > 0;
@@ -269,9 +280,8 @@ const EventsTab = ({ events, allEvents, view, onViewChange, onScheduleNew, onVie
         <Box>
             <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
                 <ToggleButtonGroup color="primary" value={view} exclusive onChange={onViewChange} aria-label="Filter events">
-                    <ToggleButton value="All">All</ToggleButton>
                     <ToggleButton value="Active">Active</ToggleButton>
-                    <ToggleButton value="Past">Past</ToggleButton>
+                    <ToggleButton value="All">All</ToggleButton>
                 </ToggleButtonGroup>
             </Box>
 
@@ -706,7 +716,7 @@ const SubscriptionsTab = ({ subscriptions }) => {
 
 export const UserDashboard = ({ events, allEvents, orders, loyalty, subscriptions, duplicateNotice, onDismissDuplicateNotice, onScheduleNew, onViewTransactions, onViewMarketingMaterials, onRedeem }) => {
     const [tab, setTab] = useState(0);
-    const [eventView, setEventView] = useState('All');
+    const [eventView, setEventView] = useState('Active');
     const [redeeming, setRedeeming] = useState(null);
 
     useEffect(() => {

@@ -5,12 +5,14 @@ import { useNavigate } from 'react-router-dom';
 import { EVENTS_API_URL } from '@/constants/events/eventsConstants';
 
 // One-click spot-confirmation landing page. Reached from the SMS reminder link:
-//   /confirm-spot?g=<guestId>&r=<registrationId>&t=<confirmToken>
+//   /confirm-spot?c=<confirmCode>            (short friendly code — preferred)
+//   /confirm-spot?g=<guestId>&r=<registrationId>&t=<token>   (legacy fallback)
 // Auto-confirms on load and shows the result.
 
 const readParams = () => {
   const p = new URLSearchParams(window.location.search);
   return {
+    code: p.get('c') || p.get('code') || '',
     guestId: p.get('g') || p.get('guestId') || '',
     registrationId: p.get('r') || p.get('registrationId') || '',
     token: p.get('t') || p.get('token') || '',
@@ -22,20 +24,25 @@ const ConfirmSpot = () => {
   const [phase, setPhase] = useState('loading'); // loading | confirmed | waitlisted | not_open | closed | error
   const [message, setMessage] = useState('');
 
-  const { guestId, registrationId, token } = readParams();
+  const { code, guestId, registrationId, token } = readParams();
 
   const confirm = useCallback(async () => {
-    if (!guestId || !registrationId || !token) {
+    const hasCode = !!code;
+    const hasLegacy = guestId && registrationId && token;
+    if (!hasCode && !hasLegacy) {
       setPhase('error');
       setMessage('This confirmation link is missing information. Please use the exact link from your text message.');
       return;
     }
     setPhase('loading');
     try {
+      const body = hasCode
+        ? { action: 'confirmEventSpot', code }
+        : { action: 'confirmEventSpot', guestId, registrationId, token };
       const res = await fetch(EVENTS_API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'confirmEventSpot', guestId, registrationId, token }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -59,7 +66,7 @@ const ConfirmSpot = () => {
       setPhase('error');
       setMessage('Something went wrong reaching our server. Please try again in a moment.');
     }
-  }, [guestId, registrationId, token]);
+  }, [code, guestId, registrationId, token]);
 
   useEffect(() => {
     confirm();

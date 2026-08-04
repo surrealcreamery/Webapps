@@ -751,6 +751,12 @@ export const eventsMachine = setup({
                 on: {
                     REDEEM_REWARD: {
                         target: 'redeemingReward',
+                    },
+                    // Force a fresh fetch of registered events (bypasses the 2-min
+                    // cache) so time-sensitive spot-confirmation state stays current
+                    // when the user lands on / returns to the dashboard.
+                    REFRESH_EVENTS: {
+                        target: 'loadingEvents',
                     }
                 }
             },
