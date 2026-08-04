@@ -178,9 +178,20 @@ export default function EventsTestHome() {
         // /events/<location> | /events/<series> | /events/<series>/<location> — resolve against the
         // real known series slugs + location ids (URL structure alone is ambiguous, see resolveEventsPath).
         if (parsed.isSeries) {
+            // Wait until locations have loaded before resolving. Otherwise a single-segment
+            // path like /events/forest-hills can't be recognized as a location, falls back to a
+            // series/event view, and gets locked in (markHandled) — showing the wrong page and
+            // leaving stale state that also breaks the back button. Returning without marking it
+            // handled lets this effect re-run (fundraiserState dep) once locations arrive.
+            if (knownLocationIds.length === 0) return;
             const res = resolveEventsPath(pathname, { seriesSlugs: knownSlugs, locationIds: knownLocationIds });
             if (!fundraiserState.matches('directory') && !fundraiserState.matches('booting')) {
+                // The URL points at the directory but the machine holds stale wizard state.
+                // Suppress the outbound state→URL sync for the reset transition so it can't
+                // clobber this directory URL back to /events/<eventId>/... before RESET lands.
+                skipUrlSyncRef.current = true;
                 sendToFundraiser({ type: 'RESET' });
+                return;
             }
             if (fundraiserState.matches('directory')) {
                 markHandled();
@@ -310,9 +321,14 @@ export default function EventsTestHome() {
         if (!fundraiserState?.context) return;
         if (skipUrlSyncRef.current) { skipUrlSyncRef.current = false; return; }
 
-        // While a series/location is selected in the directory, its URL (/events/<slug>/<loc>) is
-        // managed via the directory navigation — don't let the machine-derived path clobber it.
-        if (fundraiserState.matches('directory') && (selectedSeriesSlugRef.current || scopeLocationIdRef.current)) return;
+        // URL is the source of truth for the directory: if we're in the directory and the current
+        // URL is already a directory-family path (/events, /events/<location>, /events/<series>,
+        // /events/<series>/<location>), leave it — don't let stateToPath('/events') clobber a
+        // location/series URL. (Checks the actual URL, so it doesn't race the scope refs.)
+        if (fundraiserState.matches('directory')) {
+            const cur = resolveEventsPath(window.location.pathname, { seriesSlugs: knownSlugs, locationIds: knownLocationIds });
+            if (['directory', 'location', 'series', 'seriesLocation'].includes(cur.kind)) return;
+        }
 
         const newPath = stateToPath(fundraiserState, fundraiserState.context);
         if (!newPath) return;
