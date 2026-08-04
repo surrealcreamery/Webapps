@@ -7,6 +7,7 @@ import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext
 import NotificationBanner from '@/components/commerce/NotificationBanner';
 import JsonLd from '@/components/seo/JsonLd';
 import { buildOrganizationSchema, buildWebSiteSchema } from '@/components/seo/schemas';
+import SkipToContent from '@/components/skip-to-content/skip-to-content';
 
 const CommerceLayout = () => {
     const location = useLocation();
@@ -82,11 +83,12 @@ const CommerceLayout = () => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', minWidth: 0 }}>
+            <SkipToContent />
             <JsonLd data={buildOrganizationSchema()} />
             <JsonLd data={buildWebSiteSchema()} />
             <NotificationBanner />
             {!isFullScreenPage && !isSubscriptionsPage && <Header />}
-            <main style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowX: 'hidden' }}>
+            <main id="skip-to-content" style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowX: 'hidden' }}>
                 <Outlet />
             </main>
             {!hideFooter && <Footer />}

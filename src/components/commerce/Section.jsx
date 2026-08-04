@@ -316,7 +316,7 @@ export const Section = ({
                                 {/* MYO Hero Area */}
                                 {myoProduct && (
                                     <Box
-                                        role="link"
+                                        role="button"
                                         tabIndex={0}
                                         aria-label={`${myoProduct.name} - Create Your Own`}
                                         onClick={() => onProductClick(myoProduct.id)}
@@ -534,7 +534,6 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
         <Box
             role="button"
             tabIndex={0}
-            aria-label={`${product.name}${isSoldOut ? ', sold out' : ''}`}
             onClick={onClick}
             onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -670,7 +669,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                                         <Typography
                                             variant="body2"
                                             sx={{
-                                                color: 'text.disabled',
+                                                color: '#757575',
                                                 textDecoration: 'line-through'
                                             }}
                                         >
@@ -713,7 +712,7 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
                             <Typography
                                 variant="body2"
                                 sx={{
-                                    color: 'text.disabled',
+                                    color: '#757575',
                                     textDecoration: 'line-through'
                                 }}
                             >
@@ -752,4 +751,5 @@ const ProductCard = ({ product, onClick, discountPercent, productDiscount, subca
     );
 };
 
+export { ProductCard };
 export default Section;

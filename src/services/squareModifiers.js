@@ -60,7 +60,7 @@ export const fetchModifiersBySku = async (sku) => {
             modifiers: (m.options || []).map(opt => ({
               id: opt.optionId,
               name: opt.name,
-              price: opt.price || 0,
+              price: (opt.price || 0) / 100,
               image: opt.image,
               imageVariants: opt.imageVariants || null,
             })),

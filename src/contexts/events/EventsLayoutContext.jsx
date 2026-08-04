@@ -1,13 +1,13 @@
 import React, { createContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { useMachine } from '@xstate/react';
-import { eventsMachine } from '@/state/events/eventsMachine';
+import { eventsMachine } from '@/state/events/eventsMachineTest';
 import { useNavigate } from 'react-router-dom';
 
 export const LayoutContext = createContext({});
 
 const FUNDRAISER_STORAGE_KEY = 'fundraiser-wizard-state';
 const CACHE_VERSION_KEY = 'fundraiser-cache-version';
-const CURRENT_CACHE_VERSION = '2'; // Increment this when state structure changes
+const CURRENT_CACHE_VERSION = '6'; // Increment this when state structure changes
 
 export const LayoutProvider = ({ children }) => {
     // 0. Version check - clear cache if version mismatch
@@ -32,6 +32,10 @@ export const LayoutProvider = ({ children }) => {
 
         // If parsed data exists, reconstruct a valid XState State object from it
         if (parsed && parsed.value && parsed.context) {
+            // Clear transient/session-scoped data — not meant to persist across page loads
+            parsed.context.duplicateNotice = false;
+            parsed.context.sessionToken = null;
+            parsed.context.lastSessionCreatedAt = null;
             rehydratedState = eventsMachine.resolveState(parsed);
             console.log('Rehydrated state value:', rehydratedState?.value);
         }
@@ -48,7 +52,16 @@ export const LayoutProvider = ({ children }) => {
         snapshot: rehydratedState,
     });
 
-    // 3. Subscription Logic: Automatically save every state change.
+    // 3. Subscription Logic: Save state changes, but skip transient invoke states
+    //    that re-trigger API calls (like session creation) on rehydration.
+    const TRANSIENT_STATES = [
+        'userDashboard.ensureSession',
+        'userDashboard.creatingSessionInline',
+        'userDashboard.loadingEvents',
+        'loginFlow.creatingSession',
+        'loginFlow.sendingOtp',
+        'loginFlow.verifyingOtp',
+    ];
     useEffect(() => {
         if (!actorRef) return;
         const subscription = actorRef.subscribe((snapshot) => {
@@ -56,7 +69,9 @@ export const LayoutProvider = ({ children }) => {
                 localStorage.removeItem(FUNDRAISER_STORAGE_KEY);
                 return;
             }
-            // Persist only the serializable parts of the state
+            // Don't persist transient invoke states — they re-trigger API calls on rehydration
+            const isTransient = TRANSIENT_STATES.some(s => snapshot.matches(s));
+            if (isTransient) return;
             const stateToPersist = {
                 value: snapshot.value,
                 context: snapshot.context,
@@ -70,19 +85,20 @@ export const LayoutProvider = ({ children }) => {
     const isAuthenticated = fundraiserState?.context?.isAuthenticated;
     const navigate = useNavigate();
 
-    // ✅ This is the fix: A new useEffect to handle the /login route.
+    // Handle the /login route — check both standalone and embedded paths.
     useEffect(() => {
-        // When the component first loads, check the browser's URL path.
-        if (window.location.pathname === '/login' && !isAuthenticated) {
-            // If the user is on the /login page and isn't already logged in,
-            // send the event to the state machine to start the login flow.
+        const path = window.location.pathname;
+        if ((path === '/login' || path === '/events/login') && !isAuthenticated) {
             sendToFundraiser({ type: 'LOGIN_START' });
         }
-    }, [isAuthenticated, sendToFundraiser]); // Dependencies ensure this runs on load and if auth status changes.
+    }, [isAuthenticated, sendToFundraiser]);
     
     const [showLoginButton, setShowLoginButton] = useState(false);
     const [showMyEventsButton, setShowMyEventsButton] = useState(false);
     const [showLogoutButton, setShowLogoutButton] = useState(false);
+
+    // Custom back handler — allows pages like BookASpace to provide their own back button behavior
+    const [customBackHandler, setCustomBackHandler] = useState(null);
     
     const logout = useCallback(() => {
         sendToFundraiser({ type: 'LOGOUT' });
@@ -105,8 +121,8 @@ export const LayoutProvider = ({ children }) => {
 
     }, [fundraiserState, isAuthenticated]);
 
-    const contextValue = useMemo(() => ({ 
-        fundraiserState, 
+    const contextValue = useMemo(() => ({
+        fundraiserState,
         sendToFundraiser,
         isAuthenticated,
         logout,
@@ -114,15 +130,18 @@ export const LayoutProvider = ({ children }) => {
         showLoginButton,
         showMyEventsButton,
         showLogoutButton,
+        customBackHandler,
+        setCustomBackHandler,
     }), [
-        fundraiserState, 
-        sendToFundraiser, 
-        isAuthenticated, 
-        logout, 
-        resetWizardFlow, 
+        fundraiserState,
+        sendToFundraiser,
+        isAuthenticated,
+        logout,
+        resetWizardFlow,
         showLoginButton,
         showMyEventsButton,
-        showLogoutButton
+        showLogoutButton,
+        customBackHandler,
     ]);
 
     return (

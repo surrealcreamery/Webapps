@@ -251,6 +251,47 @@ export function trackViewItemList(products, listName = 'Product List') {
   });
 }
 
+/**
+ * Track purchase (order completed with revenue)
+ */
+export function trackPurchase(transactionId, value, items = [], { tax, shipping, currency = 'USD', coupon } = {}) {
+  clearEcommerce();
+
+  pushEvent({
+    event: 'purchase',
+    ecommerce: {
+      currency,
+      transaction_id: transactionId || undefined,
+      value: parseFloat(value || 0),
+      ...(tax != null ? { tax: parseFloat(tax) } : {}),
+      ...(shipping != null ? { shipping: parseFloat(shipping) } : {}),
+      ...(coupon ? { coupon } : {}),
+      items: items.map((item, i) => ({
+        item_id: item.item_id || item.sku || item.id || `item_${i}`,
+        item_name: item.item_name || item.name || 'Unknown',
+        price: parseFloat(item.price || 0),
+        quantity: item.quantity || 1,
+        ...(item.item_category ? { item_category: item.item_category } : {}),
+        ...(item.item_variant ? { item_variant: item.item_variant } : {}),
+      })),
+    }
+  });
+}
+
+/**
+ * Track event registration as a lead conversion
+ */
+export function trackEventRegistration(eventId, eventName) {
+  pushEvent({
+    event: 'generate_lead',
+    currency: 'USD',
+    value: 0,
+    event_id: eventId,
+    content_name: eventName,
+    content_type: 'event_registration',
+  });
+}
+
 // Export all functions
 export default {
   initGTM,
@@ -261,5 +302,7 @@ export default {
   trackViewCart,
   trackBeginCheckout,
   trackSelectItem,
-  trackViewItemList
+  trackViewItemList,
+  trackPurchase,
+  trackEventRegistration
 };

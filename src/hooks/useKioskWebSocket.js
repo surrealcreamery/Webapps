@@ -73,6 +73,16 @@ export function useKioskWebSocket(options = {}) {
           userAgent: navigator.userAgent,
         }));
 
+        // Notify admin that remote refresh completed
+        if (sessionStorage.getItem('surreal_remote_refresh') === 'true') {
+          sessionStorage.removeItem('surreal_remote_refresh');
+          wsRef.current.send(JSON.stringify({
+            action: 'refreshCompleted',
+            clientUUID: kioskUUID,
+            deviceId: deviceIdRef.current,
+          }));
+        }
+
         // Start ping keepalive (5 min)
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = setInterval(() => {
@@ -95,6 +105,7 @@ export function useKioskWebSocket(options = {}) {
           if (data.type === 'command') {
             console.log('[KioskWS] Command received:', data.command);
             if (data.command === 'refresh') {
+              sessionStorage.setItem('surreal_remote_refresh', 'true');
               window.location.reload();
               return;
             }

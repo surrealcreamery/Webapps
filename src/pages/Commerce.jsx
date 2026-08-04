@@ -9,6 +9,7 @@ import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import CloseIcon from '@mui/icons-material/Close';
+import StarRoundedIcon from '@mui/icons-material/StarRounded';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
@@ -18,13 +19,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Section } from '@/components/commerce/Section';
 import { CartDrawer } from '@/components/commerce/CartDrawer';
 import { CrossSellModal } from '@/components/commerce/CrossSellModal';
+import { BundleConfigurator } from '@/components/commerce/BundleConfigurator';
 import { useDiscounts } from '@/components/commerce/useDiscounts';
 import { BlindBoxProgressIndicator } from '@/components/commerce/BlindBoxProgressIndicator';
 import { DiscountZonePlaceholder } from '@/components/commerce/DiscountZonePlaceholder';
 import { ModifierSelector } from '@/components/commerce/ModifierSelector';
 import { sortProductsByOrder } from '@/services/catalogService';
 import { getAccessibleTextColorForGradient, checkGradientContrast } from '@/utils/colorContrast';
-import { getPageConfig } from '@/services/pageConfigService';
+import { getPageConfig, getPublishedPages } from '@/services/pageConfigService';
 import { useCart } from '@/hooks/useCart';
 import Footer from '@/components/footer/commerce/commerceFooter';
 import { fetchInitialData as fetchEventsData } from '@/state/events/eventService';
@@ -39,6 +41,7 @@ import { StoreLocatorPrompt } from '@/components/commerce/StoreLocatorPrompt';
 import JsonLd from '@/components/seo/JsonLd';
 import { buildProductSchema, buildItemListSchema } from '@/components/seo/schemas';
 import { KioskContext } from '@/components/kiosk/KioskOverlay';
+import { useLoyalty } from '@/contexts/commerce/LoyaltyContext';
 
 // Placeholder image for variants without images
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/e0e0e0/666666?text=No+Image';
@@ -52,11 +55,21 @@ let pendingScrollRestore = null;
 
 
 // Mobile product card grid - category index view
+// Helper: build point price string from dollar price(s) and pointsPerDollar rate
+const buildPointsPrice = (dollarPrices, pointsPerDollar) => {
+    if (!dollarPrices?.length || !pointsPerDollar) return '';
+    const pts = dollarPrices.map(p => Math.round(p * pointsPerDollar));
+    if (pts.length === 1) return `${pts[0]} points`;
+    const min = Math.min(...pts);
+    const max = Math.max(...pts);
+    return min === max ? `${min} points` : `${min} to ${max} points`;
+};
+
 const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOptionTap, collapsingFeedIndex, storeLocations = [], selectedLocation }) => {
     const selectedLocationId = selectedLocation || localStorage.getItem('selectedLocation');
     const storeLocationIds = storeLocations.filter(l => l.type !== 'Warehouse').map(l => l.id);
     const warehouseIds = storeLocations.filter(l => l.type === 'Warehouse').map(l => l.id);
-
+    const { isLoyaltyMember, pointsPerDollar } = useLoyalty();
     const renderCard = (item, isFullWidth) => {
         const itemFeedIndex = feedItems.findIndex(f => f.id === item.id);
         const product = item.product || item;
@@ -89,16 +102,22 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
         const showFulfillment = isTracked && !isSoldOut;
         const variants = product.variants?.filter(v => v.price) || [];
         let price = '';
+        const variantPrices = [];
         if (variants.length > 1) {
             const prices = variants.map(v => parseFloat(v.price)).sort((a, b) => a - b);
+            variantPrices.push(...prices);
             price = prices[0] === prices[prices.length - 1]
                 ? `$${prices[0].toFixed(2)}`
                 : `$${prices[0].toFixed(2)} - $${prices[prices.length - 1].toFixed(2)}`;
         } else if (variants.length === 1) {
+            variantPrices.push(parseFloat(variants[0].price));
             price = `$${parseFloat(variants[0].price).toFixed(2)}`;
         } else if (product.price) {
+            variantPrices.push(parseFloat(product.price));
             price = `$${parseFloat(product.price).toFixed(2)}`;
         }
+        const redeemableVariantPrices = variants.filter(v => v.redeemableForPoints).map(v => parseFloat(v.price));
+        const ptsPrice = redeemableVariantPrices.length > 0 ? buildPointsPrice(redeemableVariantPrices, pointsPerDollar || 10) : '';
         const bgColor = item.backgroundColor || '#1a1a2e';
         const bgGradient = getItemBackground(item);
         const textColor = item.textColor || getTextColorForBackground(item.backgroundColor);
@@ -109,7 +128,7 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                 data-feed-index={itemFeedIndex}
                 role="button"
                 tabIndex={0}
-                aria-label={`View product: ${item.title}`}
+                aria-label={item.title}
                 onClick={(e) => {
                     const cardEl = e.currentTarget.querySelector('[data-card]');
                     const rect = cardEl ? cardEl.getBoundingClientRect() : e.currentTarget.getBoundingClientRect();
@@ -149,6 +168,14 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                         flexDirection: 'column',
                     }}
                 >
+                    {/* Bundle Badge */}
+                    {(product.isBundle || item.isBundle) && (
+                        <Box sx={{ position: 'absolute', top: 8, right: 8, zIndex: 2, bgcolor: '#7c3aed', borderRadius: 1, px: 1, py: 0.25 }}>
+                            <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '1.2rem', textTransform: 'uppercase' }}>
+                                Pack
+                            </Typography>
+                        </Box>
+                    )}
                     {/* Sold Out Banner — above image */}
                     {isSoldOut && (
                         <Box sx={{ bgcolor: 'rgba(180, 30, 30, 1)', py: 0.5, textAlign: 'center' }}>
@@ -233,6 +260,12 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                         >
                             {item.title}
                         </Typography>
+                        {ptsPrice && (
+                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: textColor, mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <StarRoundedIcon sx={{ fontSize: '1.4rem', color: textColor }} />
+                                {ptsPrice}
+                            </Typography>
+                        )}
                         {showFulfillment && (
                             <Box sx={{ mt: 0.25 }}>
                                 {pickupOk && (
@@ -266,16 +299,22 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
         const product = item.product || item;
         const myoVariants = product.variants?.filter(v => v.price) || [];
         let price = '';
+        const myoVarPrices = [];
         if (myoVariants.length > 1) {
             const prices = myoVariants.map(v => parseFloat(v.price)).sort((a, b) => a - b);
+            myoVarPrices.push(...prices);
             price = prices[0] === prices[prices.length - 1]
                 ? `$${prices[0].toFixed(2)}`
                 : `$${prices[0].toFixed(2)} - $${prices[prices.length - 1].toFixed(2)}`;
         } else if (myoVariants.length === 1) {
+            myoVarPrices.push(parseFloat(myoVariants[0].price));
             price = `$${parseFloat(myoVariants[0].price).toFixed(2)}`;
         } else if (product.price) {
+            myoVarPrices.push(parseFloat(product.price));
             price = `$${parseFloat(product.price).toFixed(2)}`;
         }
+        const myoRedeemablePrices = myoVariants.filter(v => v.redeemableForPoints).map(v => parseFloat(v.price));
+        const myoPtsPrice = myoRedeemablePrices.length > 0 ? buildPointsPrice(myoRedeemablePrices, pointsPerDollar || 10) : '';
         const bgColor = item.backgroundColor || '#1a1a2e';
         const bgGradient = getItemBackground(item);
         const txtColor = item.textColor || getTextColorForBackground(item.backgroundColor);
@@ -386,6 +425,12 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
                         }}>
                             {item.title || product.name}
                         </Typography>
+                        {myoPtsPrice && (
+                            <Typography sx={{ fontSize: '1.4rem', fontWeight: 600, color: txtColor, mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <StarRoundedIcon sx={{ fontSize: '1.4rem', color: txtColor }} />
+                                {myoPtsPrice}
+                            </Typography>
+                        )}
                     </Box>
                 </Box>
             </Box>
@@ -460,7 +505,10 @@ const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOption
 // Product detail page - image hero (top 1/3) + scrollable info card (bottom 2/3)
 const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, storeLocations = [] }) => {
     const product = item?.product || item;
+    const location = useLocation();
+    const isKiosk = location.pathname.startsWith('/kiosk');
     const { recordProductView: segRecordProductView, recordVariantSelect: segRecordVariantSelect, recordAddToCart: segRecordAddToCart } = useSegment();
+    const { isLoyaltyMember: detailIsLoyaltyMember, pointsPerDollar: detailPointsPerDollar } = useLoyalty();
     // Fetch real-time inventory (returns null while loading or on error — falls back to static)
     const liveInventory = useRealTimeInventory(product?.sku);
 
@@ -792,10 +840,16 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
         : product?.price
             ? `$${parseFloat(product.price).toFixed(2)}`
             : '';
+    const detailDollarPrice = parseFloat(selectedVariant?.price || product?.price || 0);
+    const detailPointsPrice = detailDollarPrice > 0 && selectedVariant?.redeemableForPoints
+        ? `${Math.round(detailDollarPrice * (detailPointsPerDollar || 10))} pts`
+        : '';
     // Use fulfillment waterfall for availability — item is available if any location can fulfill
     const { available: availableAtLocation, locationName } = useLocationAvailability(selectedVariant, product, storeLocations);
-    const isInStoreOnly = selectedVariant?.inStoreOnly === true;
-    const isAvailable = !isInStoreOnly && fulfillmentResolution.source !== 'none';
+    const isHiddenByChannel = isKiosk
+        ? selectedVariant?.visibleOnKiosk === false
+        : (selectedVariant?.visibleOnStorefront === false || (selectedVariant?.visibleOnStorefront === undefined && selectedVariant?.inStoreOnly === true));
+    const isAvailable = !isHiddenByChannel && fulfillmentResolution.source !== 'none';
 
     const pendingAddToCartRef = useRef(false);
     const handleStoreSelected = useCallback((locationId) => {
@@ -857,8 +911,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
             if (hasFulfillmentMethods && effectiveMethod) {
                 customAttributes.push({ key: '_fulfillment', value: effectiveMethod });
             }
-            // Pass fulfillment location for multi-origin shipping
-            if (fulfillmentResolution.locationId) {
+            // Pass fulfillment location only when routed to a different origin (warehouse/other store)
+            if (fulfillmentResolution.locationId && fulfillmentResolution.source !== 'local') {
                 customAttributes.push({ key: '_fulfillmentLocationId', value: fulfillmentResolution.locationId });
                 customAttributes.push({ key: '_fulfillmentLocationName', value: fulfillmentResolution.locationName });
             }
@@ -1873,9 +1927,14 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                             <Typography component="h1" sx={{ fontSize: '1.8rem', fontWeight: 700, lineHeight: 1.2, mb: 0.5 }}>
                                 {item?.title || product?.name}
                             </Typography>
-                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 500, color: 'grey.600', mb: 1.5 }}>
+                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 500, color: 'grey.600', mb: detailPointsPrice ? 0.25 : 1.5 }}>
                                 {displayPrice}
                             </Typography>
+                            {detailPointsPrice && (
+                                <Typography sx={{ fontSize: '1rem', fontWeight: 600, color: '#f57f17', mb: 1.5 }}>
+                                    or {detailPointsPrice}
+                                </Typography>
+                            )}
 
                             {/* Quantity selector */}
                             <Box sx={{ display: 'inline-flex', alignItems: 'center', border: '1px solid', borderColor: 'grey.300', borderRadius: 2, mb: 2 }}>
@@ -2351,8 +2410,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         >
                             {addingToCart ? (
                                 <CircularProgress size={24} color="inherit" aria-label="Adding to cart" />
-                            ) : isInStoreOnly ? (
-                                'In-Store Only'
+                            ) : isHiddenByChannel ? (
+                                'Not Available'
                             ) : !isAvailable ? (
                                 'Out of Stock'
                             ) : (!selectedVariantId || !myoAllValid) ? (
@@ -2379,8 +2438,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                         >
                             {addingToCart ? (
                                 <CircularProgress size={24} color="inherit" aria-label="Adding to cart" />
-                            ) : isInStoreOnly ? (
-                                'In-Store Only'
+                            ) : isHiddenByChannel ? (
+                                'Not Available'
                             ) : isAvailable ? (
                                 'Add to Cart'
                             ) : !availableAtLocation ? (
@@ -2465,6 +2524,10 @@ function CommerceInner() {
 
     // State for reward selection (for quantity-based discounts with multiple options)
     const [selectedRewards, setSelectedRewards] = useState({});
+
+    // Bundle configurator state
+    const [bundleConfigOpen, setBundleConfigOpen] = useState(false);
+    const [bundleConfigProduct, setBundleConfigProduct] = useState(null);
 
     // State for mobile swiper (default mode)
     const [currentSlide, setCurrentSlide] = useState(0);
@@ -2671,6 +2734,8 @@ function CommerceInner() {
 
     // Events data for event carousel
     const [events, setEvents] = useState([]);
+    // Pages data for page cards content source
+    const [carouselPages, setCarouselPages] = useState([]);
 
     // Fetch events for event carousel
     useEffect(() => {
@@ -2680,6 +2745,13 @@ function CommerceInner() {
                 setEvents(data.events || []);
             })
             .catch(err => console.error('[Commerce] Failed to load events:', err));
+    }, []);
+
+    // Fetch pages for pages content source
+    useEffect(() => {
+        getPublishedPages()
+            .then(pages => setCarouselPages(pages || []))
+            .catch(err => console.error('[Commerce] Failed to load pages:', err));
     }, []);
 
     // Fetch page configuration for homepage
@@ -2785,20 +2857,57 @@ function CommerceInner() {
         backgroundColor: 'white',
     }, [getSectionConfig]);
 
-    // Filter events by selected location
+    // Helper: get the display date for an event (respects pinned stop from page config, else next upcoming)
+    const getNextEventDate = useCallback((event) => {
+        const today = new Date().toISOString().slice(0, 10);
+        if (event.type?.toLowerCase() === 'tentpole' && Array.isArray(event.schedule) && event.schedule.length > 0) {
+            // Check if page config pins a specific stop
+            const pinnedIdx = eventCarouselConfig.eventStops?.[event.id];
+            if (pinnedIdx != null && event.schedule[pinnedIdx]?.date) {
+                return event.schedule[pinnedIdx].date;
+            }
+            const futureStops = event.schedule
+                .filter(s => s.date && s.date >= today)
+                .sort((a, b) => a.date.localeCompare(b.date));
+            if (futureStops.length > 0) return futureStops[0].date;
+        }
+        return event.startDate || null;
+    }, [eventCarouselConfig]);
+
+    // Filter events based on page config (source mode + location)
     const filteredEvents = useMemo(() => {
+        const source = eventCarouselConfig.eventSource || 'upcoming';
+        const today = new Date().toISOString().slice(0, 10);
+
+        // Step 1: filter by source mode
+        let items = events;
+        if (source === 'manual' && eventCarouselConfig.eventIds?.length > 0) {
+            const idSet = new Set(eventCarouselConfig.eventIds);
+            items = events.filter(e => idSet.has(e.id));
+        } else {
+            // 'upcoming' — only show events with a future date
+            items = events.filter(e => {
+                const nextDate = getNextEventDate(e);
+                return nextDate && nextDate >= today;
+            });
+        }
+
+        // Step 2: filter by selected store location
         const selectedLocationId = localStorage.getItem('selectedLocation');
-        if (!selectedLocationId || storeLocations.length === 0) return events;
-        const selectedStore = storeLocations.find(loc => loc.id === selectedLocationId);
-        if (!selectedStore) return events;
-        const filtered = events.filter(event =>
-            event.locationNames?.some(name =>
-                name.toLowerCase() === selectedStore.name.toLowerCase()
-            )
-        );
-        // If no events match, show all events rather than an empty carousel
-        return filtered.length > 0 ? filtered : events;
-    }, [events, storeLocations]);
+        if (selectedLocationId && storeLocations.length > 0) {
+            const selectedStore = storeLocations.find(loc => loc.id === selectedLocationId);
+            if (selectedStore) {
+                const locFiltered = items.filter(event =>
+                    event.locationNames?.some(name =>
+                        name.toLowerCase() === selectedStore.name.toLowerCase()
+                    )
+                );
+                if (locFiltered.length > 0) items = locFiltered;
+            }
+        }
+
+        return items;
+    }, [events, storeLocations, eventCarouselConfig, getNextEventDate]);
 
     // Determine what to show based on route
     // In kiosk mode, use effectivePath from header toggle (defaults to /desserts)
@@ -3714,7 +3823,7 @@ function CommerceInner() {
             intentionalCrossSell.current = true;
             
             // Navigate to base path to show the AddedToCart view
-            navigate('/desserts');
+            navigate(isKiosk ? '/kiosk' : '/desserts');
         }
     };
     
@@ -4430,7 +4539,7 @@ function CommerceInner() {
     });
 
     return (
-        <Box component="main">
+        <Box>
             {/* Full-page product detail (ALL products — no modal) */}
             {(showProduct || closingProduct) && activeProductItem && (
                 <ProductDetailPage
@@ -4563,6 +4672,13 @@ function CommerceInner() {
                                                 selectedLocation={selectedLocationForFilter}
                                                 collapsingFeedIndex={(collapseTransition || closingProduct) ? feedIndex : undefined}
                                                 onProductTap={(itemFeedIndex, cardData) => {
+                                                    const tappedItem = feedItems[itemFeedIndex];
+                                                    // Intercept bundle products — open configurator instead of product detail
+                                                    if (tappedItem?.product?.isBundle || tappedItem?.isBundle) {
+                                                        setBundleConfigProduct(tappedItem?.product || tappedItem);
+                                                        setBundleConfigOpen(true);
+                                                        return;
+                                                    }
                                                     feedScrollPositionRef.current = window.scrollY;
                                                     originPathRef.current = window.location.pathname;
                                                     if (closeTimeoutRef.current) {
@@ -4572,7 +4688,6 @@ function CommerceInner() {
                                                         setCollapseTransition(null);
                                                     }
                                                     setFeedIndex(itemFeedIndex);
-                                                    const tappedItem = feedItems[itemFeedIndex];
                                                     trackProductClicked(tappedItem?.product, itemFeedIndex);
                                                     const productHandle = tappedItem?.product?.id;
                                                     if (productHandle) {
@@ -4627,6 +4742,13 @@ function CommerceInner() {
                                 selectedLocation={selectedLocationForFilter}
                                 collapsingFeedIndex={(collapseTransition || closingProduct) ? feedIndex : undefined}
                                 onProductTap={(itemFeedIndex, cardData) => {
+                            const tappedItem = feedItems[itemFeedIndex];
+                            // Intercept bundle products — open configurator instead of product detail
+                            if (tappedItem?.product?.isBundle || tappedItem?.isBundle) {
+                                setBundleConfigProduct(tappedItem?.product || tappedItem);
+                                setBundleConfigOpen(true);
+                                return;
+                            }
                             // Save scroll position and origin path before entering product detail
                             feedScrollPositionRef.current = window.scrollY;
                             originPathRef.current = window.location.pathname;
@@ -4639,7 +4761,6 @@ function CommerceInner() {
                             }
                             setFeedIndex(itemFeedIndex);
                             // Update URL for SEO (pushState to avoid React Router re-render)
-                            const tappedItem = feedItems[itemFeedIndex];
                             trackProductClicked(tappedItem?.product, itemFeedIndex);
                             const productHandle = tappedItem?.product?.id;
                             if (productHandle) {
@@ -5939,15 +6060,16 @@ function CommerceInner() {
 
                         {/* Image Layer (on top of gradient) */}
                         {heroConfig.imageUrl && (
-                            <Box
-                                role="img"
-                                aria-label={heroConfig.title}
-                                sx={{
+                            <img
+                                src={heroConfig.imageUrl}
+                                alt={heroConfig.title || 'Hero image'}
+                                style={{
                                     position: 'absolute',
-                                    inset: 0,
-                                    backgroundImage: `url(${heroConfig.imageUrl})`,
-                                    backgroundSize: 'cover',
-                                    backgroundPosition: 'center',
+                                    top: 0,
+                                    left: 0,
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover',
                                 }}
                             />
                         )}
@@ -6174,9 +6296,8 @@ function CommerceInner() {
                                 })().map((product) => (
                                     <Box
                                         key={product.id}
-                                        role="link"
+                                        role="button"
                                         tabIndex={0}
-                                        aria-label={`View product: ${product.name}`}
                                         onClick={() => handleChooseProduct(product.id)}
                                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleChooseProduct(product.id); } }}
                                         sx={{
@@ -6296,8 +6417,104 @@ function CommerceInner() {
                     </Box>
                 </motion.div>
 
-                {/* Upcoming Events Section — hidden when no events */}
-                {filteredEvents.length > 0 && (
+                {/* Upcoming Events / Pages Cards Section */}
+                {(() => {
+                    const isPageCards = eventCarouselConfig.contentSource === 'pages';
+                    const isCardList = eventCarouselConfig.displayFormat === 'card-list';
+
+                    // Pages content source
+                    if (isPageCards) {
+                        const pageCards = eventCarouselConfig.pageCards || [];
+                        const displayPages = pageCards
+                            .map(pc => {
+                                const page = carouselPages.find(p => p.id === pc.pageId);
+                                return page ? { ...page, cardImageUrl: pc.imageUrl } : null;
+                            })
+                            .filter(Boolean);
+                        if (!displayPages.length) return null;
+
+                        return (
+                            <motion.div variants={childFadeUp}>
+                                <Box sx={{ width: '100vw', marginLeft: 'calc(-50vw + 50%)', backgroundColor: eventCarouselConfig.backgroundColor || 'white', py: 6 }}>
+                                    <Container maxWidth="lg">
+                                        {eventCarouselConfig.title && (
+                                            <Typography variant="h2" sx={{ fontWeight: 700, fontSize: 'h4.fontSize', mb: 1, px: 2 }}>
+                                                {eventCarouselConfig.title}
+                                            </Typography>
+                                        )}
+                                        {eventCarouselConfig.subtitle && (
+                                            <Typography sx={{ color: 'text.secondary', mb: 3, px: 2, fontSize: '1.6rem' }}>
+                                                {eventCarouselConfig.subtitle}
+                                            </Typography>
+                                        )}
+                                        <Box
+                                            role="region"
+                                            aria-label="Page cards"
+                                            tabIndex={0}
+                                            sx={{
+                                                display: 'flex',
+                                                gap: 2,
+                                                overflowX: isCardList ? { xs: 'visible', md: 'auto' } : 'auto',
+                                                flexDirection: isCardList ? { xs: 'column', md: 'row' } : 'row',
+                                                pb: 2,
+                                                px: 2,
+                                                scrollSnapType: isCardList ? { xs: 'none', md: 'x mandatory' } : 'x mandatory',
+                                                '&::-webkit-scrollbar': { display: 'none' },
+                                                scrollbarWidth: 'none',
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'ArrowRight') e.currentTarget.scrollBy({ left: 300, behavior: 'smooth' });
+                                                if (e.key === 'ArrowLeft') e.currentTarget.scrollBy({ left: -300, behavior: 'smooth' });
+                                            }}
+                                        >
+                                            {displayPages.map((page) => (
+                                                <Box
+                                                    key={page.id}
+                                                    component="a"
+                                                    href={page.slug.startsWith('/') ? page.slug : `/${page.slug}`}
+                                                    onClick={(e) => { e.preventDefault(); navigate(page.slug.startsWith('/') ? page.slug : `/${page.slug}`); }}
+                                                    sx={{
+                                                        flexShrink: isCardList ? { xs: 1, md: 0 } : 0,
+                                                        width: isCardList ? { xs: '100%', md: '320px' } : { xs: '280px', sm: '320px', md: '360px' },
+                                                        scrollSnapAlign: 'start',
+                                                        textDecoration: 'none',
+                                                        color: 'inherit',
+                                                        backgroundColor: 'white',
+                                                        borderRadius: 3,
+                                                        overflow: 'hidden',
+                                                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                                                        cursor: 'pointer',
+                                                        transition: 'transform 0.2s, box-shadow 0.2s',
+                                                        '&:hover, &:focus-visible': { transform: 'translateY(-4px)', boxShadow: '0 4px 16px rgba(0,0,0,0.15)' },
+                                                    }}
+                                                >
+                                                    <Box sx={{ paddingTop: '56.25%', backgroundColor: '#f5f5f5', position: 'relative', overflow: 'hidden' }}>
+                                                        {page.cardImageUrl ? (
+                                                            <img src={page.cardImageUrl} alt={page.title} loading="lazy" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        ) : (
+                                                            <Typography sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#999', fontSize: '1.6rem' }}>
+                                                                {page.title?.charAt(0) || 'P'}
+                                                            </Typography>
+                                                        )}
+                                                    </Box>
+                                                    <Box sx={{ p: 3 }}>
+                                                        <Typography sx={{ fontWeight: 600, fontSize: '1.6rem', mb: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {page.title}
+                                                        </Typography>
+                                                    </Box>
+                                                </Box>
+                                            ))}
+                                        </Box>
+                                    </Container>
+                                </Box>
+                            </motion.div>
+                        );
+                    }
+
+                    // Events content source (existing behavior)
+                    if (filteredEvents.length === 0) return null;
+
+                    return (
                 <motion.div variants={childFadeUp}>
                     <Box
                         sx={{
@@ -6332,7 +6549,7 @@ function CommerceInner() {
 
                             {/* Events - layout adapts to count */}
                             {(() => {
-                                const displayEvents = filteredEvents.length > 0 ? filteredEvents.slice(0, eventCarouselConfig.maxEvents || 3) : [];
+                                const displayEvents = filteredEvents.slice(0, eventCarouselConfig.maxEvents || 3);
                                 const count = displayEvents.length;
 
                                 if (count === 0) {
@@ -6348,13 +6565,13 @@ function CommerceInner() {
                                     const event = displayEvents[0];
                                     return (
                                         <Box
-                                            role="link"
-                                            tabIndex={0}
-                                            aria-label={`View event: ${event.title}`}
-                                            onClick={() => { trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
-                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); } }}
+                                            component="a"
+                                            href="/events"
+                                            onClick={(e) => { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
                                             sx={{
                                                 mx: 2,
+                                                textDecoration: 'none',
+                                                color: 'inherit',
                                                 borderRadius: 3,
                                                 overflow: 'hidden',
                                                 boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
@@ -6372,18 +6589,20 @@ function CommerceInner() {
                                             }}
                                         >
                                             <Box
-                                                role="img"
-                                                aria-label={event.imageUrl ? (event.title || 'Event image') : ''}
                                                 sx={{
                                                     paddingTop: '45%',
                                                     backgroundColor: '#f5f5f5',
                                                     position: 'relative',
-                                                    backgroundImage: event.imageUrl ? `url(${event.imageUrl})` : 'none',
-                                                    backgroundSize: 'cover',
-                                                    backgroundPosition: 'center',
+                                                    overflow: 'hidden',
                                                 }}
                                             >
-                                                {!event.imageUrl && (
+                                                {event.imageUrl ? (
+                                                    <img
+                                                        src={event.imageUrl}
+                                                        alt={event.title || 'Event image'}
+                                                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                                                    />
+                                                ) : (
                                                     <Typography
                                                         sx={{
                                                             position: 'absolute',
@@ -6403,8 +6622,11 @@ function CommerceInner() {
                                                     {event.title}
                                                 </Typography>
                                                 <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem', mb: 2 }}>
-                                                    {event.startDate ? new Date(event.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Date TBD'}
-                                                    {event.endDate && event.endDate !== event.startDate && ` – ${new Date(event.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                                                    {(() => {
+                                                        const d = getNextEventDate(event);
+                                                        return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Date TBD';
+                                                    })()}
+                                                    {event.endDate && event.endDate !== event.startDate && !event.schedule?.length && ` – ${new Date(event.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
                                                 </Typography>
                                                 <Button
                                                     variant="outlined"
@@ -6438,15 +6660,15 @@ function CommerceInner() {
                                         >
                                             {displayEvents.map((event) => (
                                                 <Box
+                                                    component="a"
+                                                    href="/events"
                                                     key={`event-${event.id}`}
-                                                    role="link"
-                                                    tabIndex={0}
-                                                    aria-label={`View event: ${event.title}`}
-                                                    onClick={() => { trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
-                                                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); } }}
+                                                    onClick={(e) => { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
                                                     sx={{
                                                         flex: 1,
                                                         minWidth: 0,
+                                                        textDecoration: 'none',
+                                                        color: 'inherit',
                                                         backgroundColor: 'white',
                                                         borderRadius: 3,
                                                         overflow: 'hidden',
@@ -6464,18 +6686,20 @@ function CommerceInner() {
                                                     }}
                                                 >
                                                     <Box
-                                                        role="img"
-                                                        aria-label={event.imageUrl ? (event.title || 'Event image') : ''}
                                                         sx={{
                                                             paddingTop: '56.25%',
                                                             backgroundColor: '#f5f5f5',
                                                             position: 'relative',
-                                                            backgroundImage: event.imageUrl ? `url(${event.imageUrl})` : 'none',
-                                                            backgroundSize: 'cover',
-                                                            backgroundPosition: 'center',
+                                                            overflow: 'hidden',
                                                         }}
                                                     >
-                                                        {!event.imageUrl && (
+                                                        {event.imageUrl ? (
+                                                            <img
+                                                                src={event.imageUrl}
+                                                                alt={event.title || 'Event image'}
+                                                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                                                            />
+                                                        ) : (
                                                             <Typography
                                                                 sx={{
                                                                     position: 'absolute',
@@ -6495,7 +6719,7 @@ function CommerceInner() {
                                                             {event.title}
                                                         </Typography>
                                                         <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem', mb: 2 }}>
-                                                            {event.startDate ? new Date(event.startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date TBD'}
+                                                            {(() => { const d = getNextEventDate(event); return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date TBD'; })()}
                                                             {event.eventTimes?.[0] && ` • ${event.eventTimes[0]}`}
                                                         </Typography>
                                                         <Button
@@ -6519,7 +6743,7 @@ function CommerceInner() {
                                     );
                                 }
 
-                                // Three+ events — horizontal scrollable cards
+                                // Three+ events — horizontal scrollable cards (supports card-list responsive)
                                 return (
                                     <Box
                                         role="region"
@@ -6528,10 +6752,11 @@ function CommerceInner() {
                                         sx={{
                                             display: 'flex',
                                             gap: 2,
-                                            overflowX: 'auto',
+                                            overflowX: isCardList ? { xs: 'visible', md: 'auto' } : 'auto',
+                                            flexDirection: isCardList ? { xs: 'column', md: 'row' } : 'row',
                                             pb: 2,
                                             px: 2,
-                                            scrollSnapType: 'x mandatory',
+                                            scrollSnapType: isCardList ? { xs: 'none', md: 'x mandatory' } : 'x mandatory',
                                             '&::-webkit-scrollbar': { display: 'none' },
                                             scrollbarWidth: 'none',
                                             '&:focus-visible': {
@@ -6547,16 +6772,16 @@ function CommerceInner() {
                                     >
                                         {displayEvents.map((event) => (
                                             <Box
+                                                component="a"
+                                                href="/events"
                                                 key={`event-${event.id}`}
-                                                role="link"
-                                                tabIndex={0}
-                                                aria-label={`View event: ${event.title}`}
-                                                onClick={() => { trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
-                                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); } }}
+                                                onClick={(e) => { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
                                                 sx={{
-                                                    flexShrink: 0,
-                                                    width: { xs: '280px', sm: '320px', md: '360px' },
+                                                    flexShrink: isCardList ? { xs: 1, md: 0 } : 0,
+                                                    width: isCardList ? { xs: '100%', md: '360px' } : { xs: '280px', sm: '320px', md: '360px' },
                                                     scrollSnapAlign: 'start',
+                                                    textDecoration: 'none',
+                                                    color: 'inherit',
                                                     backgroundColor: 'white',
                                                     borderRadius: 3,
                                                     overflow: 'hidden',
@@ -6574,18 +6799,20 @@ function CommerceInner() {
                                                 }}
                                             >
                                                 <Box
-                                                    role="img"
-                                                    aria-label={event.imageUrl ? (event.title || 'Event image') : ''}
                                                     sx={{
                                                         paddingTop: '56.25%',
                                                         backgroundColor: '#f5f5f5',
                                                         position: 'relative',
-                                                        backgroundImage: event.imageUrl ? `url(${event.imageUrl})` : 'none',
-                                                        backgroundSize: 'cover',
-                                                        backgroundPosition: 'center',
+                                                        overflow: 'hidden',
                                                     }}
                                                 >
-                                                    {!event.imageUrl && (
+                                                    {event.imageUrl ? (
+                                                        <img
+                                                            src={event.imageUrl}
+                                                            alt={event.title || 'Event image'}
+                                                            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                                                        />
+                                                    ) : (
                                                         <Typography
                                                             sx={{
                                                                 position: 'absolute',
@@ -6605,7 +6832,7 @@ function CommerceInner() {
                                                         {event.title}
                                                     </Typography>
                                                     <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem', mb: 2 }}>
-                                                        {event.startDate ? new Date(event.startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date TBD'}
+                                                        {(() => { const d = getNextEventDate(event); return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Date TBD'; })()}
                                                         {event.eventTimes?.[0] && ` • ${event.eventTimes[0]}`}
                                                     </Typography>
                                                     <Button
@@ -6631,7 +6858,8 @@ function CommerceInner() {
                         </Container>
                     </Box>
                 </motion.div>
-                )}
+                    );
+                })()}
 
                 </motion.div>
                 )}
@@ -6707,6 +6935,16 @@ function CommerceInner() {
                 products={cartCrossSellProducts}
                 onAdd={handleCrossSellAdd}
                 triggerProduct={crossSellTrigger?.product}
+            />
+
+            {/* Bundle Configurator */}
+            <BundleConfigurator
+                open={bundleConfigOpen}
+                onClose={() => { setBundleConfigOpen(false); setBundleConfigProduct(null); }}
+                bundleProduct={bundleConfigProduct}
+                onAddToCart={(product, variant, bundleItems, extra) => {
+                    localCart.addBundleToCart(product, variant, bundleItems, extra || {});
+                }}
             />
 
             {/* Blind Box Selector Modal */}

@@ -5,7 +5,7 @@ import {
 } from '@mui/material';
 import { format } from 'date-fns';
 import { CREATE_INVOICE, PROCESS_INVOICE_URL, SQUARE_APP_ID, SQUARE_LOCATION_ID } from '@/constants/catering/cateringConstants';
-import { trackCateringOrderSubmitted } from '@/services/analytics';
+import { trackCateringOrderSubmitted, identifyUser } from '@/services/analytics';
 
 // Helper function to format phone number to E.164
 const formatPhoneNumberE164 = (mobileNumber) => {
@@ -171,7 +171,16 @@ export const Checkout = ({ sendToCatering, cateringState }) => {
 
     // Handle Place Order
     const handlePlaceOrder = async () => {
-        trackCateringOrderSubmitted(total, paymentMethod);
+        trackCateringOrderSubmitted(null, total);
+        // Link visitor to customer so analytics shows their name
+        if (contactInfo?.email) {
+            identifyUser(accountId || contactInfo.email, {
+                firstName: contactInfo.firstName,
+                lastName: contactInfo.lastName,
+                name: [contactInfo.firstName, contactInfo.lastName].filter(Boolean).join(' '),
+                email: contactInfo.email,
+            });
+        }
         setError(null);
         setIsProcessing(true);
 

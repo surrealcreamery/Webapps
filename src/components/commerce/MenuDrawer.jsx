@@ -24,6 +24,11 @@ const MENU_ITEMS = [
         title: 'Collectibles',
         path: '/collectibles',
         description: 'tokidoki collectibles'
+    },
+    {
+        title: 'Events',
+        path: '/events',
+        description: 'Upcoming events & experiences'
     }
 ];
 
@@ -65,7 +70,7 @@ export const MenuDrawer = ({ open, onClose }) => {
             anchor="left"
             open={open}
             onClose={onClose}
-            aria-label="Navigation menu"
+            aria-label="Menu"
             sx={{
                 '& .MuiDrawer-paper': {
                     width: { xs: '85%', sm: 400 },

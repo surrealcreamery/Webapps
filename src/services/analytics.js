@@ -15,8 +15,10 @@ import {
   trackViewCart as ga4ViewCart,
   trackBeginCheckout as ga4BeginCheckout,
   trackSelectItem as ga4SelectItem,
+  trackPurchase as ga4Purchase,
+  trackEventRegistration as ga4EventRegistration,
 } from '@/components/google-tag-manager/google-tag-manager';
-import { init as initTracker, track, setTrackerCartId, setCustomerId as setTrackerCustomerId, getVisitorId, getEnvironment } from './eventTracker';
+import { init as initTracker, track, flush, setTrackerCartId, setCustomerId as setTrackerCustomerId, getVisitorId, getEnvironment } from './eventTracker';
 import { persistVisitorSegment } from './segmentService';
 
 const CHECKOUT_API_URL = 'https://viif6favb73jr3pm2ph6qcten40ethnp.lambda-url.us-east-1.on.aws';
@@ -26,6 +28,20 @@ let posthogReady = false;
 export function initAnalytics() {
   if (typeof window === 'undefined') return;
   initTracker();
+
+  // The events flow navigates via raw history.pushState and signals each change with 'events:nav'
+  // (React Router's useLocation doesn't see bare pushState). Fire a PageView on each so game-specific
+  // URLs (/events/pokemon/…) register with the pixels + CAPI regardless of how they're reached.
+  window.addEventListener('events:nav', () => trackSpaPageView(window.location.pathname));
+
+  // Auto-identify visitor from email subscriber ID (sid= and sn= in URL)
+  const urlParams = new URLSearchParams(window.location.search);
+  const sidParam = urlParams.get('sid');
+  if (sidParam) {
+    const snParam = urlParams.get('sn');
+    identifyUser(sidParam, { ...(snParam ? { name: snParam } : {}) });
+  }
+
   fetch(CHECKOUT_API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -62,13 +78,32 @@ export function identifyUser(customerId, traits = {}) {
   // Link visitorId → customerId on server for cross-session identity resolution
   const vid = getVisitorId();
   if (vid && customerId) {
-    persistVisitorSegment(vid, null, null, null, null, customerId, getEnvironment());
+    const customerName = traits.name || [traits.firstName, traits.lastName].filter(Boolean).join(' ') || null;
+    const customerEmail = traits.email || (customerId.includes('@') ? customerId : null);
+    persistVisitorSegment(vid, null, null, null, null, customerId, getEnvironment(), null, null, customerName, customerEmail);
   }
 }
 
 export function setCartId(cartId) {
   if (cartId) ph('register', { cart_id: cartId });
   setTrackerCartId(cartId);
+}
+
+// ── SPA page views ──
+// The base Meta/TikTok pixels only fire PageView on hard load, and React Router's page-view effect
+// only catches router-driven navigation. This app (esp. the events flow) also navigates via raw
+// history.pushState, which both miss. Call this on every client-side URL change so a PageView reaches
+// the Meta pixel + Meta CAPI (via the 'page_view' event) and TikTok. Deduped by path so overlapping
+// triggers (popstate + events:nav for the same URL) fire at most once.
+let lastPageViewPath = null;
+export function trackSpaPageView(path) {
+  if (typeof window === 'undefined') return;
+  const p = path || window.location.pathname;
+  if (!p || p === lastPageViewPath) return;
+  lastPageViewPath = p;
+  track('page_view', { path: p });                                  // first-party → Meta CAPI PageView
+  if (typeof fbq === 'function') fbq('track', 'PageView');           // Meta browser pixel
+  if (typeof window.ttq?.page === 'function') window.ttq.page();     // TikTok browser pixel
 }
 
 // ── Navigation & Site Chrome ──
@@ -395,9 +430,15 @@ export function trackPaymentFailed(paymentMethod, error) {
   track('payment_failed', { payment_method: paymentMethod, error });
 }
 
-export function trackOrderCompleted(result, { subtotal, tax, tip, total, itemCount, paymentMethod } = {}) {
+export function trackOrderCompleted(result, { subtotal, tax, tip, total, itemCount, paymentMethod, cartItems } = {}) {
+  const orderId = result?.orderId || result?.receiptNumber;
+  // Checkout API returns amounts in cents — convert to dollars for GA4/Meta
+  const centsToD = (v) => { const n = typeof v === 'number' ? v : parseFloat(v || 0); return n > 0 && Number.isInteger(n) ? n / 100 : n; };
+  const totalDollars = centsToD(total);
+  const taxDollars = centsToD(tax);
+
   ph('capture', 'order_completed', {
-    order_id: result?.orderId,
+    order_id: orderId,
     subtotal,
     tax,
     tip,
@@ -405,7 +446,27 @@ export function trackOrderCompleted(result, { subtotal, tax, tip, total, itemCou
     item_count: itemCount,
     payment_method: paymentMethod,
   });
-  track('order_completed', { order_id: result?.orderId, total, item_count: itemCount, payment_method: paymentMethod });
+  track('order_completed', { order_id: orderId, total, item_count: itemCount, payment_method: paymentMethod });
+
+  // GA4 purchase event
+  const ga4Items = (cartItems || []).map(item => ({
+    item_id: item.variantSku || item.sku || item.id,
+    item_name: item.name || item.title,
+    price: parseFloat(item.unitPrice || item.price || item.variant?.price?.amount || item.variant?.price || 0),
+    quantity: item.quantity || 1,
+    item_variant: item.variantName || item.variantTitle || item.variant?.title || undefined,
+  }));
+  ga4Purchase(orderId, totalDollars, ga4Items, { tax: taxDollars });
+
+  // Meta Pixel — Purchase
+  if (typeof fbq === 'function') {
+    fbq('track', 'Purchase', {
+      value: totalDollars,
+      currency: 'USD',
+      content_type: 'product',
+      num_items: itemCount || ga4Items.length,
+    }, { eventID: orderId });
+  }
 }
 
 export function trackOrderConfirmationViewed(orderId) {
@@ -464,8 +525,28 @@ export function trackSubscriptionPaymentAttempted(planId, total) {
   track('subscription_payment_attempted', { plan_id: planId, total });
 }
 
-export function trackSubscriptionCompleted(orderId, planId, total) {
+export function trackSubscriptionCompleted(orderId, planId, total, { planName } = {}) {
+  const totalDollars = parseFloat(total || 0);
   track('subscription_completed', { order_id: orderId, plan_id: planId, total });
+
+  // GA4 purchase event
+  ga4Purchase(orderId, totalDollars, [{
+    item_id: planId || 'subscription',
+    item_name: planName || `Subscription ${planId || ''}`.trim(),
+    price: totalDollars,
+    quantity: 1,
+    item_category: 'subscription',
+  }]);
+
+  // Meta Pixel — Purchase
+  if (typeof fbq === 'function') {
+    fbq('track', 'Purchase', {
+      value: totalDollars,
+      currency: 'USD',
+      content_type: 'subscription',
+      content_ids: planId ? [planId] : undefined,
+    }, { eventID: orderId || planId });
+  }
 }
 
 export function trackRedemptionCodeEntered() {
@@ -506,6 +587,95 @@ export function trackEventsDashboardViewed() {
   track('events_dashboard_viewed');
 }
 
+export function trackEventLocationSelected(eventId, locationId, { autoSkipped = false } = {}) {
+  track('event_location_selected', { event_id: eventId, location_id: locationId, auto_skipped: autoSkipped });
+}
+
+export function trackEventContactFormViewed(eventId, { autoFilled = false } = {}) {
+  track('event_contact_form_viewed', { event_id: eventId, auto_filled: autoFilled });
+}
+
+export function trackEventContactFormSubmitted(eventId) {
+  track('event_contact_form_submitted', { event_id: eventId });
+}
+
+export function trackEventOtpSent(eventId, channel) {
+  track('event_otp_sent', { event_id: eventId, channel });
+}
+
+export function trackEventOtpVerified(eventId) {
+  track('event_otp_verified', { event_id: eventId });
+}
+
+export function trackEventOtpSkipped(eventId) {
+  track('event_otp_skipped', { event_id: eventId });
+}
+
+export function trackEventRegistrationCreated(eventId, { outcome, date, time, eventName, registrationId, paymentAmountCents, paymentMethod } = {}) {
+  track('event_registration_created', { event_id: eventId, outcome, date, time });
+
+  if (outcome === 'success') {
+    const isPaid = paymentMethod && paymentAmountCents > 0;
+    const valueDollars = isPaid ? paymentAmountCents / 100 : 0;
+
+    // Meta Pixel — CompleteRegistration (eventID for server-side CAPI deduplication)
+    if (typeof fbq === 'function') {
+      fbq('track', 'CompleteRegistration', {
+        content_name: eventName || eventId,
+        content_type: 'event_registration',
+        status: 'registered',
+        ...(isPaid ? { value: valueDollars, currency: 'USD' } : {}),
+      }, { eventID: registrationId || eventId });
+    }
+
+    if (isPaid) {
+      // Meta Pixel — Purchase for paid registrations (revenue attribution)
+      if (typeof fbq === 'function') {
+        fbq('track', 'Purchase', {
+          value: valueDollars,
+          currency: 'USD',
+          content_type: 'event_registration',
+          content_name: eventName || eventId,
+          content_ids: [eventId],
+        }, { eventID: `purchase_${registrationId || eventId}` });
+      }
+
+      // GA4 — purchase event with revenue
+      ga4Purchase(registrationId || eventId, valueDollars, [{
+        item_id: `event-${eventId}`,
+        item_name: eventName || 'Event Registration',
+        price: valueDollars,
+        quantity: 1,
+        item_category: 'event_registration',
+      }]);
+    } else {
+      // GA4 — generate_lead for free registrations
+      ga4EventRegistration(eventId, eventName || eventId);
+    }
+  }
+}
+
+export function trackEventFlowStarted(eventId, { source = 'manual', autoRegister = false } = {}) {
+  track('event_flow_started', { event_id: eventId, source, auto_register: autoRegister });
+}
+
+export function trackEventRegistrationFailed(eventId, { contactInfo, date, time, locationId, reason } = {}) {
+  track('event_registration_failed', {
+    event_id: eventId,
+    first_name: contactInfo?.firstName,
+    last_name: contactInfo?.lastName,
+    email: contactInfo?.email,
+    mobile_number: contactInfo?.mobileNumber,
+    organization_name: contactInfo?.organizationName,
+    date,
+    time,
+    location_id: locationId,
+    reason,
+    label: `${contactInfo?.firstName} ${contactInfo?.lastName} | ${contactInfo?.email} | ${contactInfo?.mobileNumber}`,
+  });
+  flush(true); // Force immediate sendBeacon — don't wait for batch timer
+}
+
 // ── Catering ──
 
 export function trackCateringLogin() {
@@ -537,7 +707,26 @@ export function trackCateringCheckoutStarted(itemCount, subtotal) {
 }
 
 export function trackCateringOrderSubmitted(orderId, total) {
+  const totalDollars = parseFloat(total || 0);
   track('catering_order_submitted', { order_id: orderId, total });
+
+  // GA4 purchase event
+  ga4Purchase(orderId, totalDollars, [{
+    item_id: 'catering-order',
+    item_name: 'Catering Order',
+    price: totalDollars,
+    quantity: 1,
+    item_category: 'catering',
+  }]);
+
+  // Meta Pixel — Purchase
+  if (typeof fbq === 'function') {
+    fbq('track', 'Purchase', {
+      value: totalDollars,
+      currency: 'USD',
+      content_type: 'product',
+    }, { eventID: orderId });
+  }
 }
 
 // ── Errors ──

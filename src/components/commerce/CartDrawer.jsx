@@ -177,9 +177,12 @@ export function CartDrawer({
   // Terminal payment state (kiosk mode)
   const [terminalStatus, setTerminalStatus] = useState('idle'); // idle | sending | waiting | creating | completed | failed | canceled
   const [terminalError, setTerminalError] = useState(null);
+  const [showTipSelection, setShowTipSelection] = useState(false);
+  const [selectedTipCents, setSelectedTipCents] = useState(0);
   const terminalCheckoutId = useRef(null);
   const terminalCartSnapshot = useRef(null); // snapshot of cart items at checkout time for order creation payload
   const terminalPayloadId = useRef(null); // payloadId for payload-first order architecture
+  const terminalTipCents = useRef(0); // tip selected on kiosk — ref so pollTerminalStatus can read it
   const pollTimer = useRef(null);
   const timeoutTimer = useRef(null);
 
@@ -225,6 +228,7 @@ export function CartDrawer({
       setTerminalStatus('idle');
       setTerminalError(null);
       terminalCheckoutId.current = null;
+      terminalTipCents.current = 0;
     }
   }, [kioskCancelSignal, stopPolling]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -253,6 +257,7 @@ export function CartDrawer({
       setTerminalStatus('idle');
       setTerminalError(null);
       terminalCheckoutId.current = null;
+      terminalTipCents.current = 0;
     }
     return () => stopPolling();
   }, [open, stopPolling]);
@@ -293,7 +298,7 @@ export function CartDrawer({
                   squareOrderId: sqOrderId,
                   cartItems: cartSnapshot,
                   locationId: kioskTerminal?.locationId || '',
-                  tipAmount: result.tipAmount || 0,
+                  tipAmount: terminalTipCents.current || result.tipAmount || 0,
                   ...(terminalPayloadId.current ? { payloadId: terminalPayloadId.current } : {}),
                 }),
               });
@@ -315,6 +320,7 @@ export function CartDrawer({
             terminalCheckoutId.current = null;
             terminalCartSnapshot.current = null;
             terminalPayloadId.current = null;
+            terminalTipCents.current = 0;
             onClose();
           }, 3000);
         } else if (result.status === 'CANCELED' || result.status === 'CANCEL_REQUESTED') {
@@ -347,9 +353,11 @@ export function CartDrawer({
     }, TERMINAL_TIMEOUT);
   }, [stopPolling, localCart, onClose, isPairedKiosk, kioskSendForward, onKioskCartChange]);
 
-  const handleTerminalCheckout = useCallback(async () => {
+  const handleTerminalCheckout = useCallback(async (tipCents = 0) => {
     // Prevent concurrent checkout attempts
     if (terminalStatus !== 'idle') return;
+
+    setShowTipSelection(false);
 
     // Determine items and amount based on paired vs standalone kiosk
     let amountCents, taxCents = 0, note, terminalLineItems;
@@ -401,6 +409,10 @@ export function CartDrawer({
 
     if (amountCents <= 0) return;
 
+    // Add tip selected on kiosk screen
+    const totalWithTip = amountCents + (tipCents || 0);
+    terminalTipCents.current = tipCents || 0;
+
     setTerminalStatus('sending');
     setTerminalError(null);
 
@@ -428,6 +440,7 @@ export function CartDrawer({
           fulfillmentType: 'pickup',
           locationId: kioskTerminal?.locationId || '',
           taxCents,
+          tipCents: tipCents || 0,
         }),
       });
       const payloadData = await payloadRes.json();
@@ -448,8 +461,10 @@ export function CartDrawer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'createTerminalCheckout',
-          amountCents,
+          amountCents: totalWithTip,
           taxCents,
+          tipCents: tipCents || 0,
+          skipTip: true,
           note,
           deviceId: kioskTerminal?.deviceId,
           locationId: kioskTerminal?.locationId,
@@ -523,6 +538,7 @@ export function CartDrawer({
     setTerminalStatus('idle');
     setTerminalError(null);
     terminalCheckoutId.current = null;
+    terminalTipCents.current = 0;
   }, [stopPolling, isPairedKiosk, kioskSendForward]);
 
   const lineItemsSubtotal = subtotal; // No server-side discount allocations in local cart
@@ -663,7 +679,7 @@ export function CartDrawer({
               modifiers: item.modifiers || [],
               isFreeGift: item.isFreeGift || false,
               discountId: item.discountId || null,
-              ...(item.isBundle ? { isBundle: true, bundleItems: item.bundleItems || [] } : {}),
+              ...(item.isBundle ? { isBundle: true, bundleItems: item.bundleItems || [], bundleAddOns: item.bundleAddOns || [], upchargeTotal: item.upchargeTotal || 0, basePrice: item.basePrice ?? null } : {}),
             })),
             pickupLocation: selectedLocation,
             fulfillmentMethods,
@@ -717,7 +733,7 @@ export function CartDrawer({
           fulfillmentMethod: item.fulfillmentMethod || null,
           fulfillmentLocationId: item.fulfillmentLocationId || null,
           fulfillmentLocationName: item.fulfillmentLocationName || null,
-          ...(item.isBundle ? { isBundle: true, bundleItems: item.bundleItems || [] } : {}),
+          ...(item.isBundle ? { isBundle: true, bundleItems: item.bundleItems || [], bundleAddOns: item.bundleAddOns || [], upchargeTotal: item.upchargeTotal || 0, basePrice: item.basePrice ?? null } : {}),
         })),
         pickupLocation: selectedLocationSlug,
         cartSessionId: localCart?.cartId,
@@ -810,7 +826,9 @@ export function CartDrawer({
 
   const handleCheckout = () => {
     if (isKioskMode) {
-      handleTerminalCheckout();
+      setSelectedTipCents(0);
+      setShowTipSelection(true);
+      return;
     } else {
       const hasDelivery = cartItems.some(i => i.fulfillmentMethod === 'delivery');
       if (hasDelivery && !deliveryAddress) {
@@ -1436,13 +1454,20 @@ export function CartDrawer({
                                               {bi.slotName}
                                             </Typography>
                                             <Typography variant="body2" sx={{ fontSize: '1.4rem', color: 'text.secondary', pl: 0.5 }}>
-                                              {bi.name}{bi.variantName ? ` — ${bi.variantName}` : ''}
+                                              {bi.name}{bi.variantName ? ` — ${bi.variantName}` : ''}{bi.upcharge > 0 ? ` (+$${Number(bi.upcharge).toFixed(2)})` : ''}
                                             </Typography>
                                             {(bi.modifiers || []).map((m, mi) => (
                                               <Typography key={mi} variant="body2" sx={{ fontSize: '1.2rem', color: 'text.secondary', pl: 1 }}>
                                                 + {m.name}: {m.value}
                                               </Typography>
                                             ))}
+                                          </Box>
+                                        ))}
+                                        {(item.bundleAddOns || []).filter(a => a.addedQty > 0).map((a, ai) => (
+                                          <Box key={`ao-${ai}`} sx={{ mb: 0.25 }}>
+                                            <Typography variant="body2" sx={{ fontSize: '1.4rem', color: 'text.secondary', pl: 0.5 }}>
+                                              + {a.addedQty}× {a.itemName || a.name} <span style={{ color: '#2e7d32' }}>(+${Number(a.addedCost).toFixed(2)})</span>
+                                            </Typography>
                                           </Box>
                                         ))}
                                       </Box>
@@ -1895,6 +1920,80 @@ export function CartDrawer({
           </DialogActions>
         </Dialog>
 
+        {/* Tip Selection Overlay (Kiosk Mode) */}
+        {isKioskMode && showTipSelection && (
+          <Box sx={{
+            position: 'absolute',
+            inset: 0,
+            bgcolor: 'rgba(255,255,255,0.97)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10,
+            p: 4,
+          }}>
+            <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
+              Add a tip?
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+              Total: ${kioskTotal.toFixed(2)}
+            </Typography>
+            <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+              {[
+                { label: '15%', pct: 0.15 },
+                { label: '20%', pct: 0.20 },
+                { label: '25%', pct: 0.25 },
+              ].map(({ label, pct }) => {
+                const tipVal = Math.round(subtotal * pct * 100);
+                const isSelected = selectedTipCents === tipVal;
+                return (
+                  <Button
+                    key={label}
+                    variant={isSelected ? 'contained' : 'outlined'}
+                    onClick={() => setSelectedTipCents(isSelected ? 0 : tipVal)}
+                    sx={{
+                      minWidth: 100,
+                      minHeight: 64,
+                      fontSize: '1.2rem',
+                      fontWeight: 700,
+                      flexDirection: 'column',
+                      ...(isSelected ? {} : { borderColor: 'divider' }),
+                    }}
+                  >
+                    {label}
+                    <Typography variant="caption" sx={{ fontWeight: 400, mt: 0.25 }}>
+                      ${(tipVal / 100).toFixed(2)}
+                    </Typography>
+                  </Button>
+                );
+              })}
+            </Stack>
+            <Stack direction="row" spacing={2} sx={{ width: '100%', maxWidth: 360 }}>
+              <Button
+                variant="outlined"
+                fullWidth
+                onClick={() => {
+                  setSelectedTipCents(0);
+                  handleTerminalCheckout(0);
+                }}
+                sx={{ minHeight: 52, fontSize: '1rem', fontWeight: 600 }}
+              >
+                No Tip
+              </Button>
+              <Button
+                variant="contained"
+                fullWidth
+                onClick={() => handleTerminalCheckout(selectedTipCents)}
+                disabled={selectedTipCents === 0}
+                sx={{ minHeight: 52, fontSize: '1rem', fontWeight: 600 }}
+              >
+                Continue{selectedTipCents > 0 ? ` ($${((kioskTotal * 100 + selectedTipCents) / 100).toFixed(2)})` : ''}
+              </Button>
+            </Stack>
+          </Box>
+        )}
+
         {/* Terminal Payment Overlay (Kiosk Mode) */}
         {isKioskMode && terminalStatus !== 'idle' && (
           <Box aria-live="assertive" sx={{
@@ -1927,7 +2026,7 @@ export function CartDrawer({
                   Complete payment on the terminal
                 </Typography>
                 <Typography variant="h5" sx={{ fontWeight: 700, mb: 4 }}>
-                  ${parseFloat(kioskTotal).toFixed(2)}
+                  ${((kioskTotal * 100 + selectedTipCents) / 100).toFixed(2)}
                 </Typography>
                 <Button variant="outlined" color="inherit" onClick={handleCancelTerminal}>
                   Cancel
@@ -1964,7 +2063,7 @@ export function CartDrawer({
                     {terminalError}
                   </Typography>
                 )}
-                <Button variant="contained" onClick={() => { setTerminalStatus('idle'); setTerminalError(null); terminalCheckoutId.current = null; }}>
+                <Button variant="contained" onClick={() => { setTerminalStatus('idle'); setTerminalError(null); terminalCheckoutId.current = null; terminalTipCents.current = 0; }}>
                   Try Again
                 </Button>
               </>

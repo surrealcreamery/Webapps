@@ -412,7 +412,7 @@ export default function DeliveryCheckPage() {
     const price = parseFloat(variant?.price?.amount || variant?.price || 0);
 
     return (
-        <Box component="main" sx={{ minHeight: '100vh', bgcolor: 'white', pb: 4 }}>
+        <Box sx={{ minHeight: '100vh', bgcolor: 'white', pb: 4 }}>
             <Helmet><title>Delivery Check | Surreal Creamery</title></Helmet>
             {/* Header */}
             <Box sx={{

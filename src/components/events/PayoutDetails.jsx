@@ -83,7 +83,7 @@ export const PayoutDetails = ({ event, onBack, onBackToDashboard, onGoHome, send
 
     return (
         <Container maxWidth="sm" sx={{ pt: 0, pb: 4 }}>
-            <Breadcrumbs aria-label="breadcrumb" sx={{ mb: 2 }}>
+            <Breadcrumbs component="div" aria-label="breadcrumb" sx={{ mb: 2 }}>
                 <MuiLink underline="hover" color="inherit" href="#" onClick={onGoHome} sx={{cursor: 'pointer'}}>
                     Home
                 </MuiLink>

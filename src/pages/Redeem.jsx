@@ -208,7 +208,7 @@ const AddNewCard = ({ customerId, onCardAdded, onCancel }) => {
     );
 };
 
-const ConfirmNewPaymentMethod = ({ subscription, newCard, onConfirmSuccess, onBack }) => {
+const ConfirmNewPaymentMethod = ({ subscription, newCard, onConfirmSuccess, onBack, sessionToken }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -228,7 +228,8 @@ const ConfirmNewPaymentMethod = ({ subscription, newCard, onConfirmSuccess, onBa
                 body: JSON.stringify({
                     action: 'updateSubscriptionPayment',
                     subscriptionId: squareId,
-                    cardId: newCard.id
+                    cardId: newCard.id,
+                    sessionToken,
                 })
             });
             onConfirmSuccess('Payment method updated successfully!');
@@ -272,7 +273,7 @@ const ConfirmNewPaymentMethod = ({ subscription, newCard, onConfirmSuccess, onBa
     );
 };
 
-const UpdatePayment = ({ customerId, subscription, onBack, onNavigate }) => {
+const UpdatePayment = ({ customerId, subscription, onBack, onNavigate, sessionToken }) => {
     const [cards, setCards] = useState([]);
     const [selectedCardId, setSelectedCardId] = useState('');
     const [isLoading, setIsLoading] = useState(true);
@@ -328,7 +329,8 @@ const UpdatePayment = ({ customerId, subscription, onBack, onNavigate }) => {
                 body: JSON.stringify({
                     action: 'updateSubscriptionPayment',
                     subscriptionId: squareId,
-                    cardId: selectedCardId
+                    cardId: selectedCardId,
+                    sessionToken,
                 })
             });
             onBack('Payment method updated successfully!');
@@ -386,7 +388,7 @@ const UpdatePayment = ({ customerId, subscription, onBack, onNavigate }) => {
     );
 };
 
-const ManageSubscription = ({ subscription, onBack, onNavigate, successMessage }) => {
+const ManageSubscription = ({ subscription, onBack, onNavigate, successMessage, sessionToken }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(successMessage || '');
@@ -438,7 +440,7 @@ const ManageSubscription = ({ subscription, onBack, onNavigate, successMessage }
         setIsLoading(true); setError(''); setSuccess('');
         try {
             const response = await fetch(SUBSCRIPTION_API_URL, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancelSubscription', subscriptionId: detailedSubscription.id })
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancelSubscription', subscriptionId: detailedSubscription.id, sessionToken })
             });
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ message: 'Failed to cancel subscription.' }));
@@ -534,6 +536,7 @@ const Redeem = () => {
     const [showPrevious, setShowPrevious] = useState(false);
     const [manageState, setManageState] = useState({ view: null, subscription: null, newCard: null, successMessage: null });
     const [benefits, setBenefits] = useState([]);
+    const [subSessionToken, setSubSessionToken] = useState(null);
     
     useEffect(() => {
         if (!wizardState) {
@@ -647,7 +650,8 @@ const Redeem = () => {
             if (otpResult.success !== 'approved') {
                 throw new Error(otpResult.message || 'Invalid verification code.');
             }
-            
+            if (otpResult.sessionToken) setSubSessionToken(otpResult.sessionToken);
+
             const customerInfoResponse = await fetch(SUBSCRIPTION_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'submitCustomer', [authChannel === 'email' ? 'email' : 'phone']: formattedContact }) });
             let customerInfoResult = await customerInfoResponse.json();
     
@@ -728,7 +732,7 @@ const Redeem = () => {
             const response = await fetch(SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'updateCustomerProfile', CID: customerIdFromContext, ...profile })
+                body: JSON.stringify({ action: 'updateCustomerProfile', CID: customerIdFromContext, ...profile, sessionToken: subSessionToken })
             });
 
             if (!response.ok) {
@@ -781,7 +785,7 @@ const Redeem = () => {
 
             return (
                 <Box sx={{ mb: 3 }}>
-                    <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />}>
+                    <Breadcrumbs component="div" separator={<NavigateNextIcon fontSize="small" />}>
                         <MuiLink component="button" onClick={() => setManageState({ view: null, subscription: null, newCard: null, successMessage: null })} underline="none"><span style={chipInlineStyles}>My Subscriptions</span></MuiLink>
                         {(manageState.view === 'payment' || manageState.view === 'addCard' || manageState.view === 'confirmPayment') && (
                             <MuiLink component="button" onClick={() => setManageState({ ...manageState, view: 'details', newCard: null, successMessage: null })} underline="none"><span style={chipInlineStyles}>Manage Subscription</span></MuiLink>
@@ -906,6 +910,7 @@ const Redeem = () => {
                             newCard={manageState.newCard}
                             onConfirmSuccess={(message) => setManageState({ ...manageState, view: 'details', newCard: null, successMessage: message })}
                             onBack={() => setManageState({ ...manageState, view: 'payment', newCard: null })}
+                            sessionToken={subSessionToken}
                         />
                     }
                     if (manageState.view === 'addCard') {
@@ -921,6 +926,7 @@ const Redeem = () => {
                                     subscription={manageState.subscription}
                                     onBack={(message) => setManageState({ ...manageState, view: 'details', successMessage: message })}
                                     onNavigate={(view) => setManageState({ ...manageState, view })}
+                                    sessionToken={subSessionToken}
                                 />;
                     }
                     if (manageState.view === 'details') {
@@ -929,6 +935,7 @@ const Redeem = () => {
                                     onBack={() => setManageState({ view: null, subscription: null, newCard: null, successMessage: null })}
                                     onNavigate={(view) => setManageState({ ...manageState, view, successMessage: null })}
                                     successMessage={manageState.successMessage}
+                                    sessionToken={subSessionToken}
                                 />;
                     }
                 }
@@ -1127,7 +1134,7 @@ const Redeem = () => {
     };
 
     return (
-        <Box component="main" sx={{ maxWidth: 'sm', width: '100%', mx: 'auto', pt: 0, pb: 3, px: 3, display: 'flex', flexDirection: 'column', flexGrow: 1, }}>
+        <Box sx={{ maxWidth: 'sm', width: '100%', mx: 'auto', pt: 0, pb: 3, px: 3, display: 'flex', flexDirection: 'column', flexGrow: 1, }}>
            <Helmet><title>Redeem | Surreal Creamery</title></Helmet>
            {renderHeader()}
            {renderContent()}

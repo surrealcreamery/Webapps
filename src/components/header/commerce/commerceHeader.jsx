@@ -118,9 +118,23 @@ const Header = () => {
     const sendToEvents = eventsContext?.sendToFundraiser;
     const isEventsAuthenticated = eventsContext?.isAuthenticated || false;
     const eventsLogout = eventsContext?.logout;
+    const eventsCustomBackHandler = eventsContext?.customBackHandler;
     const showEventsLoginButton = eventsContext?.showLoginButton;
     const showEventsMyEventsButton = eventsContext?.showMyEventsButton;
     const showEventsLogoutButton = eventsContext?.showLogoutButton;
+
+    // Events series navigation uses history.pushState (no router event), so force a re-render on
+    // 'popstate' and the directory's custom 'events:nav' so the contextual back button updates.
+    const [, forceNavTick] = useState(0);
+    useEffect(() => {
+        const bump = () => forceNavTick(t => t + 1);
+        window.addEventListener('popstate', bump);
+        window.addEventListener('events:nav', bump);
+        return () => {
+            window.removeEventListener('popstate', bump);
+            window.removeEventListener('events:nav', bump);
+        };
+    }, []);
 
     // Unified auth state for display
     const isAuthenticated = isCateringMode ? isCateringAuthenticated : isEventsAuthenticated;
@@ -239,15 +253,32 @@ const Header = () => {
         : !isAccountPage && totalItems > 0);
 
     // Show location selector in commerce mode, or in catering mode only on the availability page
-    // Hide in events mode and account page
-    const showLocationSelector = !isEventsMode && !isCheckoutPage && !isAccountPage && (!isCateringMode || cateringState?.context?.showingAvailabilityPage);
+    // Hide in events mode, account page, and custom/landing pages
+    const COMMERCE_ROUTES = ['/', '/desserts', '/collectibles', '/category/', '/product/', '/checkout', '/delivery-check', '/account', '/catering', '/events', '/subscriptions', '/login', '/location', '/kiosk'];
+    const isCommerceRoute = COMMERCE_ROUTES.some(r => r === '/' ? location.pathname === '/' : location.pathname.startsWith(r));
+    // Events: show the same store selector under the logo (except inside the registration wizard),
+    // and derive the current location from the /events URL (the segment that is a known store id).
+    const evPath = typeof window !== 'undefined' ? window.location.pathname : '';
+    const isEventsWizard = isEventsMode && /^\/events\/[0-9a-f]{8}-[0-9a-f]{4}/.test(evPath);
+    const evLocationId = isEventsMode
+        ? (evPath.split('/').filter(Boolean).slice(1).find(seg => locations.some(l => l.id === seg)) || null)
+        : null;
+    const showLocationSelector =
+        (isCommerceRoute && !isEventsMode && !isCheckoutPage && !isAccountPage && (!isCateringMode || cateringState?.context?.showingAvailabilityPage))
+        // Events: only on a location-scoped page (/events/<loc> or /events/<series>/<loc>), not the main directory.
+        || (isEventsMode && !isEventsWizard && !!evLocationId);
+    // Which location the selector displays / highlights (events → from URL; else → the stored store).
+    const displayLocationId = isEventsMode ? evLocationId : selectedLocation;
 
     const handleLogoClick = (e) => {
         e.preventDefault();
         trackLogoClicked();
-        if (isEventsMode && sendToEvents) {
-            sendToEvents({ type: 'RESET' });
-            navigate('/events');
+        if (isEventsMode) {
+            // Back to events home: reset the machine AND clear the page's selected-series state via
+            // its popstate handler (navigate() alone doesn't fire the window popstate the page listens to).
+            if (sendToEvents) sendToEvents({ type: 'RESET' });
+            window.history.pushState(null, '', '/events');
+            window.dispatchEvent(new PopStateEvent('popstate'));
         } else if (isCateringMode && sendToCatering) {
             sendToCatering({ type: 'GO_TO_BROWSING' });
         } else if (isKioskMode) {
@@ -304,6 +335,13 @@ const Header = () => {
         setSelectedLocation(locationId);
         localStorage.setItem('selectedLocation', locationId);
         window.dispatchEvent(new CustomEvent('locationChanged', { detail: { locationId } }));
+        // In events mode, switching store navigates to that location's events page.
+        if (isEventsMode) {
+            setLocationModalOpen(false);
+            window.history.pushState(null, '', `/events/${locationId}`);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+            window.dispatchEvent(new Event('events:nav'));
+        }
     };
 
     const handleNavClick = (item) => {
@@ -364,7 +402,6 @@ const Header = () => {
                 {/* Navigation Bar - hidden in product detail */}
                 <Box
                     component="nav"
-                    role="navigation"
                     aria-label="Main navigation"
                     sx={{
                         backgroundColor: '#000',
@@ -378,6 +415,7 @@ const Header = () => {
                     }}
                 >
                     <Box
+                        component="ul"
                         sx={{
                             maxWidth: '600px',
                             margin: '0 auto',
@@ -387,15 +425,19 @@ const Header = () => {
                             gap: 0.5,
                             flexWrap: 'nowrap',
                             overflow: 'hidden',
+                            listStyle: 'none',
+                            p: 0,
                         }}
                     >
                         {/* Shop pill — expands to contain toggle group when in subcategory */}
                         <Box
-                            role={!isShopSubcategory ? 'button' : undefined}
-                            tabIndex={!isShopSubcategory ? 0 : -1}
-                            aria-label={!isShopSubcategory ? 'Shop' : undefined}
-                            onClick={() => !isShopSubcategory && handleNavClick({ label: 'Shop', path: '/shop', external: false })}
-                            onKeyDown={(e) => !isShopSubcategory && handleKeyDown(e, () => handleNavClick({ label: 'Shop', path: '/shop', external: false }))}
+                            component="li"
+                        >
+                        <Box
+                            component={!isShopSubcategory ? 'a' : 'div'}
+                            href={!isShopSubcategory ? '/shop' : undefined}
+                            aria-current={activeNavPath === '/shop' ? 'page' : undefined}
+                            onClick={(e) => { if (!isShopSubcategory) { e.preventDefault(); handleNavClick({ label: 'Shop', path: '/shop', external: false }); } }}
                             sx={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -404,6 +446,8 @@ const Header = () => {
                                 cursor: !isShopSubcategory ? 'pointer' : 'default',
                                 overflow: 'hidden',
                                 p: '2px',
+                                textDecoration: 'none',
+                                color: 'inherit',
                                 transition: 'background-color 0.25s ease',
                                 '&:hover': !isShopSubcategory ? {
                                     backgroundColor: activeNavPath === '/shop' ? '#fff' : 'rgba(255,255,255,0.1)',
@@ -415,6 +459,7 @@ const Header = () => {
                             }}
                         >
                             <Typography
+                                component="span"
                                 onClick={(e) => { if (isShopSubcategory) { e.stopPropagation(); if (isKioskMode) { setEffectivePath('/desserts'); } else { navigate('/desserts'); } } }}
                                 sx={{
                                     fontSize: '1.6rem',
@@ -486,14 +531,15 @@ const Header = () => {
                                 )}
                             </AnimatePresence>
                         </Box>
+                        </Box>
 
                         {/* Other nav items — collapse when in subcategory */}
                         <AnimatePresence initial={false}>
                             {!isShopSubcategory && NAV_ITEMS.filter(item => item.path !== '/shop').map((item) => {
                                 const isActive = !item.external && activeNavPath === item.path;
                                 return (
+                                    <Box component="li" key={item.path} sx={{ listStyle: 'none' }}>
                                     <motion.div
-                                        key={item.path}
                                         initial={{ width: 0, opacity: 0 }}
                                         animate={{ width: 'auto', opacity: 1 }}
                                         exit={{ width: 0, opacity: 0 }}
@@ -501,11 +547,10 @@ const Header = () => {
                                         style={{ overflow: 'hidden', flexShrink: 0 }}
                                     >
                                         <Box
-                                            role="button"
-                                            tabIndex={0}
-                                            aria-label={item.label}
-                                            onClick={() => handleNavClick(item)}
-                                            onKeyDown={(e) => handleKeyDown(e, () => handleNavClick(item))}
+                                            component="a"
+                                            href={item.path}
+                                            aria-current={isActive ? 'page' : undefined}
+                                            onClick={(e) => { e.preventDefault(); handleNavClick(item); }}
                                             sx={{
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -513,6 +558,8 @@ const Header = () => {
                                                 borderRadius: '6px',
                                                 cursor: 'pointer',
                                                 p: '2px',
+                                                textDecoration: 'none',
+                                                color: 'inherit',
                                                 '&:hover': {
                                                     backgroundColor: isActive ? '#fff' : 'rgba(255,255,255,0.1)',
                                                 },
@@ -522,7 +569,7 @@ const Header = () => {
                                                 },
                                             }}
                                         >
-                                            <Typography sx={{
+                                            <Typography component="span" sx={{
                                                 fontSize: '1.6rem',
                                                 fontWeight: isActive ? 600 : 400,
                                                 lineHeight: 1.2,
@@ -535,6 +582,7 @@ const Header = () => {
                                             </Typography>
                                         </Box>
                                     </motion.div>
+                                    </Box>
                                 );
                             })}
                         </AnimatePresence>
@@ -546,9 +594,82 @@ const Header = () => {
                         {/* 3-column CSS Grid layout */}
                         <div className="header__inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
 
-                            {/* Left column - Menu button or Close button in product detail */}
+                            {/* Left column - Menu button, Back button (events), or Close button in product detail */}
                             <div style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                {!isCateringMode && !isEventsMode && !isCheckoutPage && !isAccountPage && (
+                                {isEventsMode && eventsCustomBackHandler && (
+                                    <IconButton
+                                        onClick={eventsCustomBackHandler}
+                                        aria-label="Go back"
+                                        sx={{
+                                            color: `${activeTextColor} !important`,
+                                            border: `1px solid ${activeTextColor} !important`,
+                                            borderRadius: 2,
+                                            p: '7px',
+                                            transition: 'color 0.4s ease, border-color 0.4s ease',
+                                            '&:hover': {
+                                                border: `1px solid ${activeTextColor} !important`,
+                                                backgroundColor: activeTextColor === 'white' || activeTextColor === '#ffffff'
+                                                    ? 'rgba(255,255,255,0.1) !important'
+                                                    : 'rgba(0,0,0,0.05) !important',
+                                            },
+                                        }}
+                                    >
+                                        <ArrowBackIcon sx={{ fontSize: 24 }} />
+                                    </IconButton>
+                                )}
+                                {isEventsMode && !eventsCustomBackHandler && eventsState && (() => {
+                                    const inWizard = typeof eventsState.value === 'object' && eventsState.value.wizardFlow;
+                                    // Series detail = a /events/<slug> path that isn't the wizard or the login/dashboard
+                                    // sub-routes. Path-based (not machine-state), so it also works on a direct paste/deep link.
+                                    const p = window.location.pathname;
+                                    const onSeriesDetail = !inWizard && /^\/events\/[^/]+/.test(p) && !/^\/events\/(login|dashboard)(\/|$)/.test(p);
+                                    if (!inWizard && !onSeriesDetail) return null;
+                                    return (
+                                        <IconButton
+                                            onClick={() => {
+                                                if (onSeriesDetail) {
+                                                    // Scoped series detail (/events/<series>/<loc>) → back to that
+                                                    // location's directory; otherwise → the events home. Fire the
+                                                    // page's popstate handler so it re-resolves the URL.
+                                                    const restSegs = p.split('/').filter(Boolean).slice(1);
+                                                    const backTarget = (evLocationId && restSegs.length > 1 && restSegs[restSegs.length - 1] === evLocationId)
+                                                        ? `/events/${evLocationId}`
+                                                        : '/events';
+                                                    window.history.pushState(null, '', backTarget);
+                                                    window.dispatchEvent(new PopStateEvent('popstate'));
+                                                    return;
+                                                }
+                                                const returnTo = sessionStorage.getItem('eventDeepLinkReturn');
+                                                if (returnTo) {
+                                                    sessionStorage.removeItem('eventDeepLinkReturn');
+                                                    sendToEvents({ type: 'RESET' });
+                                                    navigate(returnTo);
+                                                } else if (eventsState.matches({ wizardFlow: 'eventLanding' }) && !eventsState.context?.fromSeriesId) {
+                                                    sendToEvents({ type: 'RESET' });
+                                                } else {
+                                                    sendToEvents({ type: 'BACK' });
+                                                }
+                                            }}
+                                            aria-label="Go back"
+                                            sx={{
+                                                color: `${activeTextColor} !important`,
+                                                border: `1px solid ${activeTextColor} !important`,
+                                                borderRadius: 2,
+                                                p: '7px',
+                                                transition: 'color 0.4s ease, border-color 0.4s ease',
+                                                '&:hover': {
+                                                    border: `1px solid ${activeTextColor} !important`,
+                                                    backgroundColor: activeTextColor === 'white' || activeTextColor === '#ffffff'
+                                                        ? 'rgba(255,255,255,0.1) !important'
+                                                        : 'rgba(0,0,0,0.05) !important',
+                                                },
+                                            }}
+                                        >
+                                            <ArrowBackIcon sx={{ fontSize: 24 }} />
+                                        </IconButton>
+                                    );
+                                })()}
+                                {!isCateringMode && !isEventsMode && !isCheckoutPage && !isAccountPage && !isKioskMode && (
                                     isProductDetail ? null : (
                                         <Button
                                             onClick={() => { trackMenuOpened(); setMenuDrawerOpen(true); }}
@@ -601,7 +722,6 @@ const Header = () => {
                                             <Box
                                                 role={isKioskMode ? undefined : 'button'}
                                                 tabIndex={isKioskMode ? undefined : 0}
-                                                aria-label={isKioskMode ? undefined : `Change store location. Currently: ${selectedLocation ? locations.find(loc => loc.id === selectedLocation)?.name : 'none selected'}`}
                                                 aria-haspopup={isKioskMode ? undefined : 'dialog'}
                                                 sx={{
                                                     mt: -1.5,
@@ -618,15 +738,15 @@ const Header = () => {
                                                 onKeyDown={isKioskMode ? undefined : (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleLocationClick(); } }}
                                             >
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                    {selectedLocation && locations.find(loc => loc.id === selectedLocation) ? (
+                                                    {displayLocationId && locations.find(loc => loc.id === displayLocationId) ? (
                                                         <Typography variant="body1" sx={{ fontWeight: 600, whiteSpace: 'nowrap', fontSize: '1.6rem', color: activeTextColor, transition: 'color 0.4s ease' }}>
-                                                            {locations.find(loc => loc.id === selectedLocation).name}
+                                                            {locations.find(loc => loc.id === displayLocationId).name}
                                                         </Typography>
                                                     ) : (
                                                         <>
                                                             <StorefrontIcon sx={{ fontSize: 20, color: activeTextColor, transition: 'color 0.4s ease' }} />
                                                             <Typography variant="body1" sx={{ fontWeight: 600, whiteSpace: 'nowrap', fontSize: '1.6rem', color: activeTextColor, transition: 'color 0.4s ease' }}>
-                                                                Store Locator
+                                                                {isEventsMode ? 'Choose a location' : 'Store Locator'}
                                                             </Typography>
                                                         </>
                                                     )}
@@ -760,13 +880,12 @@ const Header = () => {
                                 )}
 
                                 {/* Account page: Log Out button */}
-                                {isAccountPage && sessionStorage.getItem('accountSession') && (
+                                {isAccountPage && isEventsAuthenticated && (
                                     <Button
                                         variant="outlined"
                                         onClick={() => {
                                             trackLogout();
-                                            sessionStorage.removeItem('accountSession');
-                                            window.dispatchEvent(new CustomEvent('accountLogout'));
+                                            if (eventsLogout) eventsLogout();
                                         }}
                                         sx={{
                                             color: 'black', borderColor: 'black', textTransform: 'none', fontWeight: 600,
@@ -829,7 +948,7 @@ const Header = () => {
                         <LocationModal
                             open={locationModalOpen}
                             onClose={() => setLocationModalOpen(false)}
-                            selectedLocationId={selectedLocation}
+                            selectedLocationId={displayLocationId}
                             onSelectLocation={handleLocationChange}
                             locations={locations.filter(l => l.type !== 'Warehouse')}
                         />

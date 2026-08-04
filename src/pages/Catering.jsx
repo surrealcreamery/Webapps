@@ -333,7 +333,7 @@ export default function CateringMenu() {
                 <meta name="description" content="Order catering from Surreal Creamery. Cake jars, cupcakes, and more for your events and parties." />
             </Helmet>
 
-            <Container component="main" maxWidth="sm" sx={{ pt: 0, pb: 4 }}>
+            <Container maxWidth="sm" sx={{ pt: 0, pb: 4 }}>
                 <Typography variant="h1" component="h1" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Catering Menu</Typography>
                 {renderContent()}
             </Container>

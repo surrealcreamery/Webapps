@@ -10,7 +10,7 @@ export const MarketingMaterials = ({ event, onBack, onGoHome }) => {
 
     return (
         <Container maxWidth="sm" sx={{ pt: 0, pb: 4 }}>
-            <Breadcrumbs aria-label="breadcrumb" sx={{ mb: 2 }}>
+            <Breadcrumbs component="div" aria-label="breadcrumb" sx={{ mb: 2 }}>
                 <MuiLink underline="hover" color="inherit" href="#" onClick={onGoHome} sx={{cursor: 'pointer'}}>Home</MuiLink>
                 <MuiLink underline="hover" color="inherit" href="#" onClick={onBack} sx={{cursor: 'pointer'}}>My Events</MuiLink>
                 <Typography color="text.primary">Marketing Materials</Typography>

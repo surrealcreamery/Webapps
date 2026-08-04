@@ -91,8 +91,12 @@ export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selected
                 <Typography variant="h3" component="p" sx={{ fontWeight: 'bold' }}>
                     {currentEvent.title}
                 </Typography>
-                <Typography>{selectedLocation['Location Name']}</Typography>
-                <Typography variant="body2" color="text.secondary">{selectedLocation.Address}</Typography>
+                {(selectedLocation?.['Location Name'] || currentEvent.locationNames?.[0]) && (
+                    <Typography>{selectedLocation?.['Location Name'] || currentEvent.locationNames?.[0]}</Typography>
+                )}
+                {selectedLocation?.Address && (
+                    <Typography variant="body2" color="text.secondary">{selectedLocation.Address}</Typography>
+                )}
                 
                 {hasSingleTimeSlot && (
                     <Typography sx={{ mt: 1 }}>
@@ -103,7 +107,7 @@ export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selected
             <LocalizationProvider dateAdapter={AdapterDateFns}>
                 <DateCalendar
                     key={currentEvent.id}
-                    value={selectedDate ? new Date(selectedDate) : null}
+                    value={selectedDate ? parse(selectedDate.split('T')[0], 'yyyy-MM-dd', new Date()) : null}
                     onChange={(date) => { trackEventDateSelected(date); onDateChange(date); }}
                     referenceDate={initialMonth}
                     disablePast

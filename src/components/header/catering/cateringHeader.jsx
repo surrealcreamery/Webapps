@@ -143,7 +143,6 @@ const Header = () => {
                 {/* Navigation Bar - REI Style */}
                 <Box
                     component="nav"
-                    role="navigation"
                     aria-label="Main navigation"
                     sx={{
                         backgroundColor: '#000',
@@ -154,6 +153,7 @@ const Header = () => {
                     }}
                 >
                     <Box
+                        component="ul"
                         sx={{
                             maxWidth: '600px',
                             margin: '0 auto',
@@ -161,13 +161,16 @@ const Header = () => {
                             justifyContent: 'center',
                             gap: 0.5,
                             flexWrap: 'wrap',
+                            listStyle: 'none',
+                            p: 0,
                         }}
                     >
                         {NAV_ITEMS.map((item) => {
                             const isActive = item.isCurrentApp;
                             return (
+                                <Box component="li" key={item.path}>
                                 <Button
-                                    key={item.path}
+                                    aria-current={isActive ? 'page' : undefined}
                                     onClick={() => handleNavClick(item)}
                                     sx={{
                                         color: isActive ? '#000' : '#fff',
@@ -184,6 +187,7 @@ const Header = () => {
                                     }}
                                 >
                                     <Typography
+                                        component="span"
                                         sx={{
                                             fontSize: '1.6rem !important',
                                             fontWeight: 'inherit',
@@ -192,6 +196,7 @@ const Header = () => {
                                         {item.label}
                                     </Typography>
                                 </Button>
+                                </Box>
                             );
                         })}
                     </Box>

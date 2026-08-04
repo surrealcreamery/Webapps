@@ -26,6 +26,12 @@ let publicTheme = createTheme(baseTheme, {
   typography: publicTypographyScale,
   palette: { primary: { main: '#1976d2' } },
   components: {
+    // Decorative dividers should not be announced by screen readers
+    MuiDivider: {
+      defaultProps: {
+        'aria-hidden': 'true',
+      },
+    },
     // Prevents ButtonBase from overriding child component backgrounds
     MuiButtonBase: {
       styleOverrides: {
@@ -56,7 +62,14 @@ let publicTheme = createTheme(baseTheme, {
               backgroundColor: emphasize(backgroundColor, 0.12),
             },
           };
-        }
+        },
+        outlined: ({ theme }) => ({
+          backgroundColor: 'transparent',
+          border: `1px solid ${theme.palette.grey[400]}`,
+          '&:hover, &:focus': {
+            backgroundColor: theme.palette.action.hover,
+          },
+        }),
       }
     },
     MuiStepLabel: {

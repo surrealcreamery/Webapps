@@ -139,7 +139,7 @@ export async function fetchCustomerSegmentHistory(customerId, authToken) {
   }
 }
 
-export async function persistVisitorSegment(visitorId, segmentId, name, score, signals, customerId, environment, qualifyingSegments, geo) {
+export async function persistVisitorSegment(visitorId, segmentId, name, score, signals, customerId, environment, qualifyingSegments, geo, customerName, customerEmail) {
   try {
     const res = await fetch(ANALYTICS_API_URL, {
       method: 'POST',
@@ -155,6 +155,8 @@ export async function persistVisitorSegment(visitorId, segmentId, name, score, s
         environment,
         qualifyingSegments,
         geo,
+        ...(customerName && { customerName }),
+        ...(customerEmail && { customerEmail }),
       }),
     });
     if (!res.ok) return null;

@@ -44,6 +44,7 @@ export const HeroSection = ({
     bulletPoints,
     onSelectLocationClick,
     isSingleLocation,
+    selectLocationLabel,
     // ✅ NEW: Event details props
     eventDate,
     eventTime,
@@ -51,7 +52,11 @@ export const HeroSection = ({
     // ✅ NEW: For fundraiser host date range display
     eventType,
     eventRole,
-    eventEndDate
+    eventEndDate,
+    admissionFeeCents,
+    pointsCost,
+    regCount,
+    regCountDate,
 }) => {
     // Check if this is a fundraiser host (show date range instead of single date)
     const isFundraiserHost = (eventType === 'Fundraiser' || eventType === 'Rolling Fundraiser') && eventRole === 'Host';
@@ -100,11 +105,56 @@ export const HeroSection = ({
                 </Box>
             )}
             
+            {/* Admission pricing */}
+            {(admissionFeeCents > 0 || pointsCost > 0) && (
+                <Typography variant="body1" sx={{ color: 'primary.main', fontWeight: 600, mb: 1 }}>
+                    {[
+                        admissionFeeCents > 0 ? `$${(admissionFeeCents / 100).toFixed(2)}` : null,
+                        pointsCost > 0 ? `${pointsCost} points` : null
+                    ].filter(Boolean).join(' or ')}
+                </Typography>
+            )}
+
             {/* ✅ For single location, show button right after title */}
             {isSingleLocation && (
                 <Stack spacing={1.5} sx={{ mt: 3, mb: 3 }}>
-                    <Button variant="contained" fullWidth onClick={onSelectLocationClick}>
-                        Register For Event
+                    {regCount && (() => {
+                        const count = regCountDate ? (regCount.byDate?.[regCountDate] || 0) : regCount.total;
+                        const capacity = regCountDate
+                            ? regCount.capacityByDate?.[regCountDate]
+                            : (regCount.capacityByDate ? Object.values(regCount.capacityByDate)[0] : null);
+                        const isFull = capacity && count >= capacity;
+                        return (
+                            <>
+                                {count > 0 && (
+                                    <Typography variant="body2" color={isFull ? 'error' : 'text.secondary'} sx={{ textAlign: 'center' }}>
+                                        {isFull
+                                            ? `Sold Out (${count}/${capacity})`
+                                            : capacity
+                                                ? `${count}/${capacity} spots filled`
+                                                : `${count} ${count === 1 ? 'person' : 'people'} registered`}
+                                    </Typography>
+                                )}
+                            </>
+                        );
+                    })()}
+                    <Button variant="contained" fullWidth onClick={onSelectLocationClick}
+                        disabled={regCount && (() => {
+                            const count = regCountDate ? (regCount.byDate?.[regCountDate] || 0) : regCount.total;
+                            const capacity = regCountDate
+                                ? regCount.capacityByDate?.[regCountDate]
+                                : (regCount.capacityByDate ? Object.values(regCount.capacityByDate)[0] : null);
+                            return capacity && count >= capacity;
+                        })()}
+                    >
+                        {(() => {
+                            if (!regCount) return selectLocationLabel || 'Register For Event';
+                            const count = regCountDate ? (regCount.byDate?.[regCountDate] || 0) : regCount.total;
+                            const capacity = regCountDate
+                                ? regCount.capacityByDate?.[regCountDate]
+                                : (regCount.capacityByDate ? Object.values(regCount.capacityByDate)[0] : null);
+                            return capacity && count >= capacity ? 'Sold Out' : (selectLocationLabel || 'Register For Event');
+                        })()}
                     </Button>
                 </Stack>
             )}
@@ -140,14 +190,32 @@ export const HeroSection = ({
             {/* ✅ For multiple locations, show anchor link to location section */}
             {!isSingleLocation && (
                 <Stack spacing={1.5} sx={{ pt: 2 }}>
-                    <Button 
-                        variant="contained" 
-                        fullWidth 
+                    {regCount && (() => {
+                        const count = regCount.total || 0;
+                        const caps = regCount.capacityByDate ? Object.values(regCount.capacityByDate) : [];
+                        const totalCapacity = caps.length > 0 ? caps.reduce((s, c) => s + c, 0) : null;
+                        const isFull = totalCapacity && count >= totalCapacity;
+                        if (count > 0) {
+                            return (
+                                <Typography variant="body2" color={isFull ? 'error' : 'text.secondary'} sx={{ textAlign: 'center' }}>
+                                    {isFull
+                                        ? `Sold Out (${count}/${totalCapacity})`
+                                        : totalCapacity
+                                            ? `${count}/${totalCapacity} spots filled`
+                                            : `${count} ${count === 1 ? 'person' : 'people'} registered`}
+                                </Typography>
+                            );
+                        }
+                        return null;
+                    })()}
+                    <Button
+                        variant="contained"
+                        fullWidth
                         component="a"
                         href="#location-selection"
                         sx={{ textDecoration: 'none' }}
                     >
-                        Select a Location
+                        {selectLocationLabel || 'Select a Location'}
                     </Button>
                 </Stack>
             )}

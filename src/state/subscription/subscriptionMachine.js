@@ -130,6 +130,7 @@ const initialWizardContext = {
     linkedCustomerIds: [],
     authRequired: false,
     isReauthenticated: false,
+    subSessionToken: null,
     maskedPhone: null,
     otpMethod: null,
     otpCode: '',
@@ -316,10 +317,11 @@ export const wizardMachine = setup({
             };
         }),
         updateSubscriberProfile: fromPromise(async ({ input }) => {
+            const { sessionToken, ...profileData } = input;
             const response = await fetch(api.SUBSCRIPTION_API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'updateCustomerProfile', ...input })
+                body: JSON.stringify({ action: 'updateCustomerProfile', ...profileData, sessionToken })
             });
             if (!response.ok) throw new Error('Failed to update profile.');
             return await response.json();
@@ -1302,6 +1304,7 @@ export const wizardMachine = setup({
                             subscriberId: context.profileMismatch.subscriberId,
                             firstName: context.profileMismatch.submitted.firstName,
                             lastName: context.profileMismatch.submitted.lastName,
+                            sessionToken: context.subSessionToken,
                         }),
                         onDone: {
                             target: 'authenticationOrPayment',
@@ -1409,7 +1412,8 @@ export const wizardMachine = setup({
                                         src: 'verifyOtp',
                                         input: ({ context }) => ({ to: context.otpMethod === 'email' ? context.customerForms[0].email : context.customerForms[0].phone, channel: context.otpMethod, code: context.otpCode }),
                                         onDone: {
-                                            target: 'fetchingCustomerInfoAfterOtp'
+                                            target: 'fetchingCustomerInfoAfterOtp',
+                                            actions: assign({ subSessionToken: ({ event }) => event.output?.sessionToken || null }),
                                         },
                                         onError: { target: 'enterCode', actions: 'assignError' }
                                     }

@@ -105,13 +105,14 @@ export const LayoutProvider = ({ children }) => {
     const resetFlow = useCallback(() => {
         sendToCommerce({ type: 'RESET' });
         localStorage.removeItem(COMMERCE_STORAGE_KEY);
-        navigate('/desserts');
-    }, [sendToCommerce, navigate]);
+        navigate(location.pathname.startsWith('/kiosk') ? '/kiosk' : '/desserts');
+    }, [sendToCommerce, navigate, location.pathname]);
 
     const contextValue = useMemo(() => ({
         // State & Send
         commerceState,
         sendToCommerce,
+        actorRef,
 
         // UI state for header
         showBackButton,

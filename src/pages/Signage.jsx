@@ -6,6 +6,7 @@ import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import ClassicTemplate from '../components/signage/ClassicTemplate';
 import ShowcaseTemplate from '../components/signage/ShowcaseTemplate';
+import FlavorProfileTemplate from '../components/signage/FlavorProfileTemplate';
 
 const DATA_CDN = 'https://data.surrealcreamery.com';
 const WS_URL = 'wss://gx86vaqflf.execute-api.us-east-1.amazonaws.com/production';
@@ -246,7 +247,9 @@ export default function Signage() {
         <Helmet><title>Menu Display | Surreal Creamery</title></Helmet>
         <Typography variant="h1" component="h1" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Menu Display</Typography>
         <ResolutionScaler resolution={resolution} orientation={orientation}>
-          {template === 'showcase'
+          {template === 'flavor-profile'
+            ? <FlavorProfileTemplate {...templateProps} />
+            : template === 'showcase'
             ? <ShowcaseTemplate {...templateProps} />
             : <ClassicTemplate {...templateProps} />}
         </ResolutionScaler>
@@ -276,7 +279,7 @@ export default function Signage() {
   const slideProducts = config.slideProducts[currentSlide] || [];
   const templateProps = { displaySettings: slideDisplaySettings, products: slideProducts, soldOut };
 
-  const TemplateComponent = template === 'showcase' ? ShowcaseTemplate : ClassicTemplate;
+  const TemplateComponent = template === 'flavor-profile' ? FlavorProfileTemplate : template === 'showcase' ? ShowcaseTemplate : ClassicTemplate;
 
   // Transition styles
   const isFade = transitionType === 'fade';

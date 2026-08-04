@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import {
   createBrowserRouter,
   RouterProvider,
-  Navigate,
   Outlet,
   useRouteError,
   useLocation,
@@ -35,12 +34,13 @@ import publicTheme from '@/theme/publicTheme';
 
 // --- SHARED PUBLIC COMPONENTS ---
 import Redeem from '@/pages/Redeem';
+import ConfirmSpot from '@/pages/ConfirmSpot';
 
 // --- GA4 ---
 import { initGA4 } from '@/components/google-tag-manager/google-tag-manager';
 
 // --- Analytics (PostHog + GA4 event activation) ---
-import { initAnalytics } from '@/services/analytics';
+import { initAnalytics, trackSpaPageView } from '@/services/analytics';
 import { track } from '@/services/eventTracker';
 
 // --- APP-SPECIFIC COMPONENTS ---
@@ -55,7 +55,8 @@ import { LayoutProvider as EventsLayoutProvider } from '@/contexts/events/Events
 import EventsLayout from '@/layouts/events/eventsLayout';
 import EventsBareLayout from '@/layouts/events/eventsBareLayout'; // For embedding in Commerce
 import SubscriptionsBareLayout from '@/layouts/subscriptions/subscriptionsBareLayout'; // For embedding in Commerce
-import EventsHome from '@/pages/Events';
+import EventsHome from '@/pages/EventsTest';
+const BookASpace = React.lazy(() => import('@/pages/BookASpace'));
 
 // 3. Catering App Components
 import { LayoutProvider as CateringLayoutProvider } from '@/contexts/catering/CateringLayoutContext';
@@ -70,6 +71,7 @@ import { SegmentProvider } from '@/contexts/commerce/SegmentContext';
 import { WebSocketProvider } from '@/contexts/commerce/WebSocketContext';
 import { NotificationProvider } from '@/contexts/commerce/NotificationContext';
 import { CheckoutProvider } from '@/components/commerce/CheckoutContext';
+import { LoyaltyProvider } from '@/contexts/commerce/LoyaltyContext';
 import CommerceLayout from '@/layouts/commerce/commerceLayout';
 
 import Commerce from '@/pages/Commerce';
@@ -79,6 +81,7 @@ import AccountPage from '@/pages/AccountPage';
 
 import SignageLayout from '@/layouts/commerce/signageLayout';
 import Signage from '@/pages/Signage';
+import CustomPage from '@/pages/CustomPage';
 
 import KioskLayout from '@/layouts/commerce/kioskLayout';
 import { KioskOverlay } from '@/components/kiosk/KioskOverlay';
@@ -102,10 +105,11 @@ const appConfigs = {
 
     ga4Id: null,
     additionalRoutes: [
-      {
-        path: 'login',
-        element: <EventsHome />,
-      }
+      { path: 'events/login', element: <EventsHome /> },
+      { path: 'events/dashboard', element: <EventsHome /> },
+      { path: 'events/:eventId', element: <EventsHome /> },
+      { path: 'events/:eventId/:step', element: <EventsHome /> },
+      { path: 'events/*', element: <EventsHome /> },
     ],
   },
   CATERING: {
@@ -167,12 +171,26 @@ const appConfigs = {
         path: 'events',
         element: <EventsBareLayout />,
         children: [
+          { index: true, element: <EventsHome /> },
+          { path: 'login', element: <EventsHome /> },
+          { path: 'dashboard', element: <EventsHome /> },
+          // Book A Space — calendar + time slot picker for space rental (under /events)
+          {
+            path: 'book-a-space',
+            element: <React.Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>}><BookASpace /></React.Suspense>,
+          },
+          { path: ':eventId', element: <EventsHome /> },
+          { path: ':eventId/:step', element: <EventsHome /> },
+          { path: '*', element: <EventsHome /> },
+        ],
+      },
+      // Space Rental — dedicated route that auto-selects the space-rental event
+      {
+        path: 'book-space',
+        element: <EventsBareLayout />,
+        children: [
           {
             index: true,
-            element: <EventsHome />,
-          },
-          {
-            path: 'login',
             element: <EventsHome />,
           }
         ],
@@ -191,6 +209,16 @@ const appConfigs = {
             element: <Redeem />,
           }
         ],
+      },
+      // One-click spot confirmation landing page (from SMS reminder link)
+      {
+        path: 'confirm-spot',
+        element: <ConfirmSpot />,
+      },
+      // Custom Pages catch-all — must be last so specific routes take priority
+      {
+        path: '*',
+        element: <CustomPage />,
       },
     ],
   },
@@ -229,9 +257,10 @@ function PublicRootLayout() {
     const location = useLocation();
     const depthMilestones = useRef(new Set());
 
-    // Page view tracking on route change
+    // Page view tracking on router-driven route change (deduped; events-flow pushState navigations
+    // fire via the 'events:nav' listener in initAnalytics — same helper, so no double-count).
     useEffect(() => {
-        track('page_view', { path: location.pathname });
+        trackSpaPageView(location.pathname);
         depthMilestones.current = new Set();
     }, [location.pathname]);
 
@@ -307,6 +336,7 @@ function PublicRootLayout() {
                 <SegmentProvider>
                 <NotificationProvider>
                 <CheckoutProvider>
+                <LoyaltyProvider>
                     <CateringLayoutProvider>
                         <EventsLayoutProvider>
                             <SubscriptionLayoutProvider>
@@ -318,6 +348,7 @@ function PublicRootLayout() {
                             </SubscriptionLayoutProvider>
                         </EventsLayoutProvider>
                     </CateringLayoutProvider>
+                </LoyaltyProvider>
                 </CheckoutProvider>
                 </NotificationProvider>
                 </SegmentProvider>
@@ -412,7 +443,6 @@ const router = createBrowserRouter([
       }] : []),
     ]
   },
-  { path: '*', element: <Navigate to='/' replace/> }
 ], {
   future: { v7_startTransition: true }
 });

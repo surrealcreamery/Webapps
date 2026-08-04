@@ -132,6 +132,7 @@ export const ProductModal = ({
     const [allModifierStepsComplete, setAllModifierStepsComplete] = useState(false);
     const [canContinueModifiers, setCanContinueModifiers] = useState(false);
     const [isLastModifierStep, setIsLastModifierStep] = useState(false);
+    const [modifiersLoading, setModifiersLoading] = useState(false);
 
     // Ref for ModifierSelector to call continueToNextStep
     const modifierSelectorRef = useRef(null);
@@ -160,9 +161,14 @@ export const ProductModal = ({
             setAllModifierStepsComplete(false);
             setCanContinueModifiers(false);
             setIsLastModifierStep(false);
+            setModifiersLoading(false);
             setInlineError(null);
             return;
         }
+        // Assume modifiers are loading until ModifierSelector reports back.
+        // This prevents the Add to Cart button from being enabled before modifiers load.
+        const hasSku = !!(product.sku || product.variants?.[0]?.sku);
+        setModifiersLoading(hasSku);
         
         if (product.availableVariants?.length > 0) {
             setSelectedVariantId(product.availableVariants[0].id);
@@ -534,6 +540,7 @@ export const ProductModal = ({
         setModifierCategories(categories);
         setModifierData(fullData);
         setHasModifiers(categories && categories.length > 0);
+        setModifiersLoading(false);
     };
 
     // Calculate total price including modifiers
@@ -773,6 +780,7 @@ export const ProductModal = ({
                             onAllStepsComplete={(complete) => { setAllModifierStepsComplete(complete); if (complete) trackModifiersCompleted(product?.id || product?.sku); }}
                             onCanContinueChange={setCanContinueModifiers}
                             onIsLastStepChange={setIsLastModifierStep}
+                            onLoadingChange={(loading) => setModifiersLoading(loading)}
                         />
                     )}
 
@@ -970,12 +978,13 @@ export const ProductModal = ({
                     const isOutOfStock = fulfillmentResolution.source === 'none';
                     const showContinue = hasModifiers && !isLastModifierStep && !allModifierStepsComplete;
                     const continueDisabled = showContinue && !canContinueModifiers;
-                    const isInStoreOnly = selectedVariant?.inStoreOnly === true;
+                    const isInStoreOnly = selectedVariant?.visibleOnStorefront === false || (selectedVariant?.visibleOnStorefront === undefined && selectedVariant?.inStoreOnly === true);
                     const addToCartDisabled = !showContinue && (
                         isInStoreOnly ||
                         addingToCart ||
                         (!selectedVariantId && !product.variantId) ||
                         isOutOfStock ||
+                        modifiersLoading ||
                         (hasModifiers && !allModifierStepsComplete)
                     );
 

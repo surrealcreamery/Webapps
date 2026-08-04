@@ -44,14 +44,45 @@ export const fetchInitialData = async () => {
         daysOfWeek: (event['Days of Week'] || []).map(day => dayNameToNumber[day]),
         eventTimes: event['Event Times'] || [],
         locationNames: event['Location Names'] || [],
+        schedule: event['Schedule'] || null,
+        admissionFeeCents: event['Admission Fee Cents'] || 0,
+        pointsCost: event['Points Cost'] || 0,
+        tournamentId: event['Tournament ID'] || null,
+        termsPageSlug: event['Terms Page Slug'] || null,
+        requireConsent: event['Require Consent'] || false,
+        consentText: event['Consent Text'] || '',
+        hideFromDirectory: event['Hide From Directory'] || false,
+        seriesId: event['Series ID'] || null,
+        seriesSlug: event['Series Slug'] || null,
+        seriesName: event['Series Name'] || null,
+        seriesCategory: event['Series Category'] || null,
+        seriesCategoryOrder: event['Series Category Order'] ?? null,
+        seriesBracketSize: event['Series Bracket Size'] || null,
+        seriesImageUrl: event['Series Image URL'] || null,
+        seriesImageAltText: event['Series Image Alt Text'] || null,
+        seriesDescription: event['Series Description'] || null,
+        seriesPrizesDescription: event['Series Prizes Description'] || null,
+        seriesAdditionalInfo: event['Series Additional Info'] || null,
+        seriesOrder: event['Series Order'] ?? null,
+        seriesLinkedPages: event['Series Linked Pages'] || [],
+        seriesBundleName: event['Series Bundle Name'] || null,
+        seriesBundlePrice: event['Series Bundle Price'] || null,
+        seriesBundleSlotNames: event['Series Bundle Slot Names'] || [],
+        seriesBundleSlotData: event['Series Bundle Slot Data'] || [],
+        seriesDisclaimer: event['Series Disclaimer'] || null,
     }));
     
     return {
         // Maps the global list of available locations
         locations: locationsData.map(loc => ({
-            id: loc['Location ID'],
-            'Location Name': loc['Location Name'],
-            Address: loc['Location Address']
+            id: loc['Location ID'] || loc.id,
+            type: loc.type || loc['Location Type'] || 'Store',
+            'Location Name': loc['Location Name'] || loc.name,
+            Address: loc['Location Address'] || [loc.address, loc.city, loc.state, loc.zip].filter(Boolean).join(', '),
+            squareLocationId: loc['Square Location ID'] || loc.squareLocationId || null,
+            hours: loc.hours || {},
+            maxEventSize: loc.maxEventSize || null,
+            imageUrl: loc.imageUrl || null,
         })),
         events: normalizedEvents
     };

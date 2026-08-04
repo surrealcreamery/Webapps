@@ -13,6 +13,7 @@ export const CateringBreadcrumbs = ({ items, sendToCatering }) => {
     return (
         <Box sx={{ mb: 2 }}>
             <Breadcrumbs
+                component="div"
                 separator={<NavigateNextIcon fontSize="small" />}
                 aria-label="breadcrumb"
             >

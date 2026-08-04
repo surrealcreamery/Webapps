@@ -286,7 +286,7 @@ export const Directory = () => {
     }
 
     return (
-        <Box component="main" sx={{ minHeight: '100vh', backgroundColor: 'white' }}>
+        <Box sx={{ minHeight: '100vh', backgroundColor: 'white' }}>
             {/* Category Grid - at top */}
             <Container maxWidth="md" sx={{ pt: 3, pb: 2 }}>
                 <Box 
@@ -528,10 +528,13 @@ export const Directory = () => {
                     open={showProductModal}
                     product={selectedProduct}
                     onClose={handleCloseProductModal}
-                    onAddToCart={async (productId, variantId, quantity) => {
+                    onAddToCart={async (productId, variantId, quantity, customAttributes) => {
                         const product = products.find(p => p.id === productId);
                         const variant = product?.variants?.find(v => v.id === variantId) || product?.variants?.[0];
-                        localCart.addToCart(product, variant, quantity, []);
+                        const modifiers = (customAttributes || [])
+                            .filter(a => !a.key?.startsWith('_'))
+                            .map(a => ({ key: a.key, value: a.value, price: a.price || 0, modifierDetails: a.modifierDetails || [] }));
+                        localCart.addToCart(product, variant, quantity, modifiers);
                         sendToCommerce({ type: 'SHOW_CART_BANNER' });
                         setTimeout(() => {
                             sendToCommerce({ type: 'HIDE_CART_BANNER' });

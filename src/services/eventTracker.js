@@ -114,7 +114,7 @@ function captureAttribution() {
   } else {
     // sessionStorage may not be set yet (router useEffect hasn't fired) — read URL directly
     const params = new URLSearchParams(window.location.search);
-    const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'ttclid', 'sclid', 'campaign_id', 'adset_id', 'ad_id'];
+    const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid', 'ttclid', 'sclid', 'campaign_id', 'adset_id', 'ad_id', 'sid', 'sn'];
     const attr = {};
     keys.forEach(k => {
       // Support both underscore (utm_medium) and hyphen (utm-medium) formats
@@ -145,7 +145,7 @@ export function getEnvironment() {
   return environment;
 }
 
-function flush(useBeacon = false) {
+export function flush(useBeacon = false) {
   if (queue.length === 0) return;
   const events = queue.splice(0);
   sessionId = getSession();

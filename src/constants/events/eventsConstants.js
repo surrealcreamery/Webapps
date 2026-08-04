@@ -1,6 +1,6 @@
 // Static files for public event listing
 export const LIST_EVENTS_URL                                   = 'https://data.surrealcreamery.com/events.json';
-export const LIST_LOCATIONS_URL                                = 'https://data.surrealcreamery.com/eventLocations.json';
+export const LIST_LOCATIONS_URL                                = 'https://data.surrealcreamery.com/locations.json';
 
 // Lambda API URLs (replaced make.com endpoints)
 export const EVENTS_API_URL                                    = 'https://svlh6ckfdkcgh4fbvub2nyz2r40mcvdq.lambda-url.us-east-1.on.aws';
@@ -17,3 +17,8 @@ export const UPDATE_PAYEE_URL                                  = EVENTS_API_URL;
 // Twilio OTP verification via Lambda
 export const OTP_VERIFY_URL                                    = TWILIO_API_URL;  // action: sendOtp / verifyOtp
 export const AUTHENTICATE_GUEST_URL                            = TWILIO_API_URL;  // action: sendOtp / verifyOtp
+
+// Consumer account APIs (orders + loyalty + subscriptions, authenticated via OTP session token)
+export const CONSUMER_ORDERS_URL = 'https://qeg2uc6ykdeexcnc64nn66ph7m0hrtep.lambda-url.us-east-1.on.aws';
+export const LOYALTY_API_URL     = import.meta.env.VITE_LOYALTY_API_URL || '';
+export const SUBSCRIPTION_API_URL = 'https://cnnpmufvrvqh2ixhhzmlc53iky0ztboz.lambda-url.us-east-1.on.aws';

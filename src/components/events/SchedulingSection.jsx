@@ -96,7 +96,7 @@ export const DatePickerSection = ({ onBack, onDateChange, selectedDate, selected
             <LocalizationProvider dateAdapter={AdapterDateFns}>
                 <DateCalendar
                     key={currentEvent.id}
-                    value={selectedDate ? new Date(selectedDate) : null}
+                    value={selectedDate ? parse(selectedDate.split('T')[0], 'yyyy-MM-dd', new Date()) : null}
                     onChange={(date) => { trackEventDateSelected(date); onDateChange(date); }}
                     defaultCalendarMonth={initialMonth}
                     disablePast
@@ -162,7 +162,7 @@ export const TimePickerSection = ({ currentEvent, selectedDate, selectedTime, on
                     {currentEvent.title}
                 </Typography>
                 <Typography>
-                    {format(new Date(selectedDate), 'EEEE, MMMM do, yyyy')}
+                    {(() => { try { return format(new Date(selectedDate), 'EEEE, MMMM do, yyyy'); } catch { return selectedDate || ''; } })()}
                 </Typography>
             </Box>
 

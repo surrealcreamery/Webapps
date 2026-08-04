@@ -1770,7 +1770,7 @@ export default function CheckoutPage() {
 
       trackPaymentAttempted(pmLabel, displayTotal);
       const result = await callApi('createSquareCheckout', payload);
-      trackOrderCompleted(result, { subtotal: result.subtotal, tax: result.tax, tip: checkoutTip, total: result.total, itemCount: cart.length, paymentMethod: pmLabel });
+      trackOrderCompleted(result, { subtotal: result.subtotal, tax: result.tax, tip: checkoutTip, total: result.total, itemCount: cart.length, paymentMethod: pmLabel, cartItems: cart });
       trackOrderConfirmationViewed(result.orderId || result.receiptNumber);
       setCheckoutConfirmation(result);
       // Refresh loyalty balance after points were used
@@ -1893,7 +1893,7 @@ export default function CheckoutPage() {
 
       trackPaymentAttempted('wallet', displayTotal);
       const result = await callApi('createSquareCheckout', payload);
-      trackOrderCompleted(result, { subtotal: result.subtotal, tax: result.tax, tip: checkoutTip, total: result.total, itemCount: cart.length, paymentMethod: 'wallet' });
+      trackOrderCompleted(result, { subtotal: result.subtotal, tax: result.tax, tip: checkoutTip, total: result.total, itemCount: cart.length, paymentMethod: 'wallet', cartItems: cart });
       trackOrderConfirmationViewed(result.orderId || result.receiptNumber);
       setCheckoutConfirmation(result);
       clearCart();

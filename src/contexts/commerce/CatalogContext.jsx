@@ -22,7 +22,8 @@ export const CatalogProvider = ({ children }) => {
         if (slug) send({ type: 'LOCATION_CHANGED', locationSlug: slug });
 
         const handler = (e) => {
-            send({ type: 'LOCATION_CHANGED', locationSlug: e.detail.locationId });
+            const id = e.detail?.locationId || localStorage.getItem('selectedLocation');
+            if (id) send({ type: 'LOCATION_CHANGED', locationSlug: id });
         };
         window.addEventListener('locationChanged', handler);
         return () => window.removeEventListener('locationChanged', handler);

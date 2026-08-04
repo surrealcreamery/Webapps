@@ -29,6 +29,7 @@ export const ModifierSelector = forwardRef(({
     onCanContinueChange,
     onIsLastStepChange,
     onShowIntroChange,
+    onLoadingChange,
 }, ref) => {
     const isFlat = layout === 'flat';
     const isGrid = layout === 'grid';
@@ -74,6 +75,7 @@ export const ModifierSelector = forwardRef(({
                 }
             } finally {
                 setLoading(false);
+                onLoadingChange?.(false);
             }
         };
 

@@ -88,6 +88,7 @@ export const buildCatalogFirstVariants = (catalogVariants) => {
         return {
             sku: cv.sku,
             name: cv.name,
+            barcode: cv.barcode || null,
             price: _locPrice != null ? _locPrice : cv.price,
             compareAtPrice: cv.compareAtPrice,
             optionValues: cv.optionValues,
@@ -97,7 +98,12 @@ export const buildCatalogFirstVariants = (catalogVariants) => {
             id: cv.sku,
             availableForSale: cv.inventory?.inStock !== false,
             inventory: cv.inventory || {},
-            inStoreOnly: cv.inStoreOnly || false,
+            visibleOnStorefront: cv.visibleOnStorefront !== undefined ? cv.visibleOnStorefront : (cv.inStoreOnly ? false : true),
+            visibleOnPos: cv.visibleOnPos !== undefined ? cv.visibleOnPos : true,
+            visibleOnKiosk: cv.visibleOnKiosk !== undefined ? cv.visibleOnKiosk : true,
+            redeemableForPoints: cv.redeemableForPoints || false,
+            redeemableForTournamentPoints: cv.redeemableForTournamentPoints ?? (cv.tournamentPointsCost > 0),
+            tournamentPointsCost: cv.tournamentPointsCost || null,
             terms: cv.terms || null,
         };
     });
@@ -230,6 +236,9 @@ export const buildAllProducts = (catalog) => {
             crosssellProducts: cp.crossSellProducts || [],
             modifierIds: cp.modifierIds || [],
             isMYO: (cp.name || '').toLowerCase().includes('make your own'),
+            isBundle: cp.productType === 'bundle',
+            bundleSlots: cp.bundleSlots || [],
+            bundleAddOns: cp.bundleAddOns || [],
         };
     });
 };
@@ -378,6 +387,14 @@ export const buildSubcategoriesFromCatalog = (catalog, _unused = {}, locationSlu
                 // Desserts/default: filter out products hidden at selected location
                 if (locationSlug && catalogProduct.locationAvailability?.[locationSlug] === false) return false;
             }
+            // Hide products where ALL variants are hidden from storefront
+            const variants = catalogProduct.variants || [];
+            if (variants.length > 0) {
+                const allHidden = variants.every(v =>
+                    v.visibleOnStorefront === false || (v.visibleOnStorefront === undefined && v.inStoreOnly === true)
+                );
+                if (allHidden) return false;
+            }
             return true;
         }).map(catalogProduct => {
             // Determine which Level 3 child category this product belongs to
@@ -417,6 +434,9 @@ export const buildSubcategoriesFromCatalog = (catalog, _unused = {}, locationSlu
                 fulfillmentMethods: catalogProduct.fulfillmentMethods || [],
                 crosssellProducts: catalogProduct.crossSellProducts || [],
                 modifierIds: catalogProduct.modifierIds || [],
+                isBundle: catalogProduct.productType === 'bundle',
+                bundleSlots: catalogProduct.bundleSlots || [],
+                bundleAddOns: catalogProduct.bundleAddOns || [],
             };
 
             return {
@@ -437,6 +457,9 @@ export const buildSubcategoriesFromCatalog = (catalog, _unused = {}, locationSlu
                 catalogVariants: catalogProduct.variants || [],
                 displayModifiers: resolveDisplayModifiers(catalogProduct.displayModifiers, catalog.modifiers),
                 isMYO: (catalogProduct.name || '').toLowerCase().includes('make your own'),
+                isBundle: catalogProduct.productType === 'bundle',
+                bundleSlots: catalogProduct.bundleSlots || [],
+                bundleAddOns: catalogProduct.bundleAddOns || [],
                 subSubcategoryId: subSubcategory?.id || null,
                 subSubcategoryName: subSubcategory?.name || null,
                 inventory: buildProductInventory(catalogProduct.variants),

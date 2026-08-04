@@ -200,6 +200,15 @@ export function useCommerceWebSocket({ enabled = true, customerId = null, custom
 
         sendIdentify();
 
+        // Notify admin that remote refresh completed
+        if (sessionStorage.getItem('surreal_remote_refresh') === 'true') {
+          sessionStorage.removeItem('surreal_remote_refresh');
+          wsRef.current.send(JSON.stringify({
+            action: 'refreshCompleted',
+            clientUUID: getClientUUID(),
+          }));
+        }
+
         // Attempt resume with last seen message id
         const lastSeen = getLastSeenMessageId();
         if (lastSeen) {
@@ -225,6 +234,7 @@ export function useCommerceWebSocket({ enabled = true, customerId = null, custom
         // Handle device commands (refresh, lockout)
         if (parsed.type === 'command') {
           if (parsed.command === 'refresh') {
+            sessionStorage.setItem('surreal_remote_refresh', 'true');
             window.location.reload();
             return;
           }

@@ -178,7 +178,7 @@ export default function Home() {
     
     if (!wizardState) {
         return (
-            <Box component="main" sx={{ display: 'flex', justifyContent: 'center', p: 4, flexGrow: 1 }} role="status" aria-live="polite" aria-busy="true">
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, flexGrow: 1 }} role="status" aria-live="polite" aria-busy="true">
                 <CircularProgress aria-label="Loading" />
             </Box>
         );
@@ -339,11 +339,13 @@ export default function Home() {
             return <StepPayment send={sendToWizard} current={wizardState} onSnackbar={setSnackbar} />;
         }
         if (wizardState.hasTag('showsFinalSummary')) {
-            return <StepFinalSummary 
+            return <StepFinalSummary
                         plan={selectedPlan}
-                        savedCards={context.savedCards} 
-                        selectedSavedCardId={context.selectedSavedCardId} 
-                        onNavigate={(path) => { console.log(`Navigating to ${path}`) }} 
+                        savedCards={context.savedCards}
+                        selectedSavedCardId={context.selectedSavedCardId}
+                        onNavigate={(path) => { console.log(`Navigating to ${path}`) }}
+                        customerId={context.primaryCustomerId}
+                        customerForm={context.customerForms?.[0]}
                     />;
         }
         
@@ -356,7 +358,6 @@ export default function Home() {
 
     return (
         <Box
-            component="main"
             sx={{
                 maxWidth: 'sm',
                 width: '100%',

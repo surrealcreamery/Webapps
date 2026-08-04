@@ -98,8 +98,54 @@ export const useCart = () => {
                 ...(fulfillmentMethod ? { fulfillmentMethod } : {}),
                 ...(fulfillmentLocationId ? { fulfillmentLocationId, fulfillmentLocationName } : {}),
                 ...(crossSellDiscount ? { crossSellDiscount, triggerProductId } : {}),
+                ...(variant?.redeemableForPoints ? { redeemableForPoints: true } : {}),
             }];
         });
+    }, [updateCart]);
+
+    /**
+     * Add a bundle to cart (no merge — bundles are always unique entries)
+     */
+    const addBundleToCart = useCallback((product, variant, bundleItems = [], opts = {}) => {
+        const {
+            fulfillmentMethod = null, fulfillmentLocationId = null, fulfillmentLocationName = null,
+            bundleAddOns = [], lineTotal = null, upchargeTotal = 0,
+        } = opts;
+        const basePrice = parseFloat(variant?.price?.amount || variant?.price || 0);
+        // Effective line price = the configurator's computed total (base + slot upcharges + add-ons).
+        const unitPrice = (lineTotal != null && !Number.isNaN(Number(lineTotal))) ? Number(lineTotal) : basePrice;
+        updateCart(prev => [...prev, {
+            id: crypto.randomUUID(),
+            productId: product?.id || product?.sku || '',
+            variantId: variant?.sku || variant?.id || '',
+            sku: product?.sku || variant?.sku || '',
+            variantSku: variant?.sku || variant?.id || product?.id,
+            name: product?.name || product?.title || '',
+            variantName: variant?.name || '',
+            unitPrice,
+            basePrice,
+            upchargeTotal: Number(upchargeTotal) || 0,
+            quantity: 1,
+            modifiers: [],
+            image: variant?.image?.url || variant?.image?.src || product?.images?.[0]?.url || product?.imageUrl || '',
+            isBundle: true,
+            bundleItems: bundleItems.map(bi => ({
+                slotId: bi.slotId,
+                slotName: bi.slotName || '',
+                productSku: bi.productSku || '',
+                variantSku: bi.variantSku || '',
+                name: bi.name || '',
+                variantName: bi.variantName || '',
+                modifiers: bi.modifiers || [],
+                upcharge: Number(bi.upcharge) || 0,
+            })),
+            bundleAddOns: (bundleAddOns || []).map(a => ({
+                addOnId: a.addOnId, name: a.name || '', sku: a.sku, itemName: a.itemName || '',
+                addedQty: a.addedQty || 0, unitPrice: a.unitPrice || 0, addedCost: a.addedCost || 0, tiers: a.tiers || [],
+            })),
+            ...(fulfillmentMethod ? { fulfillmentMethod } : {}),
+            ...(fulfillmentLocationId ? { fulfillmentLocationId, fulfillmentLocationName } : {}),
+        }]);
     }, [updateCart]);
 
     /**
@@ -187,10 +233,71 @@ export const useCart = () => {
         return cart.some(item => item.variantId === variantId);
     }, [cart]);
 
+    /**
+     * Toggle usePoints flag on a cart item
+     */
+    const toggleUsePoints = useCallback((itemId) => {
+        updateCart(prev => prev.map(item => {
+            if (item.id !== itemId) return item;
+            if (!item.redeemableForPoints) return item; // only redeemable products can use points
+            return { ...item, usePoints: !item.usePoints };
+        }));
+    }, [updateCart]);
+
+    /**
+     * Sum of point costs for items with usePoints=true
+     */
+    const getPointsTotal = useCallback((pointsPerDollar) => {
+        return cart.reduce((sum, item) => {
+            if (!item.usePoints) return sum;
+            const modTotal = (item.modifiers || []).reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
+            let unitWithMods = item.unitPrice + modTotal;
+            if (item.crossSellDiscount) {
+                const csd = item.crossSellDiscount;
+                unitWithMods = Math.max(0, csd.valueType === 'PERCENTAGE'
+                    ? unitWithMods * (1 - csd.value / 100)
+                    : unitWithMods - csd.value / 100);
+            }
+            return sum + Math.round(unitWithMods * item.quantity * pointsPerDollar);
+        }, 0);
+    }, [cart]);
+
+    /**
+     * Dollar total for items NOT using points
+     */
+    const getDollarTotal = useCallback(() => {
+        return cart.reduce((sum, item) => {
+            if (item.usePoints) return sum;
+            const modTotal = (item.modifiers || []).reduce((s, m) => s + (parseFloat(m.price) || 0), 0);
+            let unitWithMods = item.unitPrice + modTotal;
+            if (item.crossSellDiscount) {
+                const csd = item.crossSellDiscount;
+                unitWithMods = Math.max(0, csd.valueType === 'PERCENTAGE'
+                    ? unitWithMods * (1 - csd.value / 100)
+                    : unitWithMods - csd.value / 100);
+            }
+            return sum + unitWithMods * item.quantity;
+        }, 0);
+    }, [cart]);
+
+    /**
+     * Clear all usePoints flags
+     */
+    const clearAllUsePoints = useCallback(() => {
+        updateCart(prev => prev.map(item => {
+            if (item.usePoints) {
+                const { usePoints, ...rest } = item;
+                return rest;
+            }
+            return item;
+        }));
+    }, [updateCart]);
+
     return {
         cart,
         cartId,
         addToCart,
+        addBundleToCart,
         removeFromCart,
         removeByVariantId,
         updateQuantity,
@@ -198,6 +305,10 @@ export const useCart = () => {
         getCartCount,
         getSubtotal,
         isInCart,
+        toggleUsePoints,
+        getPointsTotal,
+        getDollarTotal,
+        clearAllUsePoints,
     };
 };
 

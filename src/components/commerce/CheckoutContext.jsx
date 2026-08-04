@@ -2,11 +2,30 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 
 const CheckoutContext = createContext();
 
+const OTP_STORAGE_KEY = 'surrealOtpSession';
+const OTP_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 function loadConfirmation() {
   try {
     const raw = sessionStorage.getItem('checkoutConfirmation');
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
+}
+
+function loadOtpSession() {
+  try {
+    const raw = localStorage.getItem(OTP_STORAGE_KEY);
+    if (!raw) return null;
+    const { token, customerId, timestamp } = JSON.parse(raw);
+    if (Date.now() - timestamp > OTP_EXPIRY_MS) {
+      localStorage.removeItem(OTP_STORAGE_KEY);
+      return null;
+    }
+    return { token, customerId };
+  } catch {
+    localStorage.removeItem(OTP_STORAGE_KEY);
+    return null;
+  }
 }
 
 export function CheckoutProvider({ children }) {
@@ -29,11 +48,29 @@ export function CheckoutProvider({ children }) {
     }
   }, []);
 
-  // Authenticated checkout state (OTP sign-in)
-  const [otpSessionToken, setOtpSessionToken] = useState(null);
-  const [authenticatedCustomerId, setAuthenticatedCustomerId] = useState(null);
+  // Authenticated checkout state (OTP sign-in) — persisted in localStorage
+  const [otpSessionToken, setOtpSessionTokenState] = useState(() => loadOtpSession()?.token || null);
+  const [authenticatedCustomerId, setAuthenticatedCustomerIdState] = useState(() => loadOtpSession()?.customerId || null);
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [savedPaymentMethods, setSavedPaymentMethods] = useState([]);
+
+  const setOtpSession = useCallback((token, customerId) => {
+    setOtpSessionTokenState(token);
+    setAuthenticatedCustomerIdState(customerId);
+    if (token) {
+      localStorage.setItem(OTP_STORAGE_KEY, JSON.stringify({ token, customerId, timestamp: Date.now() }));
+    } else {
+      localStorage.removeItem(OTP_STORAGE_KEY);
+    }
+  }, []);
+
+  const logoutSession = useCallback(() => {
+    setOtpSessionTokenState(null);
+    setAuthenticatedCustomerIdState(null);
+    setSavedAddresses([]);
+    setSavedPaymentMethods([]);
+    localStorage.removeItem(OTP_STORAGE_KEY);
+  }, []);
 
   const proceedToOrderDetails = () => setShowOrderScreen(true);
   const backFromOrderDetails = () => setShowOrderScreen(false);
@@ -45,8 +82,7 @@ export function CheckoutProvider({ children }) {
     setCheckoutPromoCode('');
     setCheckoutTip(0);
     setCheckoutConfirmation(null);
-    setOtpSessionToken(null);
-    setAuthenticatedCustomerId(null);
+    // Preserve OTP session across checkouts — don't clear it
     setSavedAddresses([]);
     setSavedPaymentMethods([]);
   }, [setCheckoutConfirmation]);
@@ -63,9 +99,12 @@ export function CheckoutProvider({ children }) {
       checkoutPromoCode, setCheckoutPromoCode,
       checkoutTip, setCheckoutTip,
       checkoutConfirmation, setCheckoutConfirmation,
-      // Authenticated checkout (OTP)
-      otpSessionToken, setOtpSessionToken,
-      authenticatedCustomerId, setAuthenticatedCustomerId,
+      // Authenticated checkout (OTP) — persistent session
+      otpSessionToken,
+      authenticatedCustomerId,
+      setAuthenticatedCustomerId: setAuthenticatedCustomerIdState,
+      setOtpSession,
+      logoutSession,
       savedAddresses, setSavedAddresses,
       savedPaymentMethods, setSavedPaymentMethods,
       resetCheckout,

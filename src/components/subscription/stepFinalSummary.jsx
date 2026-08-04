@@ -4,13 +4,22 @@ import React, { useState, useEffect } from 'react';
 import { Box, Typography, Card, CardContent, Divider, Button, CircularProgress } from '@mui/material';
 import CardBrandIcon from './cardBrandIcon.jsx';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import { trackSubscriptionCompleted } from '@/services/analytics';
+import { trackSubscriptionCompleted, identifyUser } from '@/services/analytics';
 
-const StepFinalSummary = ({ plan, savedCards, selectedSavedCardId, onNavigate }) => {
+const StepFinalSummary = ({ plan, savedCards, selectedSavedCardId, onNavigate, customerId, customerForm }) => {
     const [isButtonLoading, setIsButtonLoading] = useState(true);
 
     useEffect(() => {
-        trackSubscriptionCompleted(null, plan?.id, plan?.price);
+        trackSubscriptionCompleted(null, plan?.id, plan?.price, { planName: plan?.name });
+        // Link visitor to customer so analytics shows their name
+        if (customerId) {
+            identifyUser(customerId, {
+                firstName: customerForm?.firstName,
+                lastName: customerForm?.lastName,
+                name: [customerForm?.firstName, customerForm?.lastName].filter(Boolean).join(' '),
+                email: customerForm?.email,
+            });
+        }
     }, []);
 
     useEffect(() => {
