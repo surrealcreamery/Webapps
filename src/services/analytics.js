@@ -628,6 +628,16 @@ export function trackEventRegistrationCreated(eventId, { outcome, date, time, ev
       }, { eventID: registrationId || eventId });
     }
 
+    // TikTok Pixel — CompleteRegistration (event_id mirrors Meta for Events API dedup)
+    if (typeof window.ttq?.track === 'function') {
+      window.ttq.track('CompleteRegistration', {
+        content_name: eventName || eventId,
+        content_id: eventId,
+        content_type: 'event_registration',
+        ...(isPaid ? { value: valueDollars, currency: 'USD' } : {}),
+      }, { event_id: registrationId || eventId });
+    }
+
     if (isPaid) {
       // Meta Pixel — Purchase for paid registrations (revenue attribution)
       if (typeof fbq === 'function') {
@@ -638,6 +648,17 @@ export function trackEventRegistrationCreated(eventId, { outcome, date, time, ev
           content_name: eventName || eventId,
           content_ids: [eventId],
         }, { eventID: `purchase_${registrationId || eventId}` });
+      }
+
+      // TikTok Pixel — CompletePayment for paid registrations (revenue attribution)
+      if (typeof window.ttq?.track === 'function') {
+        window.ttq.track('CompletePayment', {
+          value: valueDollars,
+          currency: 'USD',
+          content_type: 'event_registration',
+          content_name: eventName || eventId,
+          content_id: eventId,
+        }, { event_id: `purchase_${registrationId || eventId}` });
       }
 
       // GA4 — purchase event with revenue
@@ -674,6 +695,42 @@ export function trackEventRegistrationFailed(eventId, { contactInfo, date, time,
     label: `${contactInfo?.firstName} ${contactInfo?.lastName} | ${contactInfo?.email} | ${contactInfo?.mobileNumber}`,
   });
   flush(true); // Force immediate sendBeacon — don't wait for batch timer
+}
+
+// ── Book a Space ──
+
+// A submitted space-booking request is a lead — fire a conversion to every platform.
+export function trackSpaceRequestSubmitted({ eventType, locationId, locationName, partySize, date, requestId } = {}) {
+  track('space_request_submitted', { event_type: eventType, location_id: locationId, location_name: locationName, party_size: partySize, date });
+
+  const contentName = eventType || 'Space booking request';
+  const dedupId = requestId || `space_${locationId || 'x'}_${date || 'x'}`;
+
+  // Meta Pixel — Lead (form/booking-request submission)
+  if (typeof fbq === 'function') {
+    fbq('track', 'Lead', {
+      content_name: contentName,
+      content_category: 'book_a_space',
+    }, { eventID: dedupId });
+  }
+
+  // TikTok Pixel — SubmitForm
+  if (typeof window.ttq?.track === 'function') {
+    window.ttq.track('SubmitForm', {
+      content_name: contentName,
+      content_type: 'book_a_space',
+    }, { event_id: dedupId });
+  }
+
+  // GA4 — generate_lead
+  if (typeof window.gtag === 'function') {
+    window.gtag('event', 'generate_lead', {
+      currency: 'USD',
+      value: 0,
+      content_name: contentName,
+      content_type: 'book_a_space',
+    });
+  }
 }
 
 // ── Catering ──

@@ -409,9 +409,10 @@ export function CartDrawer({
 
     if (amountCents <= 0) return;
 
-    // Add tip selected on kiosk screen
-    const totalWithTip = amountCents + (tipCents || 0);
-    terminalTipCents.current = tipCents || 0;
+    // Tip is collected on the paired card reader so Square records it as a real tip (a screen-collected
+    // tip folded into the amount is logged as sale, not tip). Charge the PRE-TIP amount; the actual tip
+    // comes back from the terminal payment's tip_money via the poll (result.tipAmount).
+    terminalTipCents.current = 0;
 
     setTerminalStatus('sending');
     setTerminalError(null);
@@ -440,7 +441,7 @@ export function CartDrawer({
           fulfillmentType: 'pickup',
           locationId: kioskTerminal?.locationId || '',
           taxCents,
-          tipCents: tipCents || 0,
+          tipCents: 0, // reader collects the tip; recorded from tip_money after payment
         }),
       });
       const payloadData = await payloadRes.json();
@@ -461,10 +462,10 @@ export function CartDrawer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'createTerminalCheckout',
-          amountCents: totalWithTip,
+          amountCents,
           taxCents,
-          tipCents: tipCents || 0,
-          skipTip: true,
+          tipCents: 0,
+          skipTip: false, // let the reader prompt for + collect the tip → Square records tip_money
           note,
           deviceId: kioskTerminal?.deviceId,
           locationId: kioskTerminal?.locationId,
@@ -826,8 +827,9 @@ export function CartDrawer({
 
   const handleCheckout = () => {
     if (isKioskMode) {
-      setSelectedTipCents(0);
-      setShowTipSelection(true);
+      // Tip is collected on the paired card reader (Square records it as a real tip), not the kiosk
+      // screen — go straight to the terminal, which prompts for the tip.
+      handleTerminalCheckout();
       return;
     } else {
       const hasDelivery = cartItems.some(i => i.fulfillmentMethod === 'delivery');

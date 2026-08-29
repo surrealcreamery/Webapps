@@ -55,7 +55,7 @@ import { LayoutProvider as EventsLayoutProvider } from '@/contexts/events/Events
 import EventsLayout from '@/layouts/events/eventsLayout';
 import EventsBareLayout from '@/layouts/events/eventsBareLayout'; // For embedding in Commerce
 import SubscriptionsBareLayout from '@/layouts/subscriptions/subscriptionsBareLayout'; // For embedding in Commerce
-import EventsHome from '@/pages/EventsTest';
+import EventsHome from '@/pages/Events';
 const BookASpace = React.lazy(() => import('@/pages/BookASpace'));
 
 // 3. Catering App Components
@@ -82,6 +82,7 @@ import AccountPage from '@/pages/AccountPage';
 import SignageLayout from '@/layouts/commerce/signageLayout';
 import Signage from '@/pages/Signage';
 import CustomPage from '@/pages/CustomPage';
+const DeckBuilder = React.lazy(() => import('@/pages/DeckBuilder'));
 
 import KioskLayout from '@/layouts/commerce/kioskLayout';
 import { KioskOverlay } from '@/components/kiosk/KioskOverlay';
@@ -138,6 +139,10 @@ const appConfigs = {
       {
         path: 'category/:categoryId',
         element: <Commerce />,
+      },
+      {
+        path: 'deck-builder',
+        element: <React.Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>}><DeckBuilder /></React.Suspense>,
       },
       {
         path: 'product/:productId',

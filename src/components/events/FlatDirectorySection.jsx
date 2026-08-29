@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Box, Typography, Container, Grid, Button, IconButton, Dialog, DialogTitle, DialogContent, Tabs, Tab } from '@mui/material';
 import { format, parse } from 'date-fns';
+import { storeToday, isPreviewMode } from '@/utils/storeDate';
 
 // Visually hidden style for screen-reader-only text
 const srOnly = {
@@ -44,7 +46,7 @@ const formatCardTime = (startTime, endTime) => {
 
 // Build flat cards from events (same as V1 — each schedule stop becomes its own card)
 const buildFlatCards = (events, locations) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = storeToday();
 
     const resolveLocationName = (locationId, event) => {
         if (!locationId) return '';
@@ -58,12 +60,13 @@ const buildFlatCards = (events, locations) => {
         const schedule = event.schedule;
         if (Array.isArray(schedule) && schedule.length > 0) {
             return schedule
-                .filter(stop => !stop.date || stop.date >= today)
+                .filter(stop => (!stop.date || stop.date >= today) && (!stop.hidden || isPreviewMode()))
                 .map((stop, idx) => ({
                     ...event,
                     _stopIndex: idx,
                     _stop: stop,
                     _stopLocationId: stop.locationId,
+                    _stopTournamentId: stop.tournamentId || null,
                     _stopDate: stop.date,
                     _stopStartTime: stop.startTime || null,
                     _stopEndTime: stop.endTime || null,
@@ -94,6 +97,7 @@ const buildFlatCards = (events, locations) => {
             _stop: null,
             _stopIndex: null,
             _stopLocationId: event.locationIds?.[0] || null,
+            _stopTournamentId: event.tournamentId || event['Tournament ID'] || null,
             _stopDate: startDate || null,
             _stopStartTime: startTime,
             _stopEndTime: endTime,
@@ -154,13 +158,9 @@ const SeriesCard = ({ series, onClick, onRegister, scoped = false }) => {
         ? `$${(feeCents / 100).toFixed(feeCents % 100 === 0 ? 0 : 2)}`
         : ptsCost > 0 ? `${ptsCost} pts` : 'Free';
 
-    // On a location-scoped page each series has a single stop, so surface its date/time under the title.
-    const scopedDateTime = scoped
-        ? (() => {
-            const stop = [...series.stops].sort((a, b) => (a._stopDate || '').localeCompare(b._stopDate || ''))[0];
-            return stop ? formatStopDateTime(stop._stopDate, stop._stopStartTime) : '';
-        })()
-        : '';
+    // On a location-scoped page, surface all of this series' sessions at that location,
+    // grouped by date (same-day times combined) — one line per date under the title.
+    const scheduleLines = scoped ? formatSeriesSchedule(series.stops) : [];
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -174,6 +174,9 @@ const SeriesCard = ({ series, onClick, onRegister, scoped = false }) => {
             sx={{
                 borderRadius: '8px',
                 overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
             }}
         >
             {/* Image */}
@@ -234,15 +237,21 @@ const SeriesCard = ({ series, onClick, onRegister, scoped = false }) => {
             <Typography component="div" sx={{ fontWeight: 600, fontSize: '2.0rem', mt: 1.5, lineHeight: 1.3 }}>
                 {series.name}
             </Typography>
-            {scopedDateTime && (
-                <Typography component="div" sx={{ fontWeight: 700, fontSize: '1.5rem', color: '#000', mt: 0.5, lineHeight: 1.4 }}>
-                    {scopedDateTime}
+            {scheduleLines.length > 0 && (
+                <Box sx={{ mt: 0.5 }}>
+                    {scheduleLines.map((line, i) => (
+                        <Typography key={i} component="div" sx={{ fontWeight: 700, fontSize: '1.5rem', color: '#000', lineHeight: 1.4 }}>
+                            {line}
+                        </Typography>
+                    ))}
+                </Box>
+            )}
+            {series.description && (
+                <Typography component="div" sx={{ color: 'text.secondary', fontSize: '1.4rem', mt: 0.5, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
+                    {series.description}
                 </Typography>
             )}
-            <Typography component="div" sx={{ color: 'text.secondary', fontSize: '1.4rem', mt: 0.5, lineHeight: 1.4 }}>
-                Includes Trainer Treat Pack: Choice of one bubble tea and one ice cream, frosted cupcake, or frosted cookies for $2 extra.
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+            <Box sx={{ display: 'flex', gap: 1, mt: 'auto', pt: 1.5 }}>
                 <Button variant="outlined" size="small" onClick={onClick} sx={{ fontSize: '1.4rem', textTransform: 'none', flex: 1 }}>
                     View Detail
                     <Box component="span" sx={srOnly}> for {series.name}</Box>
@@ -257,11 +266,49 @@ const SeriesCard = ({ series, onClick, onRegister, scoped = false }) => {
     );
 };
 
-const SeriesLanding = ({ seriesGroups, standaloneCards, categories = [], category = 'All', onCategory, onSelectSeries, onRegisterSeries, onSelectCard, regCounts, scopeLocationName = null, onExitLocation = null }) => (
+// Full-width call-to-action banner promoting the Book-a-Space flow. The whole banner is one
+// large accessible button (big tap target) that routes to /events/book-a-space.
+const BookSpaceBanner = ({ onClick }) => (
+    <Box
+        component="button"
+        type="button"
+        onClick={onClick}
+        aria-label="Book our space for your event or gathering"
+        sx={{
+            width: '100%', font: 'inherit', textAlign: 'left', cursor: 'pointer', border: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2,
+            px: { xs: 2.5, sm: 4 }, py: { xs: 2.5, sm: 3 }, mb: 3, borderRadius: 3,
+            color: '#fff',
+            // Endpoints chosen so white text clears WCAG AA across the whole gradient: white on the
+            // lightest point (#be185d) is ~6:1, comfortably above 4.5:1 for normal text.
+            background: 'linear-gradient(135deg, #6d28d9 0%, #be185d 100%)',
+            transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+            '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
+            '&:focus-visible': { outline: '3px solid', outlineColor: 'text.primary', outlineOffset: 2 },
+        }}
+    >
+        <Box sx={{ minWidth: 0 }}>
+            <Typography component="span" sx={{ display: 'block', fontSize: { xs: '2rem', sm: '2.4rem' }, fontWeight: 800, lineHeight: 1.15 }}>
+                Host your event with us
+            </Typography>
+            <Typography component="span" sx={{ display: 'block', fontSize: '1.5rem', mt: 0.5 }}>
+                Book our space for parties, gatherings &amp; more
+            </Typography>
+        </Box>
+        <Box component="span" sx={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#fff', color: '#111', fontWeight: 700, fontSize: '1.5rem', px: 2.5, py: 1.25, borderRadius: 999, whiteSpace: 'nowrap' }}>
+            Book a Space
+            <Box component="span" aria-hidden="true" sx={{ fontSize: '1.7rem', lineHeight: 1 }}>&rarr;</Box>
+        </Box>
+    </Box>
+);
+
+const SeriesLanding = ({ seriesGroups, standaloneCards, categories = [], category = 'All', onCategory, onSelectSeries, onRegisterSeries, onSelectCard, regCounts, scopeLocationName = null, onExitLocation = null, onBookSpace = null }) => (
     <Container maxWidth="md" sx={{ pt: 0, pb: 4 }}>
         <Typography variant="h1" component="h1" align="center" sx={{ mb: '24px !important' }}>
             Events
         </Typography>
+
+        {onBookSpace && !scopeLocationName && <BookSpaceBanner onClick={onBookSpace} />}
 
         {categories.length > 0 && (
             <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
@@ -296,16 +343,17 @@ const SeriesLanding = ({ seriesGroups, standaloneCards, categories = [], categor
 
         <Grid container spacing={2} justifyContent="center">
             {seriesGroups.map(series => (
-                <Grid size={{ xs: 12, sm: 6 }} key={series.seriesId}>
+                <Grid size={{ xs: 12, sm: 6 }} key={series.seriesId} sx={{ display: 'flex' }}>
                     <SeriesCard
                         series={series}
                         scoped={!!scopeLocationName}
                         onClick={() => onSelectSeries(series.slug || series.seriesId)}
                         onRegister={() => {
-                            // On a location page, register goes straight to that location's stop registration.
-                            if (scopeLocationName) {
-                                const stop = [...series.stops].sort((a, b) => (a._stopDate || '').localeCompare(b._stopDate || ''))[0];
-                                if (stop) { onSelectCard(stop); return; }
+                            // On a location page with a single session, register straight into that stop.
+                            // With multiple sessions at this location, open the series detail (scrolled to
+                            // the stops list) so the user picks which session first.
+                            if (scopeLocationName && series.stops.length === 1) {
+                                onSelectCard(series.stops[0]); return;
                             }
                             onRegisterSeries(series.slug || series.seriesId);
                         }}
@@ -314,7 +362,7 @@ const SeriesLanding = ({ seriesGroups, standaloneCards, categories = [], categor
             ))}
 
             {standaloneCards.map(card => (
-                <Grid size={{ xs: 12, sm: 6 }} key={card._cardKey}>
+                <Grid size={{ xs: 12, sm: 6 }} key={card._cardKey} sx={{ display: 'flex' }}>
                     <SeriesCard
                         series={{
                             seriesId: card._cardKey,
@@ -364,6 +412,27 @@ const formatStopDateTime = (dateString, startTime) => {
     }
 };
 
+// Build a per-date schedule for a series: group stops by date, combine same-day start
+// times ("5:00PM and 7:00PM"), and return one formatted line per date, date-sorted.
+// e.g. ["Tuesday, August 4th at 12:30PM", "Thursday, August 6th at 5:00PM and 7:00PM"]
+const formatSeriesSchedule = (stops) => {
+    const byDate = {};
+    for (const s of stops || []) {
+        const d = s._stopDate;
+        if (!d) continue;
+        (byDate[d] = byDate[d] || new Set());
+        if (s._stopStartTime) byDate[d].add(s._stopStartTime);
+    }
+    return Object.keys(byDate).sort().map((dateString) => {
+        let datePart = dateString;
+        try { datePart = format(new Date(dateString.replace(/-/g, '/')), 'EEEE, MMMM do'); } catch {}
+        const times = [...byDate[dateString]].sort().map((t) => {
+            try { return format(parse(t, 'HH:mm', new Date()), 'h:mma'); } catch { return t; }
+        });
+        return times.length ? `${datePart} at ${times.join(' and ')}` : datePart;
+    });
+};
+
 // Staged availability: reveal "spots left" in brackets of `step` (default 4) so a mostly-empty
 // tournament shows a small, urgent number (e.g. "4 spots left") instead of the full open count,
 // opening the next bracket as it fills. Display-only — real capacity and sold-out are unchanged.
@@ -381,14 +450,22 @@ const StopCard = ({ card, onClick, regCounts }) => {
     const ptsCost = card._stopPointsCost;
     const imageUrl = card.imageUrl || card.seriesImageUrl;
 
-    // Sold out check — prefer per-stop (date:locationId) data, fall back to per-date
+    // Sold out check — prefer per-tournament (unique per session), then per-stop
+    // (date:locationId aggregate), then per-date. Per-tournament is the only key that
+    // is correct when one location runs multiple sessions on the same day.
     const rc = regCounts[card.id];
     const dateKey = card._stopDate;
+    const tid = card._stopTournamentId;
     const stopKey = dateKey && card._stopLocationId ? `${dateKey}:${card._stopLocationId}` : null;
     let isSoldOut = false;
     let spotsRemaining = null;
     const bracketStep = card.seriesBracketSize; // per-series; bracketedSpots() falls back to 4
-    if (rc && stopKey && rc.capacityByStop?.[stopKey]) {
+    if (rc && tid && rc.capacityByTournament?.[tid]) {
+        const cap = rc.capacityByTournament[tid];
+        const count = rc.byTournament?.[tid] || 0;
+        isSoldOut = (cap - count) <= 0;
+        spotsRemaining = isSoldOut ? 0 : bracketedSpots(count, cap, bracketStep);
+    } else if (rc && stopKey && rc.capacityByStop?.[stopKey]) {
         const cap = rc.capacityByStop[stopKey];
         const count = rc.byStop?.[stopKey] || 0;
         isSoldOut = (cap - count) <= 0;
@@ -553,17 +630,25 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
     // Location-scoped detail: register goes straight to this location's (next) stop, and its date/time
     // + spots-remaining are shown under the title instead of a stops list at the bottom.
     const scoped = !!scopeLocationName;
+    // Only collapse to a single "next stop" summary when this location genuinely has one session.
+    // A series with multiple sessions at the same location (e.g. recurring lessons) must still show
+    // the full stops list so the user can pick which one to register for.
+    const scopedSingle = scoped && series.stops.length === 1;
     const scopedStop = useMemo(
-        () => (scoped ? [...series.stops].sort((a, b) => (a._stopDate || '').localeCompare(b._stopDate || ''))[0] || null : null),
-        [scoped, series.stops]
+        () => (scopedSingle ? [...series.stops].sort((a, b) => (a._stopDate || '').localeCompare(b._stopDate || ''))[0] || null : null),
+        [scopedSingle, series.stops]
     );
     const scopedInfo = useMemo(() => {
         if (!scopedStop) return null;
         const rc = regCounts[scopedStop.id];
         const dateKey = scopedStop._stopDate;
+        const tid = scopedStop._stopTournamentId;
         const stopKey = dateKey && scopedStop._stopLocationId ? `${dateKey}:${scopedStop._stopLocationId}` : null;
         let isSoldOut = false, spotsRemaining = null;
-        if (rc && stopKey && rc.capacityByStop?.[stopKey]) {
+        if (rc && tid && rc.capacityByTournament?.[tid]) {
+            const cap = rc.capacityByTournament[tid]; const count = rc.byTournament?.[tid] || 0;
+            isSoldOut = (cap - count) <= 0; spotsRemaining = isSoldOut ? 0 : bracketedSpots(count, cap, scopedStop.seriesBracketSize);
+        } else if (rc && stopKey && rc.capacityByStop?.[stopKey]) {
             const cap = rc.capacityByStop[stopKey]; const count = rc.byStop?.[stopKey] || 0;
             isSoldOut = (cap - count) <= 0; spotsRemaining = isSoldOut ? 0 : bracketedSpots(count, cap, scopedStop.seriesBracketSize);
         } else if (rc && dateKey && rc.capacityByDate?.[dateKey]) {
@@ -575,13 +660,13 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
 
     // Scoped: register straight for this location's stop. Otherwise: scroll to the stops list.
     const handleRegister = () => {
-        if (scoped) {
+        if (scopedSingle) {
             if (scopedStop && !scopedInfo?.isSoldOut) onSelectCard(scopedStop);
             return;
         }
         stopsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
-    const registerLabel = (scoped && scopedInfo?.isSoldOut) ? 'Sold Out' : `Register – ${priceLabel}`;
+    const registerLabel = (scopedSingle && scopedInfo?.isSoldOut) ? 'Sold Out' : `Register – ${priceLabel}`;
 
     return (
         <Container maxWidth="md" sx={{ pt: 0, pb: 4 }}>
@@ -647,7 +732,7 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                             size="large"
                             sx={{ fontWeight: 700, fontSize: '1.6rem', mt: 0.5, maxWidth: 'fit-content' }}
                             onClick={handleRegister}
-                            disabled={scoped && !!scopedInfo?.isSoldOut}
+                            disabled={scopedSingle && !!scopedInfo?.isSoldOut}
                         >
                             {registerLabel}
                         </Button>
@@ -692,7 +777,7 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                         fullWidth
                         sx={{ fontWeight: 700, fontSize: '1.6rem', mb: 2 }}
                         onClick={handleRegister}
-                        disabled={scoped && !!scopedInfo?.isSoldOut}
+                        disabled={scopedSingle && !!scopedInfo?.isSoldOut}
                     >
                         {registerLabel}
                     </Button>
@@ -796,9 +881,9 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
 
             {/* Date-grouped stops */}
             <Box ref={stopsRef} />
-            {/* Location-scoped detail moves the single date/time + spots up under the title, so the
-                full stops list is hidden here. */}
-            {!scoped && dateGroups.map(group => (
+            {/* A genuine single-stop location moves its date/time + spots up under the title, so the
+                full stops list is hidden here. Multi-session locations still list every stop. */}
+            {!scopedSingle && dateGroups.map(group => (
                 <Box key={group.date} sx={{ mb: 2 }}>
                     <Typography component="h2" sx={{
                         fontWeight: 700,
@@ -824,7 +909,7 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                 </Box>
             ))}
 
-            {!scoped && dateGroups.length === 0 && (
+            {!scopedSingle && dateGroups.length === 0 && (
                 <Typography variant="body1" color="text.secondary" sx={{ mt: 2 }}>
                     No upcoming dates for this series.
                 </Typography>
@@ -838,6 +923,7 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
 // ============================================
 
 export const FlatDirectorySection = ({ events, locations, onSelectCard, regCounts = {}, selectedSeriesId = null, onSeriesSelect, locationScope = null, onLocationScopeExit }) => {
+    const navigate = useNavigate();
     // Use lifted state from parent if provided, otherwise fall back to local state
     const [localSeriesId, setLocalSeriesId] = useState(null);
     const [scrollToStops, setScrollToStops] = useState(false);
@@ -960,6 +1046,7 @@ export const FlatDirectorySection = ({ events, locations, onSelectCard, regCount
             onRegisterSeries={(slug) => { setScrollToStops(true); window.history.pushState(null, '', seriesUrl(slug)); window.dispatchEvent(new Event('events:nav')); setActiveSeriesId(slug); }}
             onSelectCard={onSelectCard}
             regCounts={regCounts}
+            onBookSpace={() => navigate('/events/book-a-space')}
         />
     );
 };

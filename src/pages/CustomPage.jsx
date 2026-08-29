@@ -2,8 +2,10 @@
 // Renders dynamic pages from the Pages builder (catalog-api getPageConfig)
 
 import React, { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { Box, Container, Typography, Button, CircularProgress, TextField, Alert, Stack, Tabs, Tab } from '@mui/material';
+import { Box, Container, Typography, Button, CircularProgress, TextField, Alert, Stack, Tabs, Tab, Checkbox, FormControlLabel, LinearProgress } from '@mui/material';
 import { useParams, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
+import OtpInput from '@/components/events/OtpInput';
+import { OTP_VERIFY_URL, ASSET_API_URL } from '@/constants/events/eventsConstants';
 import { Helmet } from 'react-helmet-async';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getPageConfig, validateDiscountCode, getPublishedPages, fetchEvents, fetchEventLocations } from '@/services/pageConfigService';
@@ -1948,19 +1950,31 @@ function DeckViewerSection({ config }) {
 
   const cards = liveCards || config.cards || [];
   const columns = config.columns || 4;
-  const grouped = config.groupByCategory;
+  const notes = config.notes || {};
+  const showNumber = config.showCardNumber;
+  const cardById = useMemo(() => Object.fromEntries(cards.map((c, i) => [c.id || i, c])), [cards]);
 
-  const groups = useMemo(() => {
-    if (!grouped) return { All: cards };
-    const g = {};
-    for (const card of cards) {
-      const cat = card.category || 'Other';
-      if (!g[cat]) g[cat] = [];
-      g[cat].push(card);
+  // Curated sections take precedence; else fall back to the old category grouping / flat list.
+  const renderSections = useMemo(() => {
+    if (Array.isArray(config.sections) && config.sections.length) {
+      const assigned = new Set(config.sections.flatMap(s => s.cardIds || []));
+      const out = config.sections.map(s => ({
+        title: s.title, level: s.level || 1,
+        cards: (s.cardIds || []).map(id => cardById[id]).filter(Boolean),
+      }));
+      const unsorted = cards.filter(c => !assigned.has(c.id));
+      if (unsorted.length) out.push({ title: '', level: 1, cards: unsorted });
+      return out;
     }
-    return g;
-  }, [cards, grouped]);
+    if (config.groupByCategory) {
+      const g = {};
+      for (const c of cards) { const cat = c.category || 'Other'; (g[cat] = g[cat] || []).push(c); }
+      return Object.entries(g).map(([title, cs]) => ({ title, level: 1, cards: cs }));
+    }
+    return [{ title: '', level: 1, cards }];
+  }, [config.sections, config.groupByCategory, cards, cardById]);
 
+  const cardNumberLabel = (c) => [c.setCode || c.setName, c.number].filter(Boolean).join(' ');
   const sizeMap = { small: 120, medium: 180, large: 260 };
   const maxW = sizeMap[config.cardSize] || sizeMap.medium;
 
@@ -1976,52 +1990,282 @@ function DeckViewerSection({ config }) {
               {config.subtitle && <Typography variant="body1" color="text.secondary" sx={{ mt: 0.5 }}>{config.subtitle}</Typography>}
             </Box>
           )}
-          {Object.entries(groups).map(([category, catCards]) => (
-            <Box key={category} sx={{ mb: 3 }}>
-              {grouped && (
-                <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5 }}>
-                  {category} ({catCards.reduce((s, c) => s + c.quantity, 0)})
+          {renderSections.map((sec, si) => sec.cards.length ? (
+            <Box key={si} sx={{ mb: 3, ml: sec.level === 2 ? { xs: 1, md: 3 } : 0 }}>
+              {sec.title && (
+                <Typography variant={sec.level === 2 ? 'subtitle1' : 'h6'} sx={{ fontWeight: 700, mb: 1.5, color: sec.level === 2 ? 'text.secondary' : 'text.primary' }}>
+                  {sec.title}
                 </Typography>
               )}
               <Box sx={{
                 display: 'grid',
-                gridTemplateColumns: { xs: 'repeat(3, 1fr)', md: `repeat(${columns}, 1fr)` },
+                gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: `repeat(${columns}, 1fr)` },
                 gap: 1.5,
               }}>
-                {catCards.map((card, i) => (
-                  <Box key={card.id || i} sx={{ position: 'relative', maxWidth: maxW, width: '100%' }}>
-                    {card.imageUrl ? (
-                      <img
-                        src={card.imageUrlSmall || card.imageUrl}
-                        alt={card.name}
-                        style={{ width: '100%', height: 'auto', borderRadius: 8, display: 'block' }}
-                      />
-                    ) : (
-                      <Box sx={{
-                        width: '100%', paddingTop: '140%', borderRadius: 2, bgcolor: 'grey.200',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
-                      }}>
-                        <Typography variant="caption" sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
-                          {card.name}
-                        </Typography>
+                {sec.cards.map((card, i) => {
+                  const note = notes[card.id];
+                  const num = showNumber ? cardNumberLabel(card) : '';
+                  return (
+                    <Box key={card.id || i} sx={{ maxWidth: maxW, width: '100%' }}>
+                      <Box sx={{ position: 'relative' }}>
+                        {card.imageUrl || card.imageUrlSmall ? (
+                          <img
+                            src={card.imageUrlSmall || card.imageUrl}
+                            alt={card.name}
+                            style={{ width: '100%', height: 'auto', borderRadius: 8, display: 'block' }}
+                          />
+                        ) : (
+                          <Box sx={{
+                            width: '100%', paddingTop: '140%', borderRadius: 2, bgcolor: 'grey.200',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+                          }}>
+                            <Typography variant="caption" sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
+                              {card.name}
+                            </Typography>
+                          </Box>
+                        )}
+                        {card.quantity > 1 && (
+                          <Box sx={{
+                            position: 'absolute', bottom: 6, right: 6,
+                            bgcolor: 'rgba(0,0,0,0.7)', color: 'white',
+                            borderRadius: 1, px: 0.8, py: 0.2,
+                            fontWeight: 700, fontSize: '0.85rem', lineHeight: 1.4,
+                          }}>
+                            &times;{card.quantity}
+                          </Box>
+                        )}
                       </Box>
-                    )}
-                    {card.quantity > 1 && (
-                      <Box sx={{
-                        position: 'absolute', bottom: 6, right: 6,
-                        bgcolor: 'rgba(0,0,0,0.7)', color: 'white',
-                        borderRadius: 1, px: 0.8, py: 0.2,
-                        fontWeight: 700, fontSize: '0.85rem',
-                        lineHeight: 1.4,
-                      }}>
-                        ×{card.quantity}
-                      </Box>
-                    )}
-                  </Box>
-                ))}
+                      {(num || note) && (
+                        <Box sx={{ mt: 0.5, textAlign: 'center' }}>
+                          {num && <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', color: 'text.secondary' }}>{num}</Typography>}
+                          {note && <Typography variant="caption" sx={{ display: 'block', lineHeight: 1.35 }}>{note}</Typography>}
+                        </Box>
+                      )}
+                    </Box>
+                  );
+                })}
               </Box>
             </Box>
-          ))}
+          ) : null)}
+        </Container>
+      </Box>
+    </motion.div>
+  );
+}
+
+// ─── Video Submission (User-Generated Content upload) ───
+
+const UGC_MAX_BYTES = 500 * 1024 * 1024; // 500 MB
+
+function ugcToE164(p) {
+  const raw = String(p || '').trim();
+  const d = raw.replace(/\D/g, '');
+  if (raw.startsWith('+')) return '+' + d;
+  if (d.length === 10) return '+1' + d;
+  if (d.length === 11 && d[0] === '1') return '+' + d;
+  return '+1' + d;
+}
+
+// Best-effort: grab a poster frame from the chosen video (skipped silently if the
+// browser can't decode it, e.g. some iPhone .mov). Returns base64 (no data-url prefix).
+function ugcCapturePoster(file) {
+  return new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+      video.src = url;
+      const done = (val) => { URL.revokeObjectURL(url); resolve(val); };
+      const timer = setTimeout(() => done(null), 6000);
+      video.onloadedmetadata = () => { try { video.currentTime = Math.min(1, (video.duration || 2) / 2); } catch { /* noop */ } };
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 360;
+          canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+          clearTimeout(timer);
+          done((canvas.toDataURL('image/jpeg', 0.7).split(',')[1]) || null);
+        } catch { clearTimeout(timer); done(null); }
+      };
+      video.onerror = () => { clearTimeout(timer); done(null); };
+    } catch { resolve(null); }
+  });
+}
+
+// PUT the file straight to S3 with real upload progress (fetch has no progress events).
+function ugcPutToS3(url, file, contentType, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed (${xhr.status})`)));
+    xhr.onerror = () => reject(new Error('Upload failed — check your connection'));
+    xhr.send(file);
+  });
+}
+
+function AssetUploadSection({ config }) {
+  const accent = config.accentColor || '#e91e63';
+  const [file, setFile] = useState(null);
+  const [firstName, setFirstName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [consent, setConsent] = useState(false);
+  const [step, setStep] = useState('form'); // form | code | uploading | done
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef(null);
+
+  const phoneDigits = phone.replace(/\D/g, '');
+  const phoneValid = phoneDigits.length === 10 || (phoneDigits.length === 11 && phoneDigits[0] === '1');
+  const canSend = file && firstName.trim() && phoneValid && consent && !busy;
+
+  const pickFile = (e) => {
+    setError('');
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!(f.type || '').startsWith('video/') && !/\.(mp4|mov|webm|m4v|3gp)$/i.test(f.name)) {
+      setError('Please choose a video file.'); return;
+    }
+    if (f.size > UGC_MAX_BYTES) {
+      setError('That video is larger than 500 MB. Please choose a shorter clip.'); return;
+    }
+    setFile(f);
+  };
+
+  const post = async (body) => {
+    const r = await fetch(ASSET_API_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || data.success === false) throw new Error(data.error || 'Something went wrong. Please try again.');
+    return data;
+  };
+
+  const sendCode = async () => {
+    if (!canSend) return;
+    setBusy(true); setError('');
+    try {
+      const r = await fetch(OTP_VERIFY_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sendOtp', to: ugcToE164(phone), channel: 'sms' }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || data.success === false) throw new Error(data.error || data.message || 'Could not send code');
+      setStep('code');
+    } catch (e) {
+      setError(e.message || 'Could not send the verification code.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifyAndUpload = async () => {
+    if (code.length !== 6 || busy) return;
+    setBusy(true); setError('');
+    try {
+      // 1) Server-side OTP check + find/create customer -> session token
+      const start = await post({ action: 'ugcStart', phone: ugcToE164(phone), firstName: firstName.trim(), code, consent: true });
+      // 2) Presigned upload
+      const contentType = file.type || 'video/mp4';
+      const req = await post({ action: 'ugcRequestUpload', sessionToken: start.sessionToken, filename: file.name, contentType, sizeBytes: file.size });
+      // 3) Direct-to-S3 PUT with progress
+      setStep('uploading'); setProgress(0);
+      await ugcPutToS3(req.uploadUrl, file, contentType, setProgress);
+      // 4) Poster frame (best-effort) + finalize into "User-Generated Content"
+      const thumbnailB64 = await ugcCapturePoster(file);
+      await post({ action: 'ugcFinalize', uploadToken: req.uploadToken, thumbnailB64 });
+      setStep('done');
+    } catch (e) {
+      setError(e.message || 'Submission failed. Please try again.');
+      setStep('code');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <motion.div variants={childFadeUp}>
+      <Box sx={{ py: 5, bgcolor: config.backgroundColor || '#ffffff' }}>
+        <Container maxWidth="sm">
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
+            {config.title && <Typography variant="h5" sx={{ fontWeight: 700 }}>{config.title}</Typography>}
+            {config.subtitle && <Typography variant="body1" color="text.secondary" sx={{ mt: 1 }}>{config.subtitle}</Typography>}
+          </Box>
+
+          {step === 'done' ? (
+            <Alert severity="success" sx={{ borderRadius: 2 }}>
+              {config.successMessage || 'Thanks! Your video was submitted successfully.'}
+            </Alert>
+          ) : (
+            <Box sx={{ p: { xs: 2, sm: 3 }, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+              {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+              {(step === 'form') && (
+                <Stack spacing={2}>
+                  <input ref={fileInputRef} type="file" accept="video/*" onChange={pickFile} style={{ display: 'none' }} />
+                  <Button
+                    fullWidth variant={file ? 'outlined' : 'contained'} size="large"
+                    onClick={() => fileInputRef.current?.click()}
+                    sx={file ? {} : { bgcolor: accent, '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' } }}
+                  >
+                    {file ? `✓ ${file.name.length > 28 ? file.name.slice(0, 28) + '…' : file.name}` : (config.buttonLabel || 'Choose video')}
+                  </Button>
+                  {file && (
+                    <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', mt: -1 }}>
+                      {(file.size / (1024 * 1024)).toFixed(1)} MB — tap above to change
+                    </Typography>
+                  )}
+                  <TextField label="Your name" size="small" fullWidth value={firstName} onChange={e => setFirstName(e.target.value)} />
+                  <TextField label="Mobile number" type="tel" size="small" fullWidth value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 555-5555" />
+                  <FormControlLabel
+                    control={<Checkbox checked={consent} onChange={e => setConsent(e.target.checked)} sx={{ '&.Mui-checked': { color: accent } }} />}
+                    label={<Typography variant="caption" color="text.secondary">{config.consentText || 'I grant permission to use this video.'}</Typography>}
+                    sx={{ alignItems: 'flex-start', m: 0 }}
+                  />
+                  <Button
+                    fullWidth variant="contained" size="large" disabled={!canSend}
+                    onClick={sendCode}
+                    startIcon={busy ? <CircularProgress size={16} color="inherit" /> : null}
+                    sx={{ bgcolor: accent, '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' } }}
+                  >
+                    {busy ? 'Sending…' : (config.submitLabel || 'Verify & Submit')}
+                  </Button>
+                </Stack>
+              )}
+
+              {step === 'code' && (
+                <Stack spacing={2} alignItems="center">
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                    Enter the 6-digit code we texted to {phone}.
+                  </Typography>
+                  <OtpInput onCodeChange={setCode} />
+                  <Button
+                    fullWidth variant="contained" size="large" disabled={code.length !== 6 || busy}
+                    onClick={verifyAndUpload}
+                    startIcon={busy ? <CircularProgress size={16} color="inherit" /> : null}
+                    sx={{ bgcolor: accent, '&:hover': { bgcolor: accent, filter: 'brightness(0.92)' } }}
+                  >
+                    {busy ? 'Verifying…' : 'Verify & Upload'}
+                  </Button>
+                  <Button size="small" color="inherit" onClick={() => { setStep('form'); setError(''); }}>Back</Button>
+                </Stack>
+              )}
+
+              {step === 'uploading' && (
+                <Stack spacing={2} sx={{ py: 2 }}>
+                  <Typography variant="body2" sx={{ textAlign: 'center' }}>Uploading your video… {Math.round(progress * 100)}%</Typography>
+                  <LinearProgress variant="determinate" value={Math.round(progress * 100)} sx={{ height: 8, borderRadius: 4, '& .MuiLinearProgress-bar': { bgcolor: accent } }} />
+                  <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>Keep this page open until it finishes.</Typography>
+                </Stack>
+              )}
+            </Box>
+          )}
         </Container>
       </Box>
     </motion.div>
@@ -2073,6 +2317,7 @@ function PageSection({ section, allProducts, navigate, onProductClick, localCart
     case 'event-capacity': return <EventCapacitySection config={config} navigate={navigate} />;
     case 'image-grid': return <ImageGridSection config={config} navigate={navigate} />;
     case 'deck-viewer': return <DeckViewerSection config={config} />;
+    case 'assetUpload': return <AssetUploadSection config={config} />;
     case 'page-title': return <PageTitleSection config={config} />;
     default:
       console.warn(`[CustomPage] Unknown section type: ${type}`);

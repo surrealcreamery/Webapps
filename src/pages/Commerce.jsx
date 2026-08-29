@@ -2836,6 +2836,7 @@ function CommerceInner() {
         buttons: [
             { label: 'Desserts', link: '/desserts', style: 'filled' },
             { label: 'Collectibles', link: '/collectibles', style: 'outlined' },
+            { label: 'Deck Builder', link: '/deck-builder', style: 'outlined' },
         ],
     }, [getSectionConfig]);
 

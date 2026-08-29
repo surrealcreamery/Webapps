@@ -68,18 +68,46 @@ const ConfirmSpot = () => {
     }
   }, [code, guestId, registrationId, token]);
 
+  // "Can't make it?" — release the seat (public cancelEventSpot; validated by code/token).
+  const cancel = useCallback(async () => {
+    setPhase('loading');
+    try {
+      const body = code
+        ? { action: 'cancelEventSpot', code }
+        : { action: 'cancelEventSpot', guestId, registrationId, token };
+      const res = await fetch(EVENTS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.spotStatus === 'released' || data.status === 'ok') {
+        setPhase('cancelled');
+        setMessage('Your spot has been cancelled — thanks for letting us know.');
+      } else {
+        setPhase('error');
+        setMessage(data.message || data.error || 'We could not cancel your spot. Please try again.');
+      }
+    } catch (err) {
+      setPhase('error');
+      setMessage('Something went wrong reaching our server. Please try again in a moment.');
+    }
+  }, [code, guestId, registrationId, token]);
+
   useEffect(() => {
     confirm();
   }, [confirm]);
 
   const severity = phase === 'confirmed' ? 'success'
     : phase === 'waitlisted' ? 'info'
+    : phase === 'cancelled' ? 'info'
     : phase === 'not_open' ? 'warning'
     : phase === 'closed' ? 'warning'
     : 'error';
 
   const heading = phase === 'confirmed' ? "You're all set! 🎉"
     : phase === 'waitlisted' ? "You're on the waitlist"
+    : phase === 'cancelled' ? 'Spot cancelled'
     : phase === 'not_open' ? 'Almost there'
     : phase === 'closed' ? 'Window closed'
     : 'Confirm your spot';
@@ -101,7 +129,12 @@ const ConfirmSpot = () => {
               {(phase === 'error' || phase === 'not_open') && (
                 <Button variant="contained" onClick={confirm} sx={{ mr: 1 }}>Try again</Button>
               )}
-              <Button variant={phase === 'confirmed' || phase === 'waitlisted' ? 'contained' : 'text'} onClick={() => navigate('/account')}>
+              {phase === 'confirmed' && (
+                <Button variant="outlined" color="error" onClick={cancel} sx={{ mr: 1, mb: { xs: 1, sm: 0 } }}>
+                  Can&apos;t make it? Cancel
+                </Button>
+              )}
+              <Button variant={phase === 'confirmed' || phase === 'waitlisted' || phase === 'cancelled' ? 'contained' : 'text'} onClick={() => navigate('/account')}>
                 View my events
               </Button>
             </>

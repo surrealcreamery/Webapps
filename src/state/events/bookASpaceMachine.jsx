@@ -1,9 +1,12 @@
 import { setup, assign, fromPromise } from 'xstate';
-import { addDays, subDays, startOfToday, isBefore, format } from 'date-fns';
+import { addDays, subDays, isBefore, parse, format } from 'date-fns';
 import { fetchInitialData } from '@/state/events/eventService';
 import { EVENTS_API_URL } from '@/constants/events/eventsConstants';
+import { storeToday } from '@/utils/storeDate';
 
-const tomorrowStr = () => format(addDays(new Date(), 1), 'yyyy-MM-dd');
+// Store-local (Eastern) calendar day, so defaults/guards match the store — not the visitor's timezone.
+const storeTodayDate = () => parse(storeToday(), 'yyyy-MM-dd', new Date());
+const tomorrowStr = () => format(addDays(storeTodayDate(), 1), 'yyyy-MM-dd');
 const emptyForm = () => ({ firstName: '', lastName: '', email: '', phone: '', organizationName: '', description: '' });
 
 const postEvents = async (body) => {
@@ -16,9 +19,11 @@ const postEvents = async (body) => {
   return { ok: r.ok, data };
 };
 
-// Flow: loading → eventType? → location? → schedule → checkingAvailability → partySize → review → contact → submitting → submitted
-// Date/time is chosen first; availability is fetched, then the guest count is capped to what the free tables can seat.
-// (eventType / location steps are skipped when there are no event types / a single location.)
+// Flow: loading → eventType? → location? → schedule → partySize → review → contact → submitting → submitted
+// The requester picks a DATE + START TIME only (no end time). Submitting creates a plain, un-held
+// space request — nothing is blocked out yet. Staff set the actual duration when they approve it,
+// which is what reserves tables / blocks the time. (eventType / location steps are skipped when
+// there are no event types / a single location.)
 export const bookASpaceMachine = setup({
   actors: {
     // Load locations + events (static file) and the space-request config (event types) together.
@@ -38,38 +43,32 @@ export const bookASpaceMachine = setup({
       return { locations: bookable, events: events || [], eventTypes };
     }),
 
-    // Live table availability for the chosen location/date/time/party (Phase-2 engine).
-    checkAvailability: fromPromise(async ({ input: { context } }) => {
-      const { ok, data } = await postEvents({
-        action: 'getTableAvailability',
-        locationId: context.selectedLocationId,
-        date: context.selectedDate,
-        startTime: context.startTime,
-        endTime: context.endTime,
-        partySize: context.partySize,
-      });
-      if (!ok) throw new Error(data.error || 'Could not check availability');
-      return data; // { configured, freeTables, freeSeats, allocation, tournamentDemand }
-    }),
-
-    // Submit: real table reservation when the location has tables, else a plain space request.
+    // Submit: always a plain space request. No table hold is placed at request time — staff set the
+    // duration and reserve tables on approval.
     submitBooking: fromPromise(async ({ input: { context } }) => {
       const selectedLocation = context.locations.find(l => l.id === context.selectedLocationId);
-      // Location has bookable tables → reserve specific ones (server re-allocates with party size);
-      // otherwise fall back to a plain space request.
-      const hasTables = !!context.availability?.configured;
+      // Snapshot the selected event type's configured custom fields as [{ label, value }].
+      const typeObj = context.eventTypes.find(t => t.name === context.selectedEventType);
+      const customFields = (typeObj?.fields || []).map(f => ({
+        label: f.label,
+        value: context.formData[f.id] ?? (f.type === 'checkbox' ? false : ''),
+      }));
       const { ok, data } = await postEvents({
-        action: hasTables ? 'createSpaceBooking' : 'createSpaceRequest',
+        action: 'createSpaceRequest',
         eventType: context.selectedEventType,
         locationId: context.selectedLocationId,
         locationName: selectedLocation?.['Location Name'] || '',
         requestedDate: context.selectedDate,
         startTime: context.startTime,
-        endTime: context.endTime,
         partySize: context.partySize || null,
-        ...context.formData,
+        firstName: context.formData.firstName,
+        lastName: context.formData.lastName,
+        email: context.formData.email,
+        phone: context.formData.phone,
+        organizationName: context.formData.organizationName,
+        description: context.formData.description,
+        customFields,
       });
-      // createSpaceBooking → { status: 'ok' | 'error', message }; createSpaceRequest → { success, request }
       if (!ok || data.status === 'error') throw new Error(data.message || data.error || 'Failed to submit request');
       return data;
     }),
@@ -80,6 +79,7 @@ export const bookASpaceMachine = setup({
     hasMultipleLocations: ({ context }) => context.locations.length > 1,
     loadedHasEventTypes: ({ event }) => (event.output?.eventTypes?.length || 0) > 0,
     loadedHasMultipleLocations: ({ event }) => (event.output?.locations?.length || 0) > 1,
+    hasStart: ({ context }) => !!context.startTime,
     // Party size is set and valid (>= 1).
     hasPartySize: ({ context }) => Number(context.partySize) >= 1,
   },
@@ -95,36 +95,28 @@ export const bookASpaceMachine = setup({
     setLocation: assign({
       selectedLocationId: ({ event }) => event.id,
       startTime: ({ context, event }) => (context.selectedLocationId === event.id ? context.startTime : ''),
-      endTime: ({ context, event }) => (context.selectedLocationId === event.id ? context.endTime : ''),
-      availability: ({ context, event }) => (context.selectedLocationId === event.id ? context.availability : null),
     }),
-    // Party size is chosen AFTER availability is known — do NOT clear availability here.
     setPartySize: assign({ partySize: ({ event }) => event.value }),
-    setDate: assign({ selectedDate: ({ event }) => event.date, startTime: '', endTime: '', availability: null }),
+    setDate: assign({ selectedDate: ({ event }) => event.date, startTime: '' }),
     changeDate: assign(({ context, event }) => {
       const [y, m, d] = context.selectedDate.split('-').map(Number);
       const cur = new Date(y, m - 1, d);
       const next = event.dir === 'prev' ? subDays(cur, 1) : addDays(cur, 1);
-      if (event.dir === 'prev' && isBefore(next, addDays(startOfToday(), 1))) return {}; // can't go before tomorrow
-      return { selectedDate: format(next, 'yyyy-MM-dd'), startTime: '', endTime: '', availability: null };
+      if (event.dir === 'prev' && isBefore(next, addDays(storeTodayDate(), 1))) return {}; // can't go before tomorrow (store time)
+      return { selectedDate: format(next, 'yyyy-MM-dd'), startTime: '' };
     }),
-    setStart: assign({ startTime: ({ event }) => `${String(event.hour).padStart(2, '0')}:00`, endTime: '', availability: null }),
-    setEnd: assign({ endTime: ({ event }) => event.time, availability: null }),
-    assignAvailability: assign({ availability: ({ event }) => event.output }),
+    setStart: assign({ startTime: ({ event }) => `${String(event.hour).padStart(2, '0')}:00` }),
     setField: assign({ formData: ({ context, event }) => ({ ...context.formData, [event.field]: event.value }) }),
     setError: assign({ error: ({ event }) => event.error?.message || 'Failed to submit request' }),
-    setAvailabilityError: assign({ error: ({ event }) => event.error?.message || 'Could not check availability' }),
     clearError: assign({ error: '' }),
-    resetSchedule: assign({ startTime: '', endTime: '', selectedDate: tomorrowStr, availability: null }),
+    resetSchedule: assign({ startTime: '', selectedDate: tomorrowStr }),
     clearLocation: assign({ selectedLocationId: ({ context }) => (context.locations.length === 1 ? context.locations[0].id : '') }),
     clearEventType: assign({ selectedEventType: '' }),
     resetAll: assign({
       selectedEventType: '',
       selectedDate: tomorrowStr,
       startTime: '',
-      endTime: '',
       partySize: '',
-      availability: null,
       error: '',
       selectedLocationId: ({ context }) => (context.locations.length === 1 ? context.locations[0].id : ''),
       formData: emptyForm,
@@ -139,10 +131,8 @@ export const bookASpaceMachine = setup({
     selectedLocationId: '',
     selectedDate: tomorrowStr(),
     startTime: '',
-    endTime: '',
     selectedEventType: '',
     partySize: '',
-    availability: null,
     formData: emptyForm(),
     error: '',
   }),
@@ -184,22 +174,11 @@ export const bookASpaceMachine = setup({
         SELECT_DATE: { actions: 'setDate' },
         CHANGE_DATE: { actions: 'changeDate' },
         SELECT_START: { actions: 'setStart' },
-        SELECT_END: { actions: 'setEnd' },
-        CONTINUE: { target: 'checkingAvailability' },
+        CONTINUE: { guard: 'hasStart', target: 'partySize' },
         BACK: [
           { guard: 'hasMultipleLocations', target: 'location' },
           { guard: 'hasEventTypes', target: 'eventType' },
         ],
-      },
-    },
-
-    checkingAvailability: {
-      entry: 'clearError',
-      invoke: {
-        src: 'checkAvailability',
-        input: ({ context }) => ({ context }),
-        onDone: { actions: 'assignAvailability', target: 'partySize' },
-        onError: { actions: 'setAvailabilityError', target: 'schedule' },
       },
     },
 

@@ -18,7 +18,14 @@ export const UPDATE_PAYEE_URL                                  = EVENTS_API_URL;
 export const OTP_VERIFY_URL                                    = TWILIO_API_URL;  // action: sendOtp / verifyOtp
 export const AUTHENTICATE_GUEST_URL                            = TWILIO_API_URL;  // action: sendOtp / verifyOtp
 
+// Deck builder — card search (public, read-only) + deck save (consumer OTP session)
+export const JUDGE_API_URL = 'https://k5fmdvyoch4xhvgkyctrt7alzy0fzpfs.lambda-url.us-east-1.on.aws'; // action: browseCards / resolveDeckCards
+export const DECK_API_URL  = 'https://7v5tkrjm5liwpiu4bpqluyzzza0mdupf.lambda-url.us-east-1.on.aws'; // action: saveConsumerDeck / getConsumerDecks / submitDeckForProxies / getPublicDeck
+
 // Consumer account APIs (orders + loyalty + subscriptions, authenticated via OTP session token)
 export const CONSUMER_ORDERS_URL = 'https://qeg2uc6ykdeexcnc64nn66ph7m0hrtep.lambda-url.us-east-1.on.aws';
 export const LOYALTY_API_URL     = import.meta.env.VITE_LOYALTY_API_URL || '';
 export const SUBSCRIPTION_API_URL = 'https://cnnpmufvrvqh2ixhhzmlc53iky0ztboz.lambda-url.us-east-1.on.aws';
+
+// Assets API — consumer UGC video submissions (actions: ugcStart / ugcRequestUpload / ugcFinalize)
+export const ASSET_API_URL = 'https://fpwuifqn5ofninmg3aiqh65sh40girhc.lambda-url.us-east-1.on.aws';

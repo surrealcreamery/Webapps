@@ -1,23 +1,29 @@
-import React, { useState, useRef, useContext, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useContext, useEffect, useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { Box, Typography, Button, CircularProgress, Alert, Divider, Stack, Container, Breadcrumbs, Link as MuiLink } from '@mui/material';
-import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
-import CreditCardIcon from '@mui/icons-material/CreditCard';
-import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
-import HourglassBottomIcon from '@mui/icons-material/HourglassBottom';
-import VerifiedIcon from '@mui/icons-material/Verified';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import { storeToday, isPreviewMode } from '@/utils/storeDate';
+import { Box, Typography, Button, CircularProgress, Alert, Divider, Stack, Container, Breadcrumbs } from '@mui/material';
+import SmsRoundedIcon from '@mui/icons-material/SmsRounded';
+import MailRoundedIcon from '@mui/icons-material/MailRounded';
+import CreditCardRoundedIcon from '@mui/icons-material/CreditCardRounded';
+import RedeemRoundedIcon from '@mui/icons-material/RedeemRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+import HourglassBottomRoundedIcon from '@mui/icons-material/HourglassBottomRounded';
+import HowToRegRoundedIcon from '@mui/icons-material/HowToRegRounded';
+
 import { format, parse } from 'date-fns';
 import { LayoutContext } from '@/contexts/events/EventsLayoutContext';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
-import { stateToPath, parseEventUrl, isAutoTransitionState } from '@/utils/eventUrlSync';
+import { stateToPath, parseEventUrl, isAutoTransitionState, resolveEventsPath } from '@/utils/eventUrlSync';
 
-// Import all the separated components
-import { DirectorySection } from '@/components/events/DirectorySection';
+const parseEventsUrl = (pathname) => parseEventUrl(pathname);
+
+// Import components — FlatDirectorySection replaces DirectorySection
+import { FlatDirectorySection } from '@/components/events/FlatDirectorySection';
 import { HeroSection } from '@/components/events/HeroSection';
 import { DatePickerSection } from '@/components/events/DatePickerSection';
 import { TimePickerSection } from '@/components/events/TimePickerSection';
 import { ContactFormSection } from '@/components/events/ContactFormSection';
+import { PlayerNameSection } from '@/components/events/PlayerNameSection';
 import { LoginFlow } from '@/components/events/LoginFlow';
 import { GuestOtpChoiceSection } from '@/components/events/GuestOtpChoiceSection';
 import { GuestOtpInputSection } from '@/components/events/GuestOtpInputSection';
@@ -30,208 +36,126 @@ import { ConfirmProfileUpdate } from '@/components/events/ConfirmProfileUpdate';
 import { DuplicateErrorSection } from '@/components/events/DuplicateErrorSection';
 import { PaymentStepSection } from '@/components/events/PaymentStepSection';
 
-// ✅ 1. Import your new data-fetching function
 import { fetchInitialData } from '@/state/events/eventService';
-import { trackEventViewed } from '@/services/analytics';
+import { trackEventViewed, trackSpaPageView } from '@/services/analytics';
 
-// ─── Processing Overlay (matches CheckoutPage pattern) ───
-const REGISTRATION_STAGES = [
-  { text: 'Verifying Your Information...', icon: AssignmentIndIcon },
-  { text: 'Processing Payment...', icon: CreditCardIcon },
-  { text: 'Confirming Registration...', icon: ReceiptLongIcon },
-  { text: 'Almost Done...', icon: HourglassBottomIcon },
-  { text: 'Finalizing Registration...', icon: VerifiedIcon },
-  { text: 'Registration Successful!', icon: CheckCircleIcon },
-];
+const VerifyingLoader = () => (
+    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '50vh', textAlign: 'center', p: 3 }} role="status" aria-live="polite" aria-busy="true">
+        <CircularProgress aria-label="Loading" />
+        <Typography variant="h5" sx={{ mt: 3 }}>
+            Verifying your information...
+        </Typography>
+        <Typography color="text.secondary" sx={{ mt: 1 }}>
+            Please wait a moment.
+        </Typography>
+    </Box>
+);
 
-const overlayFadeKeyframes = {
-  '@keyframes overlayFadeIn': {
-    from: { opacity: 0, transform: 'translateY(8px)' },
-    to: { opacity: 1, transform: 'translateY(0)' },
-  },
-  '@keyframes overlayFadeOut': {
-    from: { opacity: 1, transform: 'translateY(0)' },
-    to: { opacity: 0, transform: 'translateY(-8px)' },
-  },
+// Web-checkout-style rotating processing interstitial (mirrors CheckoutPage's ProcessingOverlay).
+// Advances through `stages` every 2.5s and holds on the last until the machine transitions away.
+const ProcessingInterstitial = ({ stages }) => {
+    const [i, setI] = useState(0);
+    const [fading, setFading] = useState(false);
+    useEffect(() => {
+        if (i >= stages.length - 1) return;
+        const t = setInterval(() => {
+            setFading(true);
+            setTimeout(() => { setI(p => Math.min(p + 1, stages.length - 1)); setFading(false); }, 300);
+        }, 2500);
+        return () => clearInterval(t);
+    }, [i, stages.length]);
+    const stage = stages[Math.min(i, stages.length - 1)];
+    const Icon = stage.icon;
+    return (
+        <Container maxWidth="sm" sx={{ py: { xs: 8, sm: 12 } }}>
+            <Box role="status" aria-live="polite" aria-busy="true" sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 3 }}>
+                <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                    <CircularProgress size={84} thickness={2} aria-label="Processing" />
+                    <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'opacity 0.3s ease', opacity: fading ? 0 : 1 }}>
+                        <Icon color="primary" sx={{ fontSize: 38 }} />
+                    </Box>
+                </Box>
+                <Typography variant="h5" component="h2" fontWeight={700} sx={{ transition: 'opacity 0.3s ease', opacity: fading ? 0 : 1 }}>
+                    {stage.text}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">Please don't close or refresh this window.</Typography>
+            </Box>
+        </Container>
+    );
 };
 
-function ProcessingOverlay({ success, onComplete }) {
-  const [stageIndex, setStageIndex] = useState(0);
-  const [fading, setFading] = useState(false);
-  const timerRef = useRef(null);
-  const successShownRef = useRef(false);
-  const statusRef = useRef(null);
-
-  useEffect(() => {
-    setTimeout(() => statusRef.current?.focus(), 100);
-  }, []);
-
-  // Auto-advance stages 0-4 every 2.5s
-  useEffect(() => {
-    if (stageIndex >= 4) return;
-    timerRef.current = setInterval(() => {
-      setFading(true);
-      setTimeout(() => {
-        setStageIndex(prev => (prev >= 4 ? prev : prev + 1));
-        setFading(false);
-      }, 300);
-    }, 2500);
-    return () => clearInterval(timerRef.current);
-  }, [stageIndex]);
-
-  // Show success stage when registration completes
-  useEffect(() => {
-    if (success && !successShownRef.current) {
-      successShownRef.current = true;
-      setFading(true);
-      setTimeout(() => {
-        setStageIndex(5);
-        setFading(false);
-      }, 300);
-      setTimeout(() => {
-        onComplete();
-      }, 2100);
-    }
-  }, [success, onComplete]);
-
-  const stage = REGISTRATION_STAGES[stageIndex];
-  const StageIcon = stage.icon;
-  const isSuccess = stageIndex === 5;
-
-  return (
-    <Box
-      role="dialog"
-      aria-modal="true"
-      aria-label="Processing your registration"
-      sx={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(255,255,255,0.92)',
-        backdropFilter: 'blur(8px)',
-        ...overlayFadeKeyframes,
-      }}
-    >
-      <Box
-        sx={{
-          backgroundColor: '#fff',
-          borderRadius: '16px',
-          width: 400,
-          maxWidth: '90vw',
-          py: 6,
-          px: 4,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 3,
-        }}
-      >
-        <Box
-          key={stageIndex}
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 2.5,
-            animation: fading
-              ? 'overlayFadeOut 0.3s ease forwards'
-              : 'overlayFadeIn 0.4s ease forwards',
-          }}
-        >
-          <StageIcon
-            sx={{
-              fontSize: 80,
-              color: isSuccess ? '#2e7d32' : '#222',
-              transition: 'color 0.3s ease',
-            }}
-          />
-          <Typography
-            variant="h5"
-            ref={statusRef}
-            tabIndex={-1}
-            aria-live="assertive"
-            aria-atomic="true"
-            sx={{
-              color: '#222',
-              fontFamily: 'Outfit, sans-serif',
-              fontWeight: 600,
-              textAlign: 'center',
-              outline: 'none',
-            }}
-          >
-            {stage.text}
-          </Typography>
-        </Box>
-        {!isSuccess && (
-          <CircularProgress
-            size={28}
-            thickness={4}
-            sx={{ color: 'rgba(0,0,0,0.3)', mt: 1 }}
-            aria-label="Processing registration"
-          />
-        )}
-      </Box>
-    </Box>
-  );
-}
-
-export default function Home() {
-    // ========================================
-    // ALL HOOKS MUST BE AT THE TOP - React Rules of Hooks
-    // ========================================
+export default function EventsHome() {
     const { fundraiserState, sendToFundraiser, logout } = useContext(LayoutContext);
     const navigate = useNavigate();
     const location = useLocation();
     const locationListRef = useRef(null);
-    const [view, setView] = useState('All');
     const [regCount, setRegCount] = useState(null);
     const [directoryCounts, setDirectoryCounts] = useState({});
-    const [showOverlay, setShowOverlay] = useState(false);
 
-    // ✅ Data fetching effect
-    // If machine already has events (e.g. navigating from a custom page), data is already fresh
+    // Series directory state — persisted in URL so it survives refresh
+    const [selectedSeriesSlug, setSelectedSeriesSlugState] = useState(null);
+    // Location scope: when set, the directory + series detail are scoped to one location
+    // (/events/<loc> and /events/<slug>/<loc>). Register then targets that location's stop.
+    const [scopeLocationId, setScopeLocationId] = useState(null);
+    const scopeLocationIdRef = useRef(null);
+    scopeLocationIdRef.current = scopeLocationId;
+    const selectedSeriesSlugRef = useRef(null);
+    selectedSeriesSlugRef.current = selectedSeriesSlug;
+    const selectedSeriesId = selectedSeriesSlug; // slug used as the identifier
+    // Build the URL for the current series/location scope.
+    const scopedUrl = (slug, loc) => {
+        if (slug && loc) return `/events/${slug}/${loc}`;
+        if (slug) return `/events/${slug}`;
+        if (loc) return `/events/${loc}`;
+        return '/events';
+    };
+    const setSelectedSeriesId = (slugOrId) => {
+        setSelectedSeriesSlugState(slugOrId || null);
+        window.history.replaceState(null, '', scopedUrl(slugOrId || null, scopeLocationIdRef.current));
+    };
+    // Pending card selection — used to dispatch SELECT_STOP after CHOOSE_EVENT transitions
+    const pendingStopRef = useRef(null);
+    // Where registration was launched from (location directory, scoped detail, or normal series
+    // detail). Back from the wizard returns exactly here, preserving any location scope.
+    const registerOriginRef = useRef(null);
+
+    // Known series slugs + location ids, used to disambiguate /events/<x> URLs (see resolveEventsPath).
+    const knownSlugs = useMemo(
+        () => [...new Set((fundraiserState?.context?.fundraiserEvents || []).map(e => e.seriesSlug).filter(Boolean))],
+        [fundraiserState?.context?.fundraiserEvents]
+    );
+    const knownLocationIds = useMemo(
+        () => [...new Set((fundraiserState?.context?.locations || []).map(l => l.id).filter(Boolean))],
+        [fundraiserState?.context?.locations]
+    );
+
+    // Data fetching
     const dataFreshRef = React.useRef(fundraiserState?.context?.fundraiserEvents?.length > 0);
     useEffect(() => {
-        // Don't run if the machine/send function isn't ready
         if (!sendToFundraiser) return;
-
         const loadData = async () => {
             try {
-                console.log("=== FETCHING DATA ===");
-                console.log("Current state before fetch:", JSON.stringify(fundraiserState?.value));
                 const { events, locations } = await fetchInitialData();
-
-                console.log("Data fetched - events count:", events?.length);
-
-                // Send the fresh data to the machine
                 sendToFundraiser({ type: 'DATA.LOADED', events, locations });
                 dataFreshRef.current = true;
-
             } catch (error) {
                 console.error("Failed to load initial data:", error);
-                // Only send failure if we're still in the 'booting' state
                 if (fundraiserState?.matches('booting')) {
                     sendToFundraiser({ type: 'DATA.FAILED', data: error });
                 }
-                dataFreshRef.current = true; // Allow deep-link to proceed even on error
+                dataFreshRef.current = true;
             }
         };
-
         loadData();
-    }, [sendToFundraiser]); // Runs once when sendToFundraiser is available
+    }, [sendToFundraiser]);
 
-    // --- URL → State sync (inbound, on mount / URL change) ---
+    // --- URL → State sync (inbound) ---
     const { eventId: urlEventId, step: urlStep } = useParams();
     const deepLinkHandledRef = React.useRef(false);
     const lastHandledUrlRef = React.useRef(null);
     const skipUrlSyncRef = React.useRef(false);
-    const autoRegisterRef = React.useRef(false);
     const initialStopIndexRef = React.useRef(location.state?.stopIndex);
 
-    // Reset deep-link flag when URL changes (e.g. navigating from a custom page)
     useEffect(() => {
         const currentUrl = `${urlEventId || ''}/${urlStep || ''}`;
         if (lastHandledUrlRef.current && lastHandledUrlRef.current !== currentUrl) {
@@ -249,19 +173,34 @@ export default function Home() {
             lastHandledUrlRef.current = currentUrl;
         };
 
-        // Read URL directly — React Router's location may not reflect pushState changes
         const pathname = window.location.pathname;
-        const isBookSpace = pathname.startsWith('/book-space');
-        const parsed = parseEventUrl(pathname);
+        const parsed = parseEventsUrl(pathname);
 
-        // /book-space → find the space-rental event and redirect
-        if (isBookSpace) {
-            if (!dataFreshRef.current) return; // wait for data
-            const events = fundraiserState.context?.fundraiserEvents || [];
-            const spaceRentalEvent = events.find(e => (e.type || '').toLowerCase() === 'space rental');
-            if (spaceRentalEvent) {
+        // /events/<location> | /events/<series> | /events/<series>/<location> — resolve against the
+        // real known series slugs + location ids (URL structure alone is ambiguous, see resolveEventsPath).
+        if (parsed.isSeries) {
+            // Wait until locations have loaded before resolving. Otherwise a single-segment
+            // path like /events/forest-hills can't be recognized as a location, falls back to a
+            // series/event view, and gets locked in (markHandled) — showing the wrong page and
+            // leaving stale state that also breaks the back button. Returning without marking it
+            // handled lets this effect re-run (fundraiserState dep) once locations arrive.
+            if (knownLocationIds.length === 0) return;
+            const res = resolveEventsPath(pathname, { seriesSlugs: knownSlugs, locationIds: knownLocationIds });
+            if (!fundraiserState.matches('directory') && !fundraiserState.matches('booting')) {
+                // The URL points at the directory but the machine holds stale wizard state.
+                // Suppress the outbound state→URL sync for the reset transition so it can't
+                // clobber this directory URL back to /events/<eventId>/... before RESET lands.
+                skipUrlSyncRef.current = true;
+                sendToFundraiser({ type: 'RESET' });
+                return;
+            }
+            if (fundraiserState.matches('directory')) {
                 markHandled();
-                navigate(`/events/${spaceRentalEvent.id}/register`, { replace: true });
+                // Keep the URL — the state→URL sync would otherwise rewrite it to /events (stateToPath
+                // ignores the selected series/location), desyncing the URL and hiding the header back button.
+                skipUrlSyncRef.current = true;
+                setScopeLocationId(res.locationId || null);
+                setSelectedSeriesSlugState(res.seriesSlug || null);
             }
             return;
         }
@@ -269,16 +208,22 @@ export default function Home() {
         // /events with no params → ensure directory state
         if (!parsed.eventId && !parsed.isLogin && !parsed.isDashboard) {
             if (!fundraiserState.matches('directory') && !fundraiserState.matches('booting')) {
+                // Suppress the outbound state→URL sync for this reset. On a fresh load the
+                // machine rehydrates into its persisted wizard step; the mount-time outbound
+                // sync would otherwise push that step's URL (e.g. /events/<id>/contact) over
+                // the bare /events directory URL before RESET lands. That pushed URL then gets
+                // re-read by this effect as an event deep-link and rebuilds the wizard, landing
+                // on /schedule. Skipping the sync keeps the URL at /events so RESET wins.
+                skipUrlSyncRef.current = true;
                 sendToFundraiser({ type: 'RESET' });
             }
-            // Mark handled once machine is in directory (initial mount complete)
             if (fundraiserState.matches('directory')) {
                 markHandled();
             }
             return;
         }
 
-        // /events/login → start login flow
+        // /events/login
         if (parsed.isLogin) {
             markHandled();
             if (!fundraiserState.matches('loginFlow')) {
@@ -287,51 +232,65 @@ export default function Home() {
             return;
         }
 
-        // /events/dashboard → handled by existing auth logic in LayoutContext
         if (parsed.isDashboard) {
             markHandled();
             return;
         }
 
-        // /events/:eventId[/:step] → select event and navigate to step
+        // /events/:eventId[/:step]
         if (parsed.eventId) {
-            if (!dataFreshRef.current) return; // wait for fresh data
+            if (!dataFreshRef.current) return;
 
-            // Reset machine if it's not in directory/booting to prepare for deep-link
-            if (!fundraiserState.matches('directory') && !fundraiserState.matches('booting')) {
-                sendToFundraiser({ type: 'RESET' });
-                return; // Will re-enter on next state change
+            // The machine persists its full wizard snapshot (value + context) to
+            // localStorage and rehydrates it on page load (see EventsLayoutContext).
+            // If it already came back in the wizard for THIS event, the user's
+            // stop/date/time/contact progress is intact — keep it instead of
+            // RESET+rebuild, which restarts the wizard at its first step (/schedule)
+            // and loses that progress. The outbound state→URL sync will align the URL
+            // to the true restored step. (A deep-link for a *different* event, or from
+            // a non-wizard state, still falls through to RESET below.)
+            if (fundraiserState.matches('wizardFlow') &&
+                fundraiserState.context.selectedEventId === parsed.eventId) {
+                markHandled();
+                return;
             }
 
+            if (!fundraiserState.matches('directory') && !fundraiserState.matches('booting')) {
+                sendToFundraiser({ type: 'RESET' });
+                return;
+            }
             if (fundraiserState.matches('directory')) {
                 markHandled();
                 const register = parsed.step === 'register' || parsed.step === 'location' || parsed.step === 'schedule'
                     || parsed.step === 'date' || parsed.step === 'time' || parsed.step === 'contact'
                     || parsed.step === 'payment' || parsed.step === 'verify';
-                autoRegisterRef.current = register;
                 const stopIndex = initialStopIndexRef.current;
                 initialStopIndexRef.current = undefined;
-                sendToFundraiser({ type: 'CHOOSE_FUNDRAISER', eventId: parsed.eventId, register, stopIndex });
+                sendToFundraiser({ type: 'CHOOSE_EVENT', eventId: parsed.eventId, register, stopIndex });
                 skipUrlSyncRef.current = true;
             }
         }
     }, [fundraiserState, sendToFundraiser, urlEventId, urlStep]);
 
-    // Skip event landing and go straight to registration when register=true
+    // Note: the auto-register/deep-link skip past the event landing is handled entirely by the
+    // machine's `eventLanding.always` guard (context.autoRegister / deepLinkStopIndex). We used to
+    // also nudge PROCEED_TO_SCHEDULING here via a ref, but that re-fired on BACK → eventLanding and
+    // trapped the user on the stop picker, so it was removed.
+
+    // Handle pending stop selection after CHOOSE_EVENT transitions to eventLanding
     useEffect(() => {
-        if (autoRegisterRef.current && fundraiserState?.matches({ wizardFlow: 'eventLanding' })) {
-            autoRegisterRef.current = false;
-            sendToFundraiser({ type: 'PROCEED_TO_SCHEDULING' });
+        if (pendingStopRef.current && fundraiserState?.matches({ wizardFlow: 'eventLanding' })) {
+            const stop = pendingStopRef.current;
+            pendingStopRef.current = null;
+            sendToFundraiser({ type: 'SELECT_STOP', stop });
         }
     }, [fundraiserState, sendToFundraiser]);
 
-    // (State → URL sync is handled in the scroll-to-top effect below)
-
-    // --- Browser back/forward (popstate) handler ---
+    // --- Browser back/forward ---
     useEffect(() => {
         const handler = () => {
             skipUrlSyncRef.current = true;
-            const parsed = parseEventUrl(window.location.pathname);
+            const parsed = parseEventsUrl(window.location.pathname);
 
             if (parsed.isLogin) {
                 if (!fundraiserState.matches('loginFlow')) {
@@ -339,23 +298,35 @@ export default function Home() {
                 }
                 return;
             }
-
-            if (parsed.isDashboard) {
-                // Stay on dashboard — no action needed
-                return;
-            }
-
-            if (!parsed.eventId) {
-                // Back to /events → reset to directory
+            if (parsed.isDashboard) return;
+            if (parsed.isSeries) {
+                const res = resolveEventsPath(window.location.pathname, { seriesSlugs: knownSlugs, locationIds: knownLocationIds });
+                setScopeLocationId(res.locationId || null);
+                setSelectedSeriesSlugState(res.seriesSlug || null);
                 sendToFundraiser({ type: 'RESET' });
                 return;
             }
-
+            if (!parsed.eventId) {
+                setScopeLocationId(null);
+                setSelectedSeriesSlugState(null);
+                sendToFundraiser({ type: 'RESET' });
+                return;
+            }
             if (parsed.eventId !== fundraiserState.context.selectedEventId) {
-                // Different event → choose it
-                sendToFundraiser({ type: 'CHOOSE_FUNDRAISER', eventId: parsed.eventId });
+                sendToFundraiser({ type: 'CHOOSE_EVENT', eventId: parsed.eventId });
+            } else if (fundraiserState.context.fromSeriesId) {
+                // Came from a series stop — return to wherever registration was launched from
+                // (location directory, scoped detail, or normal series detail), re-resolving scope.
+                const slug = fundraiserState.context.fromSeriesSlug || fundraiserState.context.fromSeriesId;
+                skipUrlSyncRef.current = true;
+                sendToFundraiser({ type: 'RESET' });
+                const origin = registerOriginRef.current || `/events/${slug}`;
+                registerOriginRef.current = null;
+                const res = resolveEventsPath(origin, { seriesSlugs: knownSlugs, locationIds: knownLocationIds });
+                setScopeLocationId(res.locationId || null);
+                setSelectedSeriesSlugState(res.seriesSlug || null);
+                window.history.replaceState(null, '', origin);
             } else {
-                // Same event, different step → use BACK
                 sendToFundraiser({ type: 'BACK' });
             }
         };
@@ -363,15 +334,20 @@ export default function Home() {
         return () => window.removeEventListener('popstate', handler);
     }, [sendToFundraiser, fundraiserState]);
 
-
-    // This effect runs when the user navigates to a new "page" (state node).
-    // Also syncs state → URL using window.history (not navigate) to avoid remounting.
+    // State → URL sync + scroll to top
     useEffect(() => {
         window.scrollTo(0, 0);
-
-        // --- State → URL sync ---
         if (!fundraiserState?.context) return;
         if (skipUrlSyncRef.current) { skipUrlSyncRef.current = false; return; }
+
+        // URL is the source of truth for the directory: if we're in the directory and the current
+        // URL is already a directory-family path (/events, /events/<location>, /events/<series>,
+        // /events/<series>/<location>), leave it — don't let stateToPath('/events') clobber a
+        // location/series URL. (Checks the actual URL, so it doesn't race the scope refs.)
+        if (fundraiserState.matches('directory')) {
+            const cur = resolveEventsPath(window.location.pathname, { seriesSlugs: knownSlugs, locationIds: knownLocationIds });
+            if (['directory', 'location', 'series', 'seriesLocation'].includes(cur.kind)) return;
+        }
 
         const newPath = stateToPath(fundraiserState, fundraiserState.context);
         if (!newPath) return;
@@ -379,62 +355,117 @@ export default function Home() {
         const currentBase = window.location.pathname.replace(/\/$/, '');
         if (currentBase === newPath) return;
 
-        if (isAutoTransitionState(fundraiserState)) {
+        if (isAutoTransitionState(fundraiserState) || fundraiserState.context.fromSeriesId) {
             window.history.replaceState(null, '', newPath);
         } else {
             window.history.pushState(null, '', newPath);
         }
+        // These wizard-step navigations use bare pushState/replaceState (no 'events:nav'), so fire the
+        // PageView explicitly. Deduped by path in trackSpaPageView.
+        trackSpaPageView(newPath);
     }, [JSON.stringify(fundraiserState?.value), fundraiserState?.context?.selectedEventId]);
 
-    // Handle stale selectedEventId - if event no longer exists, reset to directory
-    // Only fires after fresh data has loaded to avoid race condition with deep-links
+    // Track fromSeriesId so we can detect when BACK exits the wizard to return to a series.
+    // softReset clears context.fromSeriesId, so we capture it before the transition.
+    const prevFromSeriesSlugRef = useRef(null);
+    useEffect(() => {
+        // While in wizard, track the current fromSeriesId/slug
+        if (fundraiserState?.matches('wizardFlow') && fundraiserState.context.fromSeriesId) {
+            prevFromSeriesSlugRef.current = fundraiserState.context.fromSeriesSlug || fundraiserState.context.fromSeriesId;
+        }
+        // When we land in directory and there was a fromSeriesId, navigate to that series
+        if (fundraiserState?.matches('directory') && prevFromSeriesSlugRef.current) {
+            const slug = prevFromSeriesSlugRef.current;
+            prevFromSeriesSlugRef.current = null;
+            skipUrlSyncRef.current = true;
+            // Return to the launch page (location directory / scoped detail / series detail),
+            // re-resolving series + location scope from that URL.
+            const origin = registerOriginRef.current || `/events/${slug}`;
+            registerOriginRef.current = null;
+            const res = resolveEventsPath(origin, { seriesSlugs: knownSlugs, locationIds: knownLocationIds });
+            setScopeLocationId(res.locationId || null);
+            setSelectedSeriesSlugState(res.seriesSlug || null);
+            window.history.replaceState(null, '', origin);
+        }
+    }, [fundraiserState?.value]);
+
+    // When the dashboard first becomes ready on the events page (e.g. right after registering),
+    // force one fresh, phone-aggregated fetch so ALL of this phone's registrations show — not just
+    // the just-registered event that checkingCache displays instantly. Mirrors AccountPage so the
+    // events-page dashboard isn't stuck on the single new event.
+    const dashRefreshedRef = React.useRef(false);
+    useEffect(() => {
+        if (!fundraiserState || !sendToFundraiser) return;
+        if (fundraiserState.matches({ userDashboard: 'idle' }) && !dashRefreshedRef.current) {
+            dashRefreshedRef.current = true;
+            sendToFundraiser({ type: 'REFRESH_EVENTS' });
+        } else if (!fundraiserState.matches('userDashboard')) {
+            dashRefreshedRef.current = false;
+        }
+    }, [fundraiserState?.value, sendToFundraiser]);
+
+    // Stale event reset
     useEffect(() => {
         if (!fundraiserState || !fundraiserState.context) return;
-        if (!dataFreshRef.current) return; // Don't judge staleness against persisted events
-
+        if (!dataFreshRef.current) return;
         const { fundraiserEvents, selectedEventId } = fundraiserState.context;
         const currentEvent = fundraiserEvents?.find(event => event.id === selectedEventId);
-
         if (fundraiserState.matches('wizardFlow') &&
             !fundraiserState.context.isAuthenticated &&
-            fundraiserEvents &&
-            fundraiserEvents.length > 0 &&
+            fundraiserEvents?.length > 0 &&
             selectedEventId &&
             !currentEvent) {
-            console.log('Event not found (stale ID), resetting to directory. selectedEventId:', selectedEventId);
             sendToFundraiser({ type: 'RESET' });
         }
     }, [fundraiserState, sendToFundraiser]);
 
     // ========================================
-    // EARLY RETURNS - After all hooks
+    // EARLY RETURNS
     // ========================================
     if (!fundraiserState || !fundraiserState.context) {
-        return <Box  sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
+        return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
     }
 
-    console.log('Current machine state:', fundraiserState.value);
-
-    if (fundraiserState.matches({ wizardFlow: { submitting: 'resolvingAccountMatch' } })) {
-        console.log('Matched Accounts:', fundraiserState.context.matchedAccounts);
-    }
-    const handleViewChange = (event, newView) => { if (newView !== null) setView(newView); };
-
-    const handleChooseFundraiser = (eventId) => { trackEventViewed(eventId); sendToFundraiser({ type: 'CHOOSE_FUNDRAISER', eventId: eventId }); };
-    const handleLocationSelect = (locationId) => {
-        console.log(`Location selected, sending event: SELECT_LOCATION with id: ${locationId}`);
-        sendToFundraiser({ type: 'SELECT_LOCATION', value: locationId });
-    };
-    const handleDateSelect = (newDate) => { sendToFundraiser({ type: 'SELECT_DATE', value: newDate }); };
-    const handleTimeSelect = (newTime) => { sendToFundraiser({ type: 'SELECT_TIME', value: newTime }); };
+    // Event handlers
+    const handleChooseFundraiser = (eventId) => { trackEventViewed(eventId); sendToFundraiser({ type: 'CHOOSE_EVENT', eventId }); };
+    const handleLocationSelect = (locationId) => sendToFundraiser({ type: 'SELECT_LOCATION', value: locationId });
+    const handleDateSelect = (newDate) => sendToFundraiser({ type: 'SELECT_DATE', value: newDate });
+    const handleTimeSelect = (newTime) => sendToFundraiser({ type: 'SELECT_TIME', value: newTime });
     const handleProceedToContact = () => sendToFundraiser({ type: 'PROCEED_TO_CONTACT' });
     const handleContactChange = (event) => sendToFundraiser({ type: 'UPDATE_FIELD', field: event.target.name, value: event.target.value });
     const handleSubmitContact = () => sendToFundraiser({ type: 'SUBMIT' });
-    const handleScrollToLocations = () => locationListRef.current?.scrollIntoView({ behavior: 'smooth' });
-    const handleLogout = () => { if (logout) logout(); };
-    
-    // ✅ NEW HANDLER for button click on the detail page
     const handleProceedToScheduling = () => sendToFundraiser({ type: 'PROCEED_TO_SCHEDULING' });
+    const handleLogout = () => { if (logout) logout(); };
+
+    // Handle flat card selection — track series origin for back navigation
+    const handleSelectCard = (card) => {
+        trackEventViewed(card.id);
+        if (card._stop && card.seriesId) {
+            // Series stop — remember the page we launched from and push a history entry so back
+            // (browser or in-app) returns exactly there, not to the non-scoped series detail.
+            const slug = card.seriesSlug || card.seriesId;
+            const origin = window.location.pathname;
+            registerOriginRef.current = origin;
+            window.history.pushState(null, '', origin);
+            pendingStopRef.current = card._stop;
+            // Pass fromSeriesId + slug into the state machine so BACK transitions know to exit the wizard
+            sendToFundraiser({ type: 'CHOOSE_EVENT', eventId: card.id, fromSeriesId: card.seriesId, fromSeriesSlug: slug });
+        } else {
+            // Standalone event
+            setSelectedSeriesId(null);
+            if (card._stop) {
+                pendingStopRef.current = card._stop;
+            }
+            sendToFundraiser({ type: 'CHOOSE_EVENT', eventId: card.id });
+        }
+    };
+
+    // Wizard back — always delegates to the state machine.
+    // If fromSeriesId is set in context, the machine's BACK guard routes to directory.
+    // The prevFromSeriesIdRef effect above detects this and navigates to the series URL.
+    const handleWizardBack = () => {
+        sendToFundraiser({ type: 'BACK' });
+    };
 
     const renderLocationList = () => {
         const { locations } = fundraiserState.context;
@@ -455,15 +486,12 @@ export default function Home() {
         );
     };
 
-    // Guard: if state machine context isn't ready
     if (!fundraiserState?.context) {
-        return <Box  sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>;
+        return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }}><CircularProgress /></Box>;
     }
 
     const { fundraiserEvents, registeredEvents, selectedEventId, viewingEventId, selectedLocationId, locations, selectedDate, contactInfo, formErrors } = fundraiserState.context;
-
     const currentEvent = fundraiserEvents?.find(event => event.id === selectedEventId);
-    console.log('🔍 Events render — state:', JSON.stringify(fundraiserState.value), 'currentEvent:', currentEvent?.title || 'null', 'eventId:', selectedEventId);
 
     // Fetch registration count for current event
     const currentEventId = currentEvent?.id;
@@ -481,7 +509,7 @@ export default function Home() {
         return () => { cancelled = true; };
     }, [currentEventId]);
 
-    // Fetch registration counts for all events in directory view
+    // Fetch registration counts for all events in directory
     const eventIds = useMemo(() => (fundraiserEvents || []).filter(e => e.status === 'Active').map(e => e.id), [fundraiserEvents]);
     useEffect(() => {
         if (!eventIds.length) return;
@@ -503,7 +531,6 @@ export default function Home() {
             }
             return null;
         };
-        // Fetch in batches of 4 to avoid Lambda throttling
         (async () => {
             const counts = {};
             for (let i = 0; i < eventIds.length; i += 4) {
@@ -513,7 +540,6 @@ export default function Home() {
                 for (const r of results) {
                     if (r && r.data?.success !== false) counts[r.id] = r.data;
                 }
-                // Update progressively so UI fills in as data arrives
                 if (!cancelled) setDirectoryCounts(prev => ({ ...prev, ...counts }));
             }
         })();
@@ -521,93 +547,88 @@ export default function Home() {
     }, [eventIds.join(',')]);
 
     const selectedLocation = locations.find(loc => loc.id === selectedLocationId);
-    
-    // ✅ FIX: registeredEvents is now an object with hostedEvents and participantEvents
+
     const eventToView = (() => {
         if (!viewingEventId) return undefined;
-        
-        // Check if registeredEvents is the new format (object with hostedEvents/participantEvents)
         if (registeredEvents && typeof registeredEvents === 'object' && !Array.isArray(registeredEvents)) {
-            const hostedEvent = registeredEvents.hostedEvents?.find(
-                event => event['Registered Event ID'] === viewingEventId
-            );
+            const hostedEvent = registeredEvents.hostedEvents?.find(event => event['Registered Event ID'] === viewingEventId);
             if (hostedEvent) return hostedEvent;
-            
-            const participantEvent = registeredEvents.participantEvents?.find(
-                event => event['Registered Event ID'] === viewingEventId
-            );
-            return participantEvent;
+            return registeredEvents.participantEvents?.find(event => event['Registered Event ID'] === viewingEventId);
         }
-        
-        // Fallback for old format (array)
         return registeredEvents?.find(event => event['Registered Event ID'] === viewingEventId);
     })();
-    
-    console.log("7. FINAL eventToView prop passed to UI:", eventToView);
 
-    // ✅ NEW VARIABLES for conditional button logic
     const locationCount = currentEvent?.locationIds?.length || 0;
     const isSingleLocation = locationCount === 1;
 
-
-    // Logic to determine when to show the processing overlay
-    const isSubmitting =
+    // The actual payment/registration submit — show the web-checkout-style processing interstitial here.
+    const isProcessingRegistration = fundraiserState.matches({ wizardFlow: { submitting: 'creatingRegistration' } });
+    // The identity/verification pre-steps keep the simple "Verifying your information" loader.
+    const shouldShowVerifyingLoader =
       fundraiserState.matches({ wizardFlow: { submitting: 'decidingAuthPath' } }) ||
       fundraiserState.matches({ wizardFlow: { submitting: 'checkingDuplicate' } }) ||
       fundraiserState.matches({ wizardFlow: { submitting: 'checkingGuestStatus' } }) ||
       fundraiserState.matches({ wizardFlow: { submitting: 'creatingOrganization' } }) ||
-      fundraiserState.matches({ wizardFlow: { submitting: 'updatingProfile' } }) ||
-      fundraiserState.matches({ wizardFlow: { submitting: 'creatingRegistration' } });
-
-    const isRegistrationSuccess = fundraiserState.matches({ wizardFlow: 'success' });
-
-    // Show overlay when submitting starts, hide if flow needs user interaction
-    const needsUserInput =
-      fundraiserState.matches({ wizardFlow: { submitting: 'resolvingAccountMatch' } }) ||
-      fundraiserState.matches({ wizardFlow: { submitting: 'confirmingProfileUpdate' } }) ||
-      fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication');
-
-    useEffect(() => {
-      if (isSubmitting && !showOverlay) setShowOverlay(true);
-      if (needsUserInput && showOverlay) setShowOverlay(false);
-    }, [isSubmitting, needsUserInput]);
-
-    const handleOverlayComplete = useCallback(() => setShowOverlay(false), []);
+      fundraiserState.matches({ wizardFlow: { submitting: 'updatingProfile' } });
+    // Stages adapt to how they're paying (card / loyalty points / free).
+    const payMethod = fundraiserState.context.paymentMethod;
+    const firstStage = payMethod === 'card'
+      ? { text: 'Processing your payment…', icon: CreditCardRoundedIcon }
+      : payMethod === 'points'
+        ? { text: 'Redeeming your points…', icon: RedeemRoundedIcon }
+        : { text: 'Submitting your registration…', icon: HowToRegRoundedIcon };
+    const registrationStages = [
+      firstStage,
+      { text: 'Confirming your registration…', icon: ReceiptLongRoundedIcon },
+      { text: 'Almost done…', icon: HourglassBottomRoundedIcon },
+    ];
 
     if (fundraiserState.matches('booting') || fundraiserState.matches('routing')) {
-        return <Box  sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
+        return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
     }
     if (fundraiserState.matches('failure')) {
-        return <Box ><Alert severity="error" role="alert">{fundraiserState.context.error}</Alert></Box>;
+        return <Box><Alert severity="error" role="alert">{fundraiserState.context.error}</Alert></Box>;
     }
-
-    // If in wizardFlow but currentEvent not found — show spinner (data may still be loading)
     if (fundraiserState.matches('wizardFlow') && !currentEvent) {
-        return <Box  sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
+        return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>;
     }
 
     return (
-        <Box  sx={{ width: '100%', mx: 'auto' }}>
+        <Box sx={{ width: '100%', mx: 'auto' }}>
             <Helmet><title>Events | Surreal Creamery</title></Helmet>
-            <Typography variant="h1" component="h1" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Fundraiser Events</Typography>
-            {fundraiserState.matches('directory') && (<DirectorySection events={fundraiserState.context.fundraiserEvents} onChooseFundraiser={handleChooseFundraiser} view={view} handleViewChange={handleViewChange} regCounts={directoryCounts} />)}
-            {fundraiserState.matches('userDashboard') && !(fundraiserState.matches('userDashboard.idle') || fundraiserState.matches('userDashboard.redeemingReward') || fundraiserState.matches('userDashboard.refreshingLoyalty')) && (<Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>)}
-            {(fundraiserState.matches('userDashboard.idle') || fundraiserState.matches('userDashboard.redeemingReward') || fundraiserState.matches('userDashboard.refreshingLoyalty')) && (<UserDashboard events={fundraiserState.context.registeredEvents} allEvents={fundraiserState.context.fundraiserEvents} orders={fundraiserState.context.orders} loyalty={fundraiserState.context.loyalty} duplicateNotice={fundraiserState.context.duplicateNotice} onDismissDuplicateNotice={() => sendToFundraiser({ type: 'DISMISS_DUPLICATE_NOTICE' })} onScheduleNew={() => sendToFundraiser({ type: 'SCHEDULE_NEW' })} onViewTransactions={(eventId) => sendToFundraiser({ type: 'VIEW_TRANSACTIONS', eventId })} onViewMarketingMaterials={(eventId) => sendToFundraiser({ type: 'VIEW_MARKETING_MATERIALS', eventId })} onRedeem={(rewardId) => sendToFundraiser({ type: 'REDEEM_REWARD', rewardId })} onLogout={handleLogout} />)}
-            
+            <Typography variant="h1" component="h1" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>Events</Typography>
+
+            {/* NEW: Flat directory replaces grouped directory */}
+            {fundraiserState.matches('directory') && (
+                <FlatDirectorySection
+                    events={fundraiserState.context.fundraiserEvents}
+                    locations={fundraiserState.context.locations}
+                    onSelectCard={handleSelectCard}
+                    regCounts={directoryCounts}
+                    selectedSeriesId={selectedSeriesId}
+                    onSeriesSelect={setSelectedSeriesId}
+                    locationScope={scopeLocationId}
+                    onLocationScopeExit={() => { setScopeLocationId(null); }}
+                />
+            )}
+
+            {fundraiserState.matches('userDashboard') && !(fundraiserState.matches('userDashboard.idle') || fundraiserState.matches('userDashboard.redeemingReward') || fundraiserState.matches('userDashboard.refreshingLoyalty') || fundraiserState.matches('userDashboard.refreshingEvents')) && (<Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>)}
+            {(fundraiserState.matches('userDashboard.idle') || fundraiserState.matches('userDashboard.redeemingReward') || fundraiserState.matches('userDashboard.refreshingLoyalty') || fundraiserState.matches('userDashboard.refreshingEvents')) && (<UserDashboard events={fundraiserState.context.registeredEvents} allEvents={fundraiserState.context.fundraiserEvents} orders={fundraiserState.context.orders} loyalty={fundraiserState.context.loyalty} duplicateNotice={fundraiserState.context.duplicateNotice} onDismissDuplicateNotice={() => sendToFundraiser({ type: 'DISMISS_DUPLICATE_NOTICE' })} registerAnotherPlayer={fundraiserState.context.justRegisteredGaming} onRegisterAnotherPlayer={() => sendToFundraiser({ type: 'REGISTER_ANOTHER_PLAYER' })} onDismissRegisterAnother={() => sendToFundraiser({ type: 'DISMISS_REGISTER_ANOTHER' })} onScheduleNew={() => sendToFundraiser({ type: 'SCHEDULE_NEW' })} onViewTransactions={(eventId) => sendToFundraiser({ type: 'VIEW_TRANSACTIONS', eventId })} onViewMarketingMaterials={(eventId) => sendToFundraiser({ type: 'VIEW_MARKETING_MATERIALS', eventId })} onRedeem={(rewardId) => sendToFundraiser({ type: 'REDEEM_REWARD', rewardId })} onLogout={handleLogout} />)}
+
             {fundraiserState.matches('transactionDetails.loading') && (<Box sx={{ display: 'flex', justifyContent: 'center', p: 4, minHeight: '80vh', alignItems: 'center' }} role="status" aria-live="polite" aria-busy="true"><CircularProgress aria-label="Loading" /></Box>)}
             {fundraiserState.matches('transactionDetails.idle') && eventToView && (<TransactionDetails event={eventToView} onBack={() => sendToFundraiser({ type: 'BACK_TO_DASHBOARD' })} onGoHome={() => sendToFundraiser({ type: 'RESET' })} onViewPayouts={() => sendToFundraiser({ type: 'VIEW_PAYOUTS' })} />)}
 
             {fundraiserState.matches('payoutDetails') && eventToView && (
-                <PayoutDetails 
-                    event={eventToView} 
-                    onBack={() => sendToFundraiser({ type: 'BACK_TO_TRANSACTIONS' })} 
-                    onBackToDashboard={() => sendToFundraiser({ type: 'BACK_TO_DASHBOARD' })} 
+                <PayoutDetails
+                    event={eventToView}
+                    onBack={() => sendToFundraiser({ type: 'BACK_TO_TRANSACTIONS' })}
+                    onBackToDashboard={() => sendToFundraiser({ type: 'BACK_TO_DASHBOARD' })}
                     onGoHome={() => sendToFundraiser({ type: 'RESET' })}
                     send={sendToFundraiser}
                     context={fundraiserState}
                 />
             )}
-            
+
             {fundraiserState.matches('marketingMaterials') && eventToView && (
                 <MarketingMaterials
                     event={eventToView}
@@ -617,14 +638,12 @@ export default function Home() {
             )}
 
             <Box sx={{ maxWidth: 'sm', width: '100%', mx: 'auto', pt: 0, pb: 3, px: 3 }}>
-                {/* ✅ FIX: EVENT LANDING PAGE - Button in hero, location list below if multiple locations */}
                 {fundraiserState.matches({ wizardFlow: 'eventLanding' }) && currentEvent && (() => {
-                    const today = new Date().toISOString().slice(0, 10);
-                    const futureStops = (currentEvent.schedule || []).filter(stop => !stop.date || stop.date >= today).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+                    const today = storeToday();
+                    const futureStops = (currentEvent.schedule || []).filter(stop => (!stop.date || stop.date >= today) && (!stop.hidden || isPreviewMode())).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
                     const isSingleStopTentpole = currentEvent.schedule?.length > 0 && futureStops.length === 1;
                     const singleStop = isSingleStopTentpole ? futureStops[0] : null;
 
-                    // Resolve single stop details
                     let singleStopDate = '', singleStopTime = '', singleStopLocName = '';
                     let singleStopFee = 0, singleStopPoints = 0, singleStopTournamentId = null;
                     if (singleStop) {
@@ -643,7 +662,6 @@ export default function Home() {
                         singleStopTournamentId = singleStop.tournamentId || singleStop['Tournament ID'] || currentEvent.tournamentId || currentEvent['Tournament ID'] || null;
                     }
 
-                    // Build CTA label for single-stop
                     const singleStopCtaLabel = (() => {
                         if (!singleStop) return '';
                         const isTournament = !!singleStopTournamentId;
@@ -680,7 +698,6 @@ export default function Home() {
                             regCountDate={isSingleStopTentpole ? singleStop?.date : null}
                         />
 
-                        {/* Tentpole: show stop list directly on landing */}
                         {currentEvent.schedule?.length > 0 && futureStops.length >= 1 && (
                             <>
                                 <Divider sx={{ my: 3 }} />
@@ -707,10 +724,23 @@ export default function Home() {
                                             const locName = locIdx >= 0 ? (currentEvent.locationNames?.[locIdx] || '') : (fundraiserState.context.locations?.find(l => l.id === stop.locationId)?.['Location Name'] || '');
                                             const stopFeeCents = stop.admissionFeeCents || stop['Admission Fee Cents'] || currentEvent.admissionFeeCents || currentEvent['Admission Fee Cents'] || 0;
                                             const stopPtsCost = stop.pointsCost || stop['Points Cost'] || currentEvent.pointsCost || currentEvent['Points Cost'] || 0;
-                                            const stopCount = stop.date && regCount?.byDate?.[stop.date] || 0;
-                                            const stopCapacity = stop.date && regCount?.capacityByDate?.[stop.date] || null;
+                                            // Prefer per-tournament (unique per session) so a location's 5PM vs 7PM
+                                            // sessions on the same day report their own counts, not a shared aggregate.
+                                            const stopTid = stop.tournamentId || null;
+                                            const stopStopKey = stop.date && stop.locationId ? `${stop.date}:${stop.locationId}` : null;
+                                            const stopCount = (stopTid ? regCount?.byTournament?.[stopTid] : undefined)
+                                                ?? (stopStopKey ? regCount?.byStop?.[stopStopKey] : undefined)
+                                                ?? ((stop.date && regCount?.byDate?.[stop.date]) || 0);
+                                            const stopCapacity = (stopTid ? regCount?.capacityByTournament?.[stopTid] : undefined)
+                                                ?? (stopStopKey ? regCount?.capacityByStop?.[stopStopKey] : undefined)
+                                                ?? ((stop.date && regCount?.capacityByDate?.[stop.date]) || null);
                                             const stopSoldOut = stopCapacity && stopCount >= stopCapacity;
-                                            const stopRemaining = stopCapacity ? stopCapacity - stopCount : null;
+                                            // Staged availability: reveal spots in per-series brackets (default 4) to create urgency.
+                                            // Display-only — real capacity/sold-out above is unchanged.
+                                            const bStep = currentEvent.seriesBracketSize || currentEvent['Series Bracket Size'] || 4;
+                                            const stopRemaining = !stopCapacity ? null
+                                                : stopSoldOut ? 0
+                                                : Math.min(stopCapacity, Math.ceil((stopCount + 1) / bStep) * bStep) - stopCount;
                                             return (
                                                 <Button
                                                     key={i}
@@ -751,7 +781,6 @@ export default function Home() {
                             </>
                         )}
 
-                        {/* Non-tentpole: show location list if multiple locations */}
                         {!currentEvent.schedule && !isSingleLocation && (
                             <>
                                 <Divider sx={{ my: 3 }} />
@@ -767,108 +796,50 @@ export default function Home() {
                 );
                 })()}
 
-                {/* ✅ Show event details when selecting location */}
                 {fundraiserState.matches({ wizardFlow: 'selectingLocation' }) && currentEvent && (
                     <>
-                        {/* Show event details */}
                         <Box sx={{ mb: 4 }}>
                             <Box sx={{ height: 250, backgroundColor: 'grey.200', borderRadius: 2, overflow: 'hidden', mb: 2 }}>
-                                <img
-                                    src={currentEvent.imageUrl}
-                                    alt={currentEvent.title}
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                />
+                                <img src={currentEvent.imageUrl} alt={currentEvent.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </Box>
-                            <Typography variant="h1" component="h2" sx={{ mb: 2 }}>
-                                {currentEvent.title}
-                            </Typography>
-
-                            {/* Date and Time */}
+                            <Typography variant="h1" component="h2" sx={{ mb: 2 }}>{currentEvent.title}</Typography>
                             {(() => {
                                 const dateStr = currentEvent.startDate || currentEvent['Start Date'];
                                 const timeStr = (Array.isArray(currentEvent.eventTimes) ? currentEvent.eventTimes[0] : currentEvent.eventTimes) ||
                                                (Array.isArray(currentEvent['Event Times']) ? currentEvent['Event Times'][0] : currentEvent['Event Times']);
-
                                 let formattedDate = '';
                                 let formattedTime = '';
-
-                                if (dateStr) {
-                                    try {
-                                        const date = new Date(dateStr.replace(/-/g, '/'));
-                                        formattedDate = format(date, 'EEEE, MMMM do, yyyy');
-                                    } catch (e) {}
-                                }
-
-                                if (timeStr && timeStr.includes(' - ')) {
-                                    try {
-                                        const [startTime, endTime] = timeStr.split(' - ');
-                                        const start = parse(startTime, 'HH:mm', new Date());
-                                        const end = parse(endTime, 'HH:mm', new Date());
-                                        formattedTime = `from ${format(start, 'h:mmaaa')} to ${format(end, 'h:mmaaa')}`.toLowerCase();
-                                    } catch (e) {}
-                                }
-
+                                if (dateStr) { try { formattedDate = format(new Date(dateStr.replace(/-/g, '/')), 'EEEE, MMMM do, yyyy'); } catch {} }
+                                if (timeStr && timeStr.includes(' - ')) { try { const [s, e] = timeStr.split(' - '); formattedTime = `from ${format(parse(s, 'HH:mm', new Date()), 'h:mmaaa')} to ${format(parse(e, 'HH:mm', new Date()), 'h:mmaaa')}`.toLowerCase(); } catch {} }
                                 if (formattedDate || formattedTime) {
-                                    return (
-                                        <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 500, mb: 2 }}>
-                                            {formattedDate}{formattedDate && formattedTime && ' '}{formattedTime}
-                                        </Typography>
-                                    );
+                                    return <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 500, mb: 2 }}>{formattedDate}{formattedDate && formattedTime && ' '}{formattedTime}</Typography>;
                                 }
                                 return null;
                             })()}
-
-                            {/* Description */}
                             {(currentEvent.description || currentEvent['Description']) && (
-                                <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
-                                    {currentEvent.description || currentEvent['Description']}
-                                </Typography>
+                                <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>{currentEvent.description || currentEvent['Description']}</Typography>
                             )}
-                            
-                            {/* Bullet points - render as formatted text, not bullet list */}
                             {(currentEvent.bulletPoints || currentEvent['Bullet Points']) && (
                                 <Box sx={{ textAlign: 'left', my: 2 }}>
                                     {(() => {
                                         const bp = currentEvent.bulletPoints || currentEvent['Bullet Points'];
-                                        // Handle string format (with newlines)
-                                        if (typeof bp === 'string') {
-                                            return (
-                                                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                                                    {bp}
-                                                </Typography>
-                                            );
-                                        }
-                                        // Handle array format
+                                        if (typeof bp === 'string') return <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{bp}</Typography>;
                                         if (Array.isArray(bp) && bp.length > 0) {
-                                            return (
-                                                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                                                    {bp.map(point => {
-                                                        if (typeof point === 'string') return point;
-                                                        if (point?.name) return point.name;
-                                                        if (point?.text) return point.text;
-                                                        if (point?.value) return point.value;
-                                                        // Return empty string for line breaks (will preserve spacing)
-                                                        return '';
-                                                    }).join('\n')}
-                                                </Typography>
-                                            );
+                                            return <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{bp.map(point => typeof point === 'string' ? point : point?.name || point?.text || point?.value || '').join('\n')}</Typography>;
                                         }
                                         return null;
                                     })()}
                                 </Box>
                             )}
                         </Box>
-                        
-                        {/* Location selection */}
                         <Divider sx={{ my: 3 }} />
-                        <Box ref={locationListRef} id="location-selection"> 
-                            <Typography variant="h2" component="h2" gutterBottom>Select a Location</Typography> 
-                            {renderLocationList()} 
-                        </Box> 
+                        <Box ref={locationListRef} id="location-selection">
+                            <Typography variant="h2" component="h2" gutterBottom>Select a Location</Typography>
+                            {renderLocationList()}
+                        </Box>
                     </>
                 )}
-                
-                {/* Tentpole stop picker */}
+
                 {fundraiserState.matches({ wizardFlow: 'selectingStop' }) && currentEvent && (
                     <>
                         <Box sx={{ mb: 4 }}>
@@ -879,37 +850,21 @@ export default function Home() {
                             )}
                             <Typography variant="h1" component="h2" sx={{ mb: 1 }}>{currentEvent.title}</Typography>
                             {currentEvent.description && (
-                                <Typography variant="body1" color="text.secondary" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
-                                    {currentEvent.description}
-                                </Typography>
+                                <Typography variant="body1" color="text.secondary" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>{currentEvent.description}</Typography>
                             )}
                         </Box>
                         <Divider sx={{ my: 3 }} />
                         <Typography variant="h2" component="h2" sx={{ mb: 3 }}>Select a Date & Location</Typography>
                         <Stack spacing={2}>
-                            {[...(currentEvent.schedule || [])].filter(stop => !stop.date || stop.date >= new Date().toISOString().slice(0, 10)).sort((a, b) => (a.date || '').localeCompare(b.date || '')).map((stop, i) => {
+                            {[...(currentEvent.schedule || [])].filter(stop => (!stop.date || stop.date >= storeToday()) && (!stop.hidden || isPreviewMode())).sort((a, b) => (a.date || '').localeCompare(b.date || '')).map((stop, i) => {
                                 let formattedDate = stop.date || '';
                                 let formattedTime = '';
-                                try {
-                                    const d = new Date(stop.date.replace(/-/g, '/'));
-                                    formattedDate = format(d, 'EEEE, MMMM do, yyyy');
-                                } catch (e) {}
-                                if (stop.startTime && stop.endTime) {
-                                    try {
-                                        const s = parse(stop.startTime, 'HH:mm', new Date());
-                                        const e2 = parse(stop.endTime, 'HH:mm', new Date());
-                                        formattedTime = `${format(s, 'h:mmaaa')} – ${format(e2, 'h:mmaaa')}`.toLowerCase();
-                                    } catch (e) {}
-                                }
+                                try { formattedDate = format(new Date(stop.date.replace(/-/g, '/')), 'EEEE, MMMM do, yyyy'); } catch {}
+                                if (stop.startTime && stop.endTime) { try { formattedTime = `${format(parse(stop.startTime, 'HH:mm', new Date()), 'h:mmaaa')} – ${format(parse(stop.endTime, 'HH:mm', new Date()), 'h:mmaaa')}`.toLowerCase(); } catch {} }
                                 const locIdx2 = currentEvent.locationIds?.indexOf(stop.locationId);
                                 const locName = locIdx2 >= 0 ? (currentEvent.locationNames?.[locIdx2] || stop.locationId || '') : (fundraiserState.context.locations?.find(l => l.id === stop.locationId)?.['Location Name'] || stop.locationId || '');
                                 return (
-                                    <Button
-                                        key={i}
-                                        variant="outlined"
-                                        onClick={() => sendToFundraiser({ type: 'SELECT_STOP', stop })}
-                                        sx={{ justifyContent: 'flex-start', textAlign: 'left', p: 2, textTransform: 'none', borderRadius: 2 }}
-                                    >
+                                    <Button key={i} variant="outlined" onClick={() => sendToFundraiser({ type: 'SELECT_STOP', stop })} sx={{ justifyContent: 'flex-start', textAlign: 'left', p: 2, textTransform: 'none', borderRadius: 2 }}>
                                         <Box>
                                             <Typography variant="subtitle1" fontWeight={600}>{formattedDate}</Typography>
                                             {formattedTime && <Typography variant="body2" color="text.secondary">{formattedTime}</Typography>}
@@ -920,27 +875,29 @@ export default function Home() {
                             })}
                         </Stack>
                         <Box sx={{ mt: 3 }}>
-                            <Button variant="text" onClick={() => sendToFundraiser({ type: 'BACK' })}>Back</Button>
+                            <Button variant="text" onClick={handleWizardBack}>Back</Button>
                         </Box>
                     </>
                 )}
 
-                {/* This prop was already correct, good! */}
                 {fundraiserState.matches({ wizardFlow: 'selectingDate' }) && currentEvent && (
-                    <DatePickerSection
-                        onBack={() => sendToFundraiser({ type: 'BACK' })}
-                        onDateChange={handleDateSelect}
-                        selectedDate={fundraiserState.context.selectedDate}
-                        selectedLocation={selectedLocation}
-                        onContinue={handleProceedToContact}
-                        currentEvent={currentEvent}
-                        error={fundraiserState.context.error}
-                    />
+                    <DatePickerSection onBack={handleWizardBack} onDateChange={handleDateSelect} selectedDate={fundraiserState.context.selectedDate} selectedLocation={selectedLocation} onContinue={handleProceedToContact} currentEvent={currentEvent} error={fundraiserState.context.error} />
                 )}
 
-                {fundraiserState.matches({ wizardFlow: 'selectingTime' }) && currentEvent && (<TimePickerSection currentEvent={currentEvent} selectedDate={fundraiserState.context.selectedDate} selectedTime={fundraiserState.context.selectedTime} onTimeChange={handleTimeSelect} onBack={() => sendToFundraiser({ type: 'BACK' })} onContinue={handleProceedToContact} locations={fundraiserState.context.locations} selectedLocationId={fundraiserState.context.selectedLocationId} />)}
-                
-                {fundraiserState.matches({ wizardFlow: 'selectingContact' }) && currentEvent && (<ContactFormSection onBack={() => { const returnTo = sessionStorage.getItem('eventDeepLinkReturn'); if (returnTo) { sessionStorage.removeItem('eventDeepLinkReturn'); sendToFundraiser({ type: 'RESET' }); navigate(returnTo); } else { navigate(-1); }}} onSubmit={handleSubmitContact} contactInfo={contactInfo} onFieldChange={handleContactChange} formErrors={formErrors} currentEvent={currentEvent} selectedLocation={fundraiserState.context.locations?.find(l => l.id === fundraiserState.context.selectedLocationId)} error={fundraiserState.context.error} />)}
+                {fundraiserState.matches({ wizardFlow: 'selectingTime' }) && currentEvent && (<TimePickerSection currentEvent={currentEvent} selectedDate={fundraiserState.context.selectedDate} selectedTime={fundraiserState.context.selectedTime} onTimeChange={handleTimeSelect} onBack={handleWizardBack} onContinue={handleProceedToContact} locations={fundraiserState.context.locations} selectedLocationId={fundraiserState.context.selectedLocationId} />)}
+
+                {fundraiserState.matches({ wizardFlow: 'selectingContact' }) && currentEvent && (<ContactFormSection onBack={handleWizardBack} onSubmit={handleSubmitContact} contactInfo={contactInfo} onFieldChange={handleContactChange} formErrors={formErrors} currentEvent={currentEvent} selectedLocation={fundraiserState.context.locations?.find(l => l.id === fundraiserState.context.selectedLocationId)} />)}
+                {fundraiserState.matches({ wizardFlow: 'enteringPlayerName' }) && currentEvent && (
+                    <PlayerNameSection
+                        eventName={currentEvent?.title || currentEvent?.['Event Name'] || 'this event'}
+                        reason={fundraiserState.context.playerPromptReason}
+                        playerName={contactInfo.playerName || ''}
+                        error={formErrors.playerName}
+                        onChange={(value) => sendToFundraiser({ type: 'UPDATE_PLAYER_NAME', value })}
+                        onSubmit={() => sendToFundraiser({ type: 'SUBMIT_PLAYER' })}
+                        onCancel={() => sendToFundraiser({ type: 'CANCEL_PLAYER' })}
+                    />
+                )}
 
                 {fundraiserState.matches({ wizardFlow: 'selectingPayment' }) && currentEvent && (
                     <PaymentStepSection
@@ -952,20 +909,15 @@ export default function Home() {
                         selectedLocationId={fundraiserState.context.selectedLocationId}
                         onSelectPaymentMethod={(method, cardData) => sendToFundraiser({ type: 'SELECT_PAYMENT_METHOD', method, cardData })}
                         onSubmit={() => sendToFundraiser({ type: 'SUBMIT_PAYMENT' })}
-                        onBack={() => sendToFundraiser({ type: 'BACK' })}
+                        onBack={handleWizardBack}
                     />
                 )}
 
                 {fundraiserState.matches('loginFlow') && (<LoginFlow send={sendToFundraiser} context={fundraiserState} />)}
-                
-                {/* Processing overlay — multi-stage with animations */}
-                {showOverlay && (
-                  <ProcessingOverlay
-                    success={isRegistrationSuccess}
-                    onComplete={handleOverlayComplete}
-                  />
-                )}
-                
+
+                {shouldShowVerifyingLoader && <VerifyingLoader />}
+                {isProcessingRegistration && <ProcessingInterstitial stages={registrationStages} />}
+
                 {fundraiserState.matches({ wizardFlow: { submitting: 'resolvingAccountMatch' } }) && (
                     <ResolvingPartialMatch send={sendToFundraiser} context={fundraiserState} />
                 )}
@@ -974,31 +926,49 @@ export default function Home() {
                     <ConfirmProfileUpdate send={sendToFundraiser} context={fundraiserState} />
                 )}
 
+                {/* Interstitial while the verification code is being sent (the brief pause after choosing a method) */}
+                {fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.sendingGuestOtp') && (() => {
+                    const isEmail = fundraiserState.context.otpChannel === 'email';
+                    const dest = isEmail
+                        ? (contactInfo?.email || 'your email')
+                        : (contactInfo?.mobileNumber || 'your phone');
+                    return (
+                        <Container maxWidth="sm" sx={{ py: { xs: 8, sm: 12 } }}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 3 }}>
+                                <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                                    <CircularProgress size={84} thickness={2} />
+                                    <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        {isEmail
+                                            ? <MailRoundedIcon color="primary" sx={{ fontSize: 38 }} />
+                                            : <SmsRoundedIcon color="primary" sx={{ fontSize: 38 }} />}
+                                    </Box>
+                                </Box>
+                                <Box>
+                                    <Typography variant="h5" component="h2" fontWeight={700} gutterBottom>
+                                        {isEmail ? 'Emailing your code…' : 'Texting your code…'}
+                                    </Typography>
+                                    <Typography variant="body1" color="text.secondary">
+                                        {isEmail
+                                            ? <>We're sending a verification code to <b>{dest}</b>.</>
+                                            : <>We're sending a verification code by SMS to <b>{dest}</b>.</>}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                        This usually takes just a few seconds.
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        </Container>
+                    );
+                })()}
                 {fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.choosingMethod') && (<GuestOtpChoiceSection contactInfo={contactInfo} emailMatched={fundraiserState.context.emailMatched} phoneMatched={fundraiserState.context.phoneMatched} onBack={() => sendToFundraiser({ type: 'BACK' })} onChooseEmail={() => sendToFundraiser({ type: 'CHOOSE_EMAIL' })} onChooseSms={() => sendToFundraiser({ type: 'CHOOSE_SMS' })} />)}
                 {(fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.enteringGuestOtp') || fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.verifyingGuestOtp')) && (<GuestOtpInputSection contactInfo={contactInfo} otpChannel={fundraiserState.context.otpChannel} error={fundraiserState.context.error} isVerifying={fundraiserState.matches('wizardFlow.submitting.awaitingGuestAuthentication.verifyingGuestOtp')} onBack={() => sendToFundraiser({ type: 'BACK_TO_GUEST_METHOD_CHOICE' })} onSubmitOtp={(otp) => sendToFundraiser({ type: 'SUBMIT_GUEST_OTP', value: otp })} />)}
-                
-                
+
                 {fundraiserState.matches({ wizardFlow: 'duplicateError' }) && currentEvent && (
-                    <DuplicateErrorSection
-                        currentEvent={currentEvent}
-                        onViewOtherEvents={() => sendToFundraiser({ type: 'RESET' })}
-                    />
+                    <DuplicateErrorSection currentEvent={currentEvent} onViewOtherEvents={() => sendToFundraiser({ type: 'RESET' })} />
                 )}
-                
+
                 {fundraiserState.matches({ wizardFlow: 'success' }) && (<Alert severity="success" role="alert" sx={{ mt: 2 }}>Your event has been successfully scheduled!</Alert>)}
             </Box>
-
-            {/* Terms & Conditions — only show if current event has a T&C page */}
-            {currentEvent?.termsPageSlug && (
-              <Box sx={{ textAlign: 'center', py: 3, mt: 2 }}>
-                <MuiLink
-                  href={`/pages/${currentEvent.termsPageSlug}`}
-                  sx={{ fontSize: '1.2rem', color: 'text.secondary', textDecoration: 'underline', '&:hover': { color: 'text.primary' } }}
-                >
-                  Terms & Conditions
-                </MuiLink>
-              </Box>
-            )}
         </Box>
     );
 }

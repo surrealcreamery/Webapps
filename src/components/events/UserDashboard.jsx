@@ -164,14 +164,50 @@ const SpotConfirmSection = ({ event }) => {
         }
     };
 
+    // "Can't make it?" — cancel a confirmed/auto-confirmed spot (frees the seat).
+    const doCancel = async () => {
+        setBusy(true);
+        setNotice('');
+        try {
+            const res = await fetch(EVENTS_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'cancelEventSpot',
+                    guestId: event['Guest ID'],
+                    registrationId: event['Registered Event ID'],
+                    token: event['Confirm Token'],
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (data.spotStatus === 'released' || data.status === 'ok') {
+                setStatus('released');
+            } else {
+                setNotice(data.message || data.error || 'Could not cancel your spot. Please try again.');
+            }
+        } catch (e) {
+            setNotice('Something went wrong. Please try again in a moment.');
+        } finally {
+            setBusy(false);
+        }
+    };
+
     if (status === 'confirmed') {
-        return <Alert severity="success" sx={{ mt: 1 }}>Your spot is confirmed. See you there!</Alert>;
+        return (
+            <Box sx={{ mt: 1 }}>
+                <Alert severity="success" sx={{ mb: 1 }}>Your spot is confirmed. See you there!</Alert>
+                {notice && <Alert severity="error" sx={{ mb: 1 }}>{notice}</Alert>}
+                <Button variant="text" size="small" color="error" disabled={busy} onClick={doCancel}>
+                    {busy ? 'Cancelling…' : "Can't make it? Cancel my spot"}
+                </Button>
+            </Box>
+        );
     }
     if (status === 'waitlisted') {
         return <Alert severity="info" sx={{ mt: 1 }}>{notice || "You're on the waitlist — we'll text you if a spot opens up."}</Alert>;
     }
     if (status === 'released') {
-        return <Alert severity="warning" sx={{ mt: 1 }}>This reservation was released.</Alert>;
+        return <Alert severity="info" sx={{ mt: 1 }}>Your spot has been cancelled.</Alert>;
     }
     // reserved
     return (
@@ -229,6 +265,11 @@ const ParticipantEventCard = ({ event }) => {
             )}
             <Stack sx={{ p: 2, flexGrow: 1 }} spacing={1}>
                 <Typography variant="h3" component="h3">{eventName}</Typography>
+                {event['Player Name'] && (
+                    <Box>
+                        <Chip label={`Player: ${event['Player Name']}`} size="small" color="primary" variant="outlined" />
+                    </Box>
+                )}
                 {isEventInThePast && <Typography variant="body2" color="error" sx={{ fontWeight: 'bold' }}>Past Event</Typography>}
                 {displayDate && <Typography variant="body1" color="text.secondary">{formatDateSafe(displayDate, "EEEE, MMMM do")}</Typography>}
                 {eventTime && <Typography variant="body1" color="text.secondary">{formatTimeSlot(eventTime)}</Typography>}
@@ -714,7 +755,7 @@ const SubscriptionsTab = ({ subscriptions }) => {
     );
 };
 
-export const UserDashboard = ({ events, allEvents, orders, loyalty, subscriptions, duplicateNotice, onDismissDuplicateNotice, onScheduleNew, onViewTransactions, onViewMarketingMaterials, onRedeem }) => {
+export const UserDashboard = ({ events, allEvents, orders, loyalty, subscriptions, duplicateNotice, onDismissDuplicateNotice, registerAnotherPlayer, onRegisterAnotherPlayer, onDismissRegisterAnother, onScheduleNew, onViewTransactions, onViewMarketingMaterials, onRedeem }) => {
     const [tab, setTab] = useState(0);
     const [eventView, setEventView] = useState('Active');
     const [redeeming, setRedeeming] = useState(null);
@@ -738,6 +779,20 @@ export const UserDashboard = ({ events, allEvents, orders, loyalty, subscription
             {duplicateNotice && (
                 <Alert severity="info" onClose={onDismissDuplicateNotice} sx={{ mb: 2 }}>
                     You're already registered for this date. To register for a different date or event, use the button below.
+                </Alert>
+            )}
+            {registerAnotherPlayer && (
+                <Alert
+                    severity="success"
+                    onClose={onDismissRegisterAnother}
+                    sx={{ mb: 2 }}
+                    action={
+                        <Button color="inherit" size="small" variant="outlined" onClick={onRegisterAnotherPlayer}>
+                            Register another player
+                        </Button>
+                    }
+                >
+                    {registerAnotherPlayer.playerName ? `${registerAnotherPlayer.playerName} is registered` : "You're registered"} for {registerAnotherPlayer.eventName}. Want to register another player?
                 </Alert>
             )}
             <Typography variant="h1" component="h1" align="center" sx={{ mb: 2 }}>

@@ -1,6 +1,6 @@
 import React, { createContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { useMachine } from '@xstate/react';
-import { eventsMachine } from '@/state/events/eventsMachineTest';
+import { eventsMachine } from '@/state/events/eventsMachine';
 import { useNavigate } from 'react-router-dom';
 
 export const LayoutContext = createContext({});
@@ -9,6 +9,16 @@ const FUNDRAISER_STORAGE_KEY = 'fundraiser-wizard-state';
 const CACHE_VERSION_KEY = 'fundraiser-cache-version';
 const CURRENT_CACHE_VERSION = '6'; // Increment this when state structure changes
 
+// A wizard-only snapshot that directory/dashboard states never overwrite. The main
+// snapshot above always holds the machine's *current* state, so visiting the directory
+// (e.g. via a hard nav to /events/<location>) clobbers any in-progress registration.
+// This second slot survives that, so returning to a registration step — browser back,
+// a re-typed URL, a reload — can restore the exact step with its selections/form.
+// Written on each in-progress wizard step; cleared only when the wizard resolves.
+const WIZARD_PROGRESS_KEY = 'fundraiser-wizard-progress';
+// URL paths that represent an in-progress registration step (captures the eventId).
+const WIZARD_STEP_RE = /^\/events\/([^/]+)\/(location|schedule|date|time|contact|payment|verify)\/?$/;
+
 export const LayoutProvider = ({ children }) => {
     // 0. Version check - clear cache if version mismatch
     const storedVersion = localStorage.getItem(CACHE_VERSION_KEY);
@@ -16,11 +26,28 @@ export const LayoutProvider = ({ children }) => {
         console.log('=== CACHE VERSION MISMATCH - CLEARING OLD CACHE ===');
         console.log('Stored version:', storedVersion, 'Current version:', CURRENT_CACHE_VERSION);
         localStorage.removeItem(FUNDRAISER_STORAGE_KEY);
+        localStorage.removeItem(WIZARD_PROGRESS_KEY);
         localStorage.setItem(CACHE_VERSION_KEY, CURRENT_CACHE_VERSION);
     }
 
     // 1. Rehydration Logic: Safely read, validate, and reconstruct the state.
-    const persistedStateJSON = localStorage.getItem(FUNDRAISER_STORAGE_KEY);
+    // Prefer the wizard-only snapshot when the URL is a registration step whose event
+    // matches the saved progress. This lets browser-back / a re-typed URL / a reload
+    // return to an in-progress step even though visiting the directory has since
+    // overwritten the main snapshot with a directory state.
+    let persistedStateJSON = localStorage.getItem(FUNDRAISER_STORAGE_KEY);
+    try {
+        const wizMatch = window.location.pathname.match(WIZARD_STEP_RE);
+        if (wizMatch) {
+            const progJSON = localStorage.getItem(WIZARD_PROGRESS_KEY);
+            const prog = progJSON ? JSON.parse(progJSON) : null;
+            if (prog?.value?.wizardFlow && prog?.context?.selectedEventId === wizMatch[1]) {
+                persistedStateJSON = progJSON;
+            }
+        }
+    } catch (e) {
+        // Ignore and fall back to the main snapshot.
+    }
     let rehydratedState;
 
     try {
@@ -67,6 +94,7 @@ export const LayoutProvider = ({ children }) => {
         const subscription = actorRef.subscribe((snapshot) => {
             if (snapshot.matches('failure')) {
                 localStorage.removeItem(FUNDRAISER_STORAGE_KEY);
+                localStorage.removeItem(WIZARD_PROGRESS_KEY);
                 return;
             }
             // Don't persist transient invoke states — they re-trigger API calls on rehydration
@@ -77,6 +105,20 @@ export const LayoutProvider = ({ children }) => {
                 context: snapshot.context,
             };
             localStorage.setItem(FUNDRAISER_STORAGE_KEY, JSON.stringify(stateToPersist));
+
+            // Maintain the wizard-only snapshot (see WIZARD_PROGRESS_KEY). Save every
+            // in-progress step *past* the landing (so an empty landing view doesn't create
+            // a resumable draft); drop it once the registration succeeds. Notably we do NOT
+            // clear it on entering the directory, so returning to the step can restore it.
+            if (snapshot.matches({ wizardFlow: 'success' })) {
+                localStorage.removeItem(WIZARD_PROGRESS_KEY);
+            } else if (
+                snapshot.matches('wizardFlow') &&
+                !snapshot.matches({ wizardFlow: 'eventLanding' }) &&
+                snapshot.context?.selectedEventId
+            ) {
+                localStorage.setItem(WIZARD_PROGRESS_KEY, JSON.stringify(stateToPersist));
+            }
         });
         return () => subscription.unsubscribe();
     }, [actorRef]);

@@ -121,7 +121,8 @@ export default function AccountPage() {
   if (
     fundraiserState.matches('userDashboard.idle') ||
     fundraiserState.matches('userDashboard.redeemingReward') ||
-    fundraiserState.matches('userDashboard.refreshingLoyalty')
+    fundraiserState.matches('userDashboard.refreshingLoyalty') ||
+    fundraiserState.matches('userDashboard.refreshingEvents')
   ) {
     return (
       <Box sx={{ width: '100%', mx: 'auto' }}>

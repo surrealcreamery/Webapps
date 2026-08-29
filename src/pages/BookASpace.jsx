@@ -4,7 +4,7 @@ import { useMachine } from '@xstate/react';
 import {
     Box, Typography, Container, Button, Stack, CircularProgress,
     TextField, MenuItem, Select, FormControl, InputLabel, Alert,
-    IconButton, Chip,
+    IconButton, Chip, Checkbox, FormControlLabel,
 } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -12,8 +12,10 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import { LayoutContext as EventsLayoutContext } from '@/contexts/events/EventsLayoutContext';
 import { LocalizationProvider, DateCalendar } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { addDays, startOfToday, isToday, format, parse } from 'date-fns';
+import { addDays, startOfWeek, format, parse } from 'date-fns';
+import { storeToday } from '@/utils/storeDate';
 import { bookASpaceMachine } from '@/state/events/bookASpaceMachine';
+import { trackSpaceRequestSubmitted } from '@/services/analytics';
 
 // Build bookable hours for a single location on a given date
 const getLocationTimeRange = (loc, dateStr) => {
@@ -32,12 +34,10 @@ const getLocationTimeRange = (loc, dateStr) => {
     return hours;
 };
 
-const formatHour = (hour) => {
-    const h = hour % 12 || 12;
-    if (hour === 0 || hour === 24) return '12am';
-    if (hour < 12) return `${h}am`;
-    if (hour === 12) return '12pm';
-    return `${h}pm`;
+// Current hour (0–23) in the STORE's timezone — used to hide same-day start times that have passed.
+const easternHourNow = () => {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }).formatToParts(new Date());
+    return (parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10)) % 24;
 };
 
 // Parse a time range string like "7:00 PM - 9:00 PM" or "19:00 - 20:00" into { startH, endH } (24h)
@@ -66,21 +66,8 @@ const parseTimeRange = (timeStr) => {
 const STORAGE_KEY = 'bookASpace:snapshot';
 const STABLE_STEPS = ['eventType', 'location', 'schedule', 'partySize', 'review', 'contact'];
 
-// Fewest free tables (largest-first) whose seats sum >= partySize. Mirrors the server for live preview;
-// the server re-allocates authoritatively on submit. Returns { tables, totalSeats } or null.
-const allocateFewestTables = (freeTables, partySize) => {
-    const need = Math.max(1, parseInt(partySize, 10) || 0);
-    if (!need || !Array.isArray(freeTables)) return null;
-    const sorted = [...freeTables].sort((a, b) => (Number(b.seats) || 0) - (Number(a.seats) || 0));
-    const picked = [];
-    let seats = 0;
-    for (const t of sorted) {
-        if (seats >= need) break;
-        picked.push(t);
-        seats += Number(t.seats) || 0;
-    }
-    return seats >= need ? { tables: picked, totalSeats: seats } : null;
-};
+// Furthest week the ‹ › arrows page to (about a year out); the full calendar covers anything beyond.
+const MAX_WEEK_OFFSET = 51;
 
 // XState holds state in memory only, so a refresh normally resets the wizard. We persist the
 // machine's snapshot to sessionStorage and rehydrate it — but ONLY for stable steps, never
@@ -97,10 +84,10 @@ const loadSnapshot = () => {
 // (name/email/phone) is intentionally NEVER written to the URL.
 const readUrlSelections = () => {
     const p = new URLSearchParams(window.location.search);
-    const keys = ['eventType', 'loc', 'date', 'start', 'end'];
+    const keys = ['eventType', 'loc', 'date', 'start'];
     return {
         eventType: p.get('eventType') || '', loc: p.get('loc') || '', date: p.get('date') || '',
-        start: p.get('start') || '', end: p.get('end') || '',
+        start: p.get('start') || '',
         any: keys.some(k => p.has(k)),
     };
 };
@@ -115,10 +102,11 @@ export default function BookASpace() {
         restoredSnapshotRef.current ? { snapshot: restoredSnapshotRef.current } : undefined,
     );
     const [datePickerOpen, setDatePickerOpen] = useState(false);
+    const [weekOffset, setWeekOffset] = useState(0); // which 7-day window the strip shows (0 = starts tomorrow)
 
     const {
         locations, events, eventTypes, selectedLocationId, selectedDate,
-        startTime, endTime, selectedEventType, formData, error, partySize, availability,
+        startTime, selectedEventType, formData, error, partySize,
     } = state.context;
 
     const isLoading = state.matches('loading');
@@ -128,7 +116,6 @@ export default function BookASpace() {
     const onLocation = state.matches('location');
     const onPartySize = state.matches('partySize');
     const onSchedule = state.matches('schedule');
-    const isCheckingAvailability = state.matches('checkingAvailability');
     const onReview = state.matches('review');
     const onContact = state.matches('contact') || isSubmitting;
 
@@ -139,14 +126,6 @@ export default function BookASpace() {
         () => locations.find(l => l.id === selectedLocationId) || null,
         [locations, selectedLocationId],
     );
-
-    // Availability-derived helpers (available AFTER date/time is chosen).
-    const freeSeats = availability?.freeSeats ?? null;
-    const partyAllocation = useMemo(
-        () => (availability?.configured ? allocateFewestTables(availability.freeTables || [], partySize) : null),
-        [availability, partySize],
-    );
-    const partyOverCapacity = !!(availability?.configured && Number(partySize) > (availability?.freeSeats || 0));
 
     // (1) Refresh survival — persist the machine snapshot on every stable step; drop it once
     // booked (or while loading/submitting) so we never rehydrate a live invocation or a stale booking.
@@ -163,10 +142,10 @@ export default function BookASpace() {
         const p = new URLSearchParams(window.location.search);
         const put = (k, v) => { if (v) p.set(k, v); else p.delete(k); };
         put('eventType', selectedEventType); put('loc', selectedLocationId); put('date', selectedDate);
-        put('start', startTime); put('end', endTime);
+        put('start', startTime);
         const qs = p.toString();
         window.history.replaceState(window.history.state, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
-    }, [isLoading, selectedEventType, selectedLocationId, selectedDate, startTime, endTime]);
+    }, [isLoading, selectedEventType, selectedLocationId, selectedDate, startTime]);
 
     // (3) On a fresh load from a shared link (no restored snapshot), replay the URL selections
     // once the data has loaded. Unhandled events are safely ignored, so skipped steps don't matter.
@@ -180,8 +159,21 @@ export default function BookASpace() {
         if (sel.loc) send({ type: 'SELECT_LOCATION', id: sel.loc });
         if (sel.date) send({ type: 'SELECT_DATE', date: sel.date });
         if (sel.start) send({ type: 'SELECT_START', hour: parseInt(sel.start.split(':')[0], 10) });
-        if (sel.end) send({ type: 'SELECT_END', time: sel.end });
     }, [isLoading, send]);
+
+    // Fire a conversion (Meta Lead / TikTok SubmitForm / GA4 generate_lead) once, when the request submits.
+    const conversionFiredRef = useRef(false);
+    useEffect(() => {
+        if (!isSubmitted || conversionFiredRef.current) return;
+        conversionFiredRef.current = true;
+        trackSpaceRequestSubmitted({
+            eventType: selectedEventType,
+            locationId: selectedLocationId,
+            locationName: selectedLocation?.['Location Name'],
+            partySize,
+            date: selectedDate,
+        });
+    }, [isSubmitted, selectedEventType, selectedLocationId, selectedLocation, partySize, selectedDate]);
 
     const timeSlots = useMemo(
         () => getLocationTimeRange(selectedLocation, selectedDate),
@@ -235,35 +227,81 @@ export default function BookASpace() {
         return slots;
     }, [bookedRanges]);
 
-    const endTimeOptions = useMemo(() => {
-        if (!startTime || !selectedLocation) return [];
-        const startHour = parseInt(startTime.split(':')[0], 10);
-        const [y, m, d] = selectedDate.split('-').map(Number);
-        const dayOfWeek = new Date(y, m - 1, d).getDay();
-        const dh = selectedLocation.hours?.[String(dayOfWeek)];
-        let closeHour = dh?.close ? parseInt(dh.close.split(':')[0], 10) : 22;
-        if (closeHour <= startHour) closeHour = 24; // midnight/past-midnight
-        const opts = [];
-        for (let h = startHour + 1; h <= closeHour; h++) {
-            // Stop at the first booked hour so bookings can't overlap existing events
-            if (bookedSlots[h]) break;
-            const value = `${String(h).padStart(2, '0')}:00`;
-            // Use formatHour (handles hour 24 = midnight); date-fns parse('24:00','HH:mm') is an Invalid Date.
-            opts.push({ value, label: formatHour(h) });
-        }
-        return opts;
-    }, [startTime, selectedLocation, selectedDate, bookedSlots]);
+    // Configured custom fields for the chosen event type (admin-defined per type).
+    const selectedTypeFields = useMemo(
+        () => (eventTypes.find(t => t.name === selectedEventType)?.fields) || [],
+        [eventTypes, selectedEventType],
+    );
+    const requiredCustomFieldsFilled = useMemo(
+        () => selectedTypeFields.every(f => {
+            if (!f.required || f.type === 'checkbox') return true;
+            const v = formData[f.id];
+            return v != null && String(v).trim() !== '';
+        }),
+        [selectedTypeFields, formData],
+    );
 
-    const isFormValid = selectedLocationId && selectedDate && startTime && endTime
+    const isFormValid = selectedLocationId && selectedDate && startTime
         && (eventTypes.length === 0 || selectedEventType)
-        && formData.firstName && formData.lastName && formData.email;
+        && formData.firstName && formData.lastName && formData.email
+        && requiredCustomFieldsFilled;
 
-    // --- Date navigation ---
-    const tomorrow = useMemo(() => addDays(startOfToday(), 1), []);
-    const isPrevDisabled = useMemo(() => {
-        const [y, m, d] = selectedDate.split('-').map(Number);
-        return new Date(y, m - 1, d).getTime() <= tomorrow.getTime();
-    }, [selectedDate, tomorrow]);
+    // --- Date navigation: a fixed Sunday–Saturday calendar week ---
+    // Weekday columns stay put (Sun…Sat), so the layout reads like a normal calendar. Today is
+    // selectable (same-day requests allowed) as long as the location still has an open hour left.
+    // "Today"/"now" are in the STORE's timezone (Eastern), not the visitor's browser timezone.
+    const today = useMemo(() => parse(storeToday(), 'yyyy-MM-dd', new Date()), []);
+    const todayStr = useMemo(() => format(today, 'yyyy-MM-dd'), [today]);
+    const nowHour = useMemo(() => easternHourNow(), []);
+    const weekStart = useMemo(() => addDays(startOfWeek(today, { weekStartsOn: 0 }), weekOffset * 7), [today, weekOffset]);
+
+    // Bookable hours for a date, dropping already-passed hours when the date is today.
+    const bookableHoursFor = (dateStr) => {
+        const hrs = getLocationTimeRange(selectedLocation, dateStr);
+        return dateStr === todayStr ? hrs.filter(h => h > nowHour) : hrs;
+    };
+
+    // Selectable start-time hours for the chosen date: open, not overlapping a booking, not past.
+    const availableSlots = useMemo(
+        () => timeSlots.filter(hour => !bookedSlots[hour] && (selectedDate !== todayStr || hour > nowHour)),
+        [timeSlots, bookedSlots, selectedDate, todayStr, nowHour],
+    );
+
+    const weekDays = useMemo(() => (
+        Array.from({ length: 7 }, (_, i) => {
+            const d = addDays(weekStart, i);
+            const dateStr = format(d, 'yyyy-MM-dd');
+            const notPast = d.getTime() >= today.getTime();
+            return {
+                dateStr,
+                dow: format(d, 'EEE'),
+                day: format(d, 'd'),
+                isToday: dateStr === todayStr,
+                // Bookable = today-or-later AND at least one open hour remains that day.
+                isBookable: notPast && bookableHoursFor(dateStr).length > 0,
+            };
+        })
+    ), [weekStart, today, todayStr, nowHour, selectedLocation]);
+
+    // Header label: the month(s) the visible week spans.
+    const weekLabel = useMemo(() => {
+        const last = addDays(weekStart, 6);
+        const fm = format(weekStart, 'MMM');
+        const lm = format(last, 'MMM');
+        return fm === lm ? format(weekStart, 'MMMM yyyy') : `${fm} – ${lm} ${format(last, 'yyyy')}`;
+    }, [weekStart]);
+
+    // Can't page into fully-past weeks — the current week (offset 0) is the earliest.
+    const atCurrentWeek = weekOffset <= 0;
+
+    // Keep the visible week in sync with the selected date (URL hydration, calendar jump, etc.).
+    useEffect(() => {
+        if (!selectedDate) return;
+        const currentWeek = startOfWeek(today, { weekStartsOn: 0 });
+        const selWeek = startOfWeek(parse(selectedDate, 'yyyy-MM-dd', new Date()), { weekStartsOn: 0 });
+        const wk = Math.round((selWeek.getTime() - currentWeek.getTime()) / (7 * 86400000));
+        setWeekOffset(Math.max(0, wk));
+    }, [selectedDate, today]);
 
     // --- Back navigation ---
     // Each forward step pushes a browser-history entry (same URL) so the browser Back button and
@@ -326,15 +364,11 @@ export default function BookASpace() {
                 </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ mb: 1, fontSize: '1.6rem' }}>
                     Thank you! We've received your booking request for{' '}
-                    <strong>{format(parse(selectedDate, 'yyyy-MM-dd', new Date()), 'EEEE, MMMM do, yyyy')}</strong>.
+                    <strong>{format(parse(selectedDate, 'yyyy-MM-dd', new Date()), 'EEEE, MMMM do, yyyy')}</strong>
+                    {startTime && <> at <strong>{format(parse(startTime, 'HH:mm', new Date()), 'h:mm a')}</strong></>}.
                 </Typography>
-                {partyAllocation && (
-                    <Typography variant="body1" color="text.secondary" sx={{ mb: 1, fontSize: '1.6rem' }}>
-                        Reserved <strong>{partyAllocation.tables.map(t => t.name).join(', ')}</strong> for {partySize} guests.
-                    </Typography>
-                )}
                 <Typography variant="body1" color="text.secondary" sx={{ mb: 4, fontSize: '1.6rem' }}>
-                    We'll review your request and get back to you at <strong>{formData.email}</strong>.
+                    We'll review your request, confirm the details, and get back to you at <strong>{formData.email}</strong>.
                 </Typography>
                 <Stack spacing={2} direction="row" justifyContent="center">
                     <Button variant="contained" onClick={() => send({ type: 'RESET' })}>
@@ -351,12 +385,6 @@ export default function BookASpace() {
     // --- Main form ---
     return (
         <Container maxWidth={(onSchedule || onEventType || onLocation) ? 'md' : 'sm'} sx={{ py: 4 }}>
-            {isCheckingAvailability && (
-                <Box sx={{ position: 'fixed', inset: 0, bgcolor: 'rgba(255,255,255,0.7)', zIndex: 1300, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }} role="status" aria-live="polite">
-                    <CircularProgress />
-                    <Typography variant="body1" sx={{ fontSize: '1.6rem' }}>Checking table availability…</Typography>
-                </Box>
-            )}
             <Typography variant="h1" component="h1" align="center" sx={{ mb: 1 }}>
                 Book A Space
             </Typography>
@@ -481,25 +509,14 @@ export default function BookASpace() {
                 </Box>
             )}
 
-            {/* Step: Party Size — availability-aware; capped to what the free tables can seat */}
+            {/* Step: Party Size — informational for staff (no live availability; tables are set on approval) */}
             {onPartySize && (
                 <Box>
                     <Typography variant="h2" component="h2" gutterBottom>How many guests?</Typography>
-                    <Typography variant="body1" color="text.secondary" sx={{ mb: 1, fontSize: '1.5rem' }}>
+                    <Typography variant="body1" color="text.secondary" sx={{ mb: 4, fontSize: '1.5rem' }}>
                         {format(parse(selectedDate, 'yyyy-MM-dd', new Date()), 'EEE, MMM do')}
                         {startTime && `, ${format(parse(startTime, 'HH:mm', new Date()), 'h:mm a')}`}
-                        {endTime && ` – ${format(parse(endTime, 'HH:mm', new Date()), 'h:mm a')}`}
                     </Typography>
-                    {availability?.configured && (
-                        <Typography variant="body1" sx={{ mb: 4, fontSize: '1.5rem', fontWeight: 600, color: freeSeats > 0 ? 'success.main' : 'error.main' }}>
-                            {freeSeats > 0 ? `Up to ${freeSeats} seats available at this time` : 'Fully booked at this time — go back and choose another time'}
-                        </Typography>
-                    )}
-                    {!availability?.configured && (
-                        <Typography variant="body1" color="text.secondary" sx={{ mb: 4, fontSize: '1.5rem' }}>
-                            We'll confirm table arrangements with you after your request.
-                        </Typography>
-                    )}
                     <Stack direction="row" spacing={2} alignItems="center" justifyContent="center" sx={{ mb: 2 }}>
                         <IconButton
                             aria-label="Decrease number of guests"
@@ -512,16 +529,13 @@ export default function BookASpace() {
                             value={partySize}
                             onChange={(e) => {
                                 const v = e.target.value.replace(/[^0-9]/g, '');
-                                let n = v ? parseInt(v, 10) : '';
-                                if (n !== '' && availability?.configured && freeSeats > 0) n = Math.min(n, freeSeats);
-                                send({ type: 'SET_PARTY_SIZE', value: n });
+                                send({ type: 'SET_PARTY_SIZE', value: v ? parseInt(v, 10) : '' });
                             }}
                             inputProps={{ inputMode: 'numeric', style: { textAlign: 'center', fontSize: '2.4rem', width: '4ch' }, 'aria-label': 'Number of guests' }}
                             placeholder="0"
                         />
                         <IconButton
                             aria-label="Increase number of guests"
-                            disabled={availability?.configured && freeSeats > 0 && Number(partySize) >= freeSeats}
                             onClick={() => send({ type: 'SET_PARTY_SIZE', value: (Number(partySize) || 0) + 1 })}
                             sx={{ border: '1px solid', borderColor: 'grey.500', width: 48, height: 48 }}
                         >
@@ -529,26 +543,13 @@ export default function BookASpace() {
                         </IconButton>
                     </Stack>
 
-                    {/* Live table preview */}
-                    <Box sx={{ minHeight: 44, mb: 2, textAlign: 'center' }}>
-                        {Number(partySize) >= 1 && partyAllocation ? (
-                            <Typography sx={{ fontSize: '1.5rem', color: 'success.main', fontWeight: 600 }}>
-                                Reserves {partyAllocation.tables.length} table{partyAllocation.tables.length === 1 ? '' : 's'}: {partyAllocation.tables.map(t => t.name).join(', ')}
-                            </Typography>
-                        ) : partyOverCapacity ? (
-                            <Typography sx={{ fontSize: '1.5rem', color: 'error.main' }}>
-                                Only {freeSeats} seats free at this time — reduce your party or pick another time.
-                            </Typography>
-                        ) : null}
-                    </Box>
-
-                    <Stack direction="row" spacing={2}>
+                    <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
                         <Button variant="outlined" onClick={() => send({ type: 'BACK' })} sx={{ fontSize: '1.5rem' }}>Back</Button>
                         <Button
                             fullWidth
                             variant="contained"
                             size="large"
-                            disabled={!(Number(partySize) >= 1) || (availability?.configured && (partyOverCapacity || !partyAllocation))}
+                            disabled={!(Number(partySize) >= 1)}
                             onClick={() => send({ type: 'CONTINUE' })}
                             sx={{ fontSize: '1.6rem' }}
                         >
@@ -571,28 +572,87 @@ export default function BookASpace() {
                         )}
                     </Typography>
 
-                    {/* Date heading + navigation */}
+                    {/* Date: one week at a time — page with ‹ › ; tap a day. Full calendar for far-out dates. */}
                     <Box sx={{ mt: 2, mb: 2 }}>
-                        <Typography variant="h3" component="h3" sx={{ mb: 0.5, fontWeight: 600 }}>
-                            {format(parse(selectedDate, 'yyyy-MM-dd', new Date()), 'EEEE, MMMM d, yyyy')}
-                        </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
+                            <Typography variant="h3" component="h3" sx={{ fontWeight: 600, fontSize: '1.9rem' }}>
+                                {weekLabel}
+                            </Typography>
                             <Button
                                 size="small"
-                                variant="outlined"
+                                variant="text"
                                 startIcon={<CalendarMonthIcon />}
                                 onClick={() => setDatePickerOpen(!datePickerOpen)}
-                                sx={{ textTransform: 'none', fontSize: '1.6rem' }}
+                                sx={{ textTransform: 'none', fontSize: '1.5rem', flexShrink: 0 }}
+                                aria-expanded={datePickerOpen}
                             >
-                                Go To Date
+                                {datePickerOpen ? 'Close' : 'Calendar'}
                             </Button>
-                            <IconButton size="small" onClick={() => send({ type: 'CHANGE_DATE', dir: 'prev' })} disabled={isPrevDisabled}>
+                        </Box>
+
+                        {/* Fixed Sun–Sat week, paged by the ‹ › arrows. Today is marked; past & closed days are disabled. */}
+                        <Box role="group" aria-label="Choose a date" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <IconButton
+                                aria-label="Previous week"
+                                disabled={atCurrentWeek}
+                                onClick={() => setWeekOffset(w => Math.max(0, w - 1))}
+                                sx={{ flexShrink: 0, border: '1px solid', borderColor: 'grey.400', '&.Mui-disabled': { borderColor: 'grey.200' } }}
+                            >
                                 <ChevronLeftIcon />
                             </IconButton>
-                            <IconButton size="small" onClick={() => send({ type: 'CHANGE_DATE', dir: 'next' })}>
+                            <Box sx={{ display: 'flex', gap: 0.75, flex: 1, minWidth: 0 }}>
+                                {weekDays.map((dd) => {
+                                    const selected = dd.dateStr === selectedDate;
+                                    const label = `${format(parse(dd.dateStr, 'yyyy-MM-dd', new Date()), 'EEEE, MMMM d, yyyy')}`
+                                        + (dd.isToday ? (dd.isBookable ? ' — today' : ' — today, no times left') : dd.isBookable ? '' : ' — unavailable');
+                                    return (
+                                        <Box
+                                            key={dd.dateStr}
+                                            component="button"
+                                            type="button"
+                                            aria-pressed={selected}
+                                            aria-current={dd.isToday ? 'date' : undefined}
+                                            disabled={!dd.isBookable}
+                                            onClick={() => { if (dd.isBookable) send({ type: 'SELECT_DATE', date: dd.dateStr }); }}
+                                            aria-label={label}
+                                            sx={{
+                                                position: 'relative',
+                                                flex: '1 1 0', minWidth: 0, py: 1, borderRadius: 2, font: 'inherit',
+                                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.25,
+                                                border: '2px solid',
+                                                borderColor: selected ? '#000' : dd.isToday ? 'text.primary' : 'grey.400',
+                                                bgcolor: selected ? '#000' : 'background.paper',
+                                                color: selected ? '#fff' : dd.isBookable ? 'text.primary' : 'text.disabled',
+                                                opacity: dd.isBookable ? 1 : dd.isToday ? 0.75 : 0.4,
+                                                cursor: dd.isBookable ? 'pointer' : 'not-allowed',
+                                                transition: 'all 0.12s',
+                                                '&:hover': dd.isBookable && !selected ? { borderColor: 'text.secondary' } : {},
+                                                '&:focus-visible': { outline: '2px solid', outlineColor: 'text.primary', outlineOffset: 2 },
+                                            }}
+                                        >
+                                            <Typography component="span" sx={{ fontSize: '1.1rem', textTransform: 'uppercase', letterSpacing: 0.3, color: selected ? '#fff' : 'text.secondary' }}>
+                                                {dd.dow}
+                                            </Typography>
+                                            <Typography component="span" sx={{ fontSize: '1.8rem', fontWeight: 700, lineHeight: 1 }}>
+                                                {dd.day}
+                                            </Typography>
+                                            {dd.isToday && !selected && (
+                                                <Box aria-hidden="true" sx={{ position: 'absolute', bottom: 4, width: 5, height: 5, borderRadius: '50%', bgcolor: 'text.primary' }} />
+                                            )}
+                                        </Box>
+                                    );
+                                })}
+                            </Box>
+                            <IconButton
+                                aria-label="Next week"
+                                disabled={weekOffset >= MAX_WEEK_OFFSET}
+                                onClick={() => setWeekOffset(w => Math.min(MAX_WEEK_OFFSET, w + 1))}
+                                sx={{ flexShrink: 0, border: '1px solid', borderColor: 'grey.400', '&.Mui-disabled': { borderColor: 'grey.200' } }}
+                            >
                                 <ChevronRightIcon />
                             </IconButton>
                         </Box>
+
                         {datePickerOpen && (
                             <Box sx={{ mt: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2, display: 'inline-block' }}>
                                 <LocalizationProvider dateAdapter={AdapterDateFns}>
@@ -603,7 +663,6 @@ export default function BookASpace() {
                                             setDatePickerOpen(false);
                                         }}
                                         disablePast
-                                        shouldDisableDate={(date) => isToday(date)}
                                         sx={{
                                             '& .MuiPickersDay-root': { fontSize: '1.6rem' },
                                             '& .MuiDayCalendar-weekDayLabel': { fontSize: '1.6rem', fontWeight: 'bold' },
@@ -616,81 +675,48 @@ export default function BookASpace() {
                     </Box>
 
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: '1.6rem' }}>
-                        Tap a start time below. You'll then pick an end time. Times that overlap an existing booking aren't available.
+                        Tap a start time below. Times that overlap an existing booking aren't available. We&apos;ll confirm the exact duration with you.
                     </Typography>
 
-                    {/* Start-time chips — wrap to multiple rows, no horizontal scroll */}
+                    {/* Start time — vertical list of available slots (time on the left, availability on the right) */}
                     <Typography sx={{ fontWeight: 500, fontSize: '1.6rem', mb: 1 }}>Start time</Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                        {timeSlots.filter(hour => !bookedSlots[hour]).map(hour => {
-                            const timeStr = `${String(hour).padStart(2, '0')}:00`;
-                            const isSelected = startTime === timeStr;
-                            const isInRange = startTime && endTime && timeStr > startTime && timeStr < endTime;
-                            const active = isSelected || isInRange;
-                            return (
-                                <Button
-                                    key={hour}
-                                    onClick={() => send({ type: 'SELECT_START', hour })}
-                                    aria-pressed={active}
-                                    aria-label={`Start at ${formatHour(hour)}`}
-                                    variant={active ? 'contained' : 'outlined'}
-                                    color={active ? 'error' : 'inherit'}
-                                    disableElevation
-                                    sx={{
-                                        fontSize: '1.6rem',
-                                        textTransform: 'none',
-                                        borderRadius: 999,
-                                        px: 2,
-                                        py: 0.75,
-                                        minWidth: 0,
-                                        lineHeight: 1.2,
-                                        borderColor: active ? 'error.main' : 'grey.600',
-                                        color: active ? '#fff' : 'text.primary',
-                                    }}
-                                >
-                                    {formatHour(hour)}
-                                </Button>
-                            );
-                        })}
-                    </Box>
-
-                    {/* End time — chips, appear after picking a start time */}
-                    {startTime && (
-                        <Box sx={{ mt: 3, p: 2.5, bgcolor: '#fafafa', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-                            <Typography sx={{ mb: 1.5, fontWeight: 500, fontSize: '1.6rem' }}>
-                                Starting at {formatHour(parseInt(startTime, 10))} — pick an end time
-                            </Typography>
-                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                                {endTimeOptions.map(opt => {
-                                    const isSelected = endTime === opt.value;
-                                    return (
-                                        <Button
-                                            key={opt.value}
-                                            onClick={() => send({ type: 'SELECT_END', time: opt.value })}
-                                            aria-pressed={isSelected}
-                                            aria-label={`End at ${opt.label}`}
-                                            variant={isSelected ? 'contained' : 'outlined'}
-                                            color={isSelected ? 'error' : 'inherit'}
-                                            disableElevation
-                                            sx={{ fontSize: '1.6rem', textTransform: 'none', borderRadius: 999, px: 2, py: 0.75, minWidth: 0, lineHeight: 1.2, borderColor: isSelected ? 'error.main' : 'grey.600', color: isSelected ? '#fff' : 'text.primary' }}
-                                        >
-                                            {opt.label}
-                                        </Button>
-                                    );
-                                })}
-                            </Box>
-                            {endTime && (
-                                <Button
-                                    variant="contained"
-                                    fullWidth
-                                    size="large"
-                                    onClick={() => send({ type: 'CONTINUE' })}
-                                    sx={{ mt: 2, py: 1.5, fontSize: '1.6rem', textTransform: 'none' }}
-                                >
-                                    Continue
-                                </Button>
-                            )}
-                        </Box>
+                    {availableSlots.length === 0 ? (
+                        <Typography color="text.secondary" sx={{ fontSize: '1.5rem', py: 2 }}>
+                            No start times left for this day — please choose another date.
+                        </Typography>
+                    ) : (
+                        <Stack role="group" aria-label="Start time" spacing={1}>
+                            {availableSlots.map(hour => {
+                                const timeStr = `${String(hour).padStart(2, '0')}:00`;
+                                const timeLabel = format(parse(timeStr, 'HH:mm', new Date()), 'h:mm a');
+                                return (
+                                    <Box
+                                        key={hour}
+                                        component="button"
+                                        type="button"
+                                        onClick={() => { send({ type: 'SELECT_START', hour }); send({ type: 'CONTINUE' }); }}
+                                        aria-label={`Select ${timeLabel} — available`}
+                                        sx={{
+                                            width: '100%', font: 'inherit', cursor: 'pointer',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2,
+                                            px: 2.5, py: 1.75, borderRadius: 2, border: '2px solid',
+                                            borderColor: 'grey.400',
+                                            bgcolor: 'background.paper',
+                                            color: 'text.primary',
+                                            transition: 'all 0.12s',
+                                            '&:hover': { borderColor: 'text.secondary', bgcolor: 'grey.50' },
+                                            '&:focus-visible': { outline: '2px solid', outlineColor: 'text.primary', outlineOffset: 2 },
+                                        }}
+                                    >
+                                        <Typography component="span" sx={{ fontSize: '1.7rem', fontWeight: 600 }}>{timeLabel}</Typography>
+                                        <Typography component="span" sx={{ fontSize: '1.4rem', display: 'inline-flex', alignItems: 'center', gap: 0.5, color: 'text.secondary' }}>
+                                            Available
+                                            <Box component="span" aria-hidden="true" sx={{ fontSize: '1.6rem', lineHeight: 1 }}>&rsaquo;</Box>
+                                        </Typography>
+                                    </Box>
+                                );
+                            })}
+                        </Stack>
                     )}
                 </Box>
             )}
@@ -703,36 +729,20 @@ export default function BookASpace() {
                         <Stack spacing={1}>
                             <Stack direction="row" justifyContent="space-between"><Typography color="text.secondary" sx={{ fontSize: '1.5rem' }}>Location</Typography><Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>{selectedLocation?.['Location Name']}</Typography></Stack>
                             <Stack direction="row" justifyContent="space-between"><Typography color="text.secondary" sx={{ fontSize: '1.5rem' }}>Date</Typography><Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>{format(parse(selectedDate, 'yyyy-MM-dd', new Date()), 'EEE, MMM do')}</Typography></Stack>
-                            <Stack direction="row" justifyContent="space-between"><Typography color="text.secondary" sx={{ fontSize: '1.5rem' }}>Time</Typography><Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>{format(parse(startTime, 'HH:mm', new Date()), 'h:mm a')} &ndash; {format(parse(endTime, 'HH:mm', new Date()), 'h:mm a')}</Typography></Stack>
+                            <Stack direction="row" justifyContent="space-between"><Typography color="text.secondary" sx={{ fontSize: '1.5rem' }}>Start time</Typography><Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>{format(parse(startTime, 'HH:mm', new Date()), 'h:mm a')}</Typography></Stack>
                             <Stack direction="row" justifyContent="space-between" alignItems="center">
                                 <Typography color="text.secondary" sx={{ fontSize: '1.5rem' }}>Guests</Typography>
                                 <Stack direction="row" spacing={1} alignItems="center">
                                     <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>{partySize}</Typography>
-                                    <Button size="small" onClick={() => send({ type: 'EDIT_PARTY' })} sx={{ textTransform: 'none', minWidth: 0, fontSize: '1.3rem' }}>Edit</Button>
+                                    <Button size="small" onClick={() => send({ type: 'BACK' })} sx={{ textTransform: 'none', minWidth: 0, fontSize: '1.3rem' }}>Edit</Button>
                                 </Stack>
                             </Stack>
                         </Stack>
                     </Box>
 
-                    {availability?.configured && partyAllocation ? (
-                        <Box sx={{ border: '1px solid', borderColor: 'success.main', bgcolor: 'rgba(46,125,50,0.08)', borderRadius: 2, p: 2, mb: 2 }}>
-                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 700, mb: 0.5 }}>
-                                We&apos;ll reserve {partyAllocation.tables.length} table{partyAllocation.tables.length === 1 ? '' : 's'} for you
-                            </Typography>
-                            <Typography sx={{ fontSize: '1.5rem', color: 'text.secondary' }}>
-                                {partyAllocation.tables.map(t => t.name).join(', ')} &middot; {partyAllocation.totalSeats} seats
-                            </Typography>
-                        </Box>
-                    ) : availability?.configured ? (
-                        <Alert severity="warning" sx={{ mb: 2, fontSize: '1.4rem' }}>
-                            Not enough tables are free at this time for {partySize} guest{Number(partySize) === 1 ? '' : 's'}
-                            {typeof availability.freeSeats === 'number' ? ` (only ${availability.freeSeats} seats available)` : ''}. Please go back and choose a different time.
-                        </Alert>
-                    ) : (
-                        <Alert severity="info" sx={{ mb: 2, fontSize: '1.4rem' }}>
-                            We&apos;ll review your request for {partySize} guest{Number(partySize) === 1 ? '' : 's'} and confirm table arrangements with you.
-                        </Alert>
-                    )}
+                    <Alert severity="info" sx={{ mb: 2, fontSize: '1.4rem' }}>
+                        We&apos;ll review your request for {partySize} guest{Number(partySize) === 1 ? '' : 's'}, confirm the timing and table arrangements, and get back to you.
+                    </Alert>
 
                     <Stack direction="row" spacing={2}>
                         <Button variant="outlined" onClick={() => send({ type: 'BACK' })} sx={{ fontSize: '1.5rem' }}>Back</Button>
@@ -740,7 +750,6 @@ export default function BookASpace() {
                             variant="contained"
                             fullWidth
                             size="large"
-                            disabled={!!(availability?.configured && !partyAllocation)}
                             onClick={() => send({ type: 'CONTINUE' })}
                             sx={{ fontSize: '1.6rem' }}
                         >
@@ -788,22 +797,69 @@ export default function BookASpace() {
                             value={formData.phone}
                             onChange={(e) => send({ type: 'FIELD_CHANGE', field: 'phone', value: e.target.value })}
                         />
-                        <TextField
-                            label="Organization Name"
-                            fullWidth
-                            value={formData.organizationName}
-                            onChange={(e) => send({ type: 'FIELD_CHANGE', field: 'organizationName', value: e.target.value })}
-                            helperText="Optional"
-                        />
-                        <TextField
-                            label="What is this event for?"
-                            fullWidth
-                            multiline
-                            rows={3}
-                            value={formData.description}
-                            onChange={(e) => send({ type: 'FIELD_CHANGE', field: 'description', value: e.target.value })}
-                            helperText="Tell us about your event or gathering"
-                        />
+                        {/* Admin-configured custom fields for the selected event type */}
+                        {selectedTypeFields.map(f => {
+                            const val = formData[f.id];
+                            if (f.type === 'checkbox') {
+                                return (
+                                    <FormControlLabel
+                                        key={f.id}
+                                        control={<Checkbox checked={!!val} onChange={(e) => send({ type: 'FIELD_CHANGE', field: f.id, value: e.target.checked })} />}
+                                        label={f.label}
+                                    />
+                                );
+                            }
+                            if (f.type === 'select') {
+                                return (
+                                    <TextField
+                                        key={f.id}
+                                        select
+                                        label={f.label}
+                                        required={!!f.required}
+                                        fullWidth
+                                        value={val || ''}
+                                        onChange={(e) => send({ type: 'FIELD_CHANGE', field: f.id, value: e.target.value })}
+                                    >
+                                        <MenuItem value=""><em>Choose…</em></MenuItem>
+                                        {(f.options || []).map(opt => <MenuItem key={opt} value={opt}>{opt}</MenuItem>)}
+                                    </TextField>
+                                );
+                            }
+                            return (
+                                <TextField
+                                    key={f.id}
+                                    label={f.label}
+                                    required={!!f.required}
+                                    fullWidth
+                                    multiline={f.type === 'textarea'}
+                                    rows={f.type === 'textarea' ? 3 : undefined}
+                                    value={val || ''}
+                                    onChange={(e) => send({ type: 'FIELD_CHANGE', field: f.id, value: e.target.value })}
+                                    helperText={f.required ? undefined : 'Optional'}
+                                />
+                            );
+                        })}
+                        {(eventTypes.length === 0 || selectedEventType === 'Other') ? (
+                            <TextField
+                                label="What is this event for?"
+                                fullWidth
+                                multiline
+                                rows={3}
+                                value={formData.description}
+                                onChange={(e) => send({ type: 'FIELD_CHANGE', field: 'description', value: e.target.value })}
+                                helperText="Tell us about your event or gathering"
+                            />
+                        ) : (
+                            <TextField
+                                label="Anything else we should know?"
+                                fullWidth
+                                multiline
+                                rows={2}
+                                value={formData.description}
+                                onChange={(e) => send({ type: 'FIELD_CHANGE', field: 'description', value: e.target.value })}
+                                helperText="Optional — any details for our team"
+                            />
+                        )}
                     </Stack>
 
                     {error && (

@@ -1,6 +1,7 @@
 import { setup, assign, fromPromise, createMachine } from 'xstate';
 import { EVENTS_API_URL, OTP_VERIFY_URL, CHECK_GUEST_STATUS_URL, AUTHENTICATE_GUEST_URL, CREATE_EVENT_REGISTRATION_URL, LIST_REGISTERED_EVENTS_FOR_USER_URL, LIST_AND_UPDATE_TRANSACTION_DETAILS_AND_TALLY_URL, CREATE_ORGANIZATION_URL, UPDATE_PAYEE_URL, CONSUMER_ORDERS_URL, LOYALTY_API_URL, SUBSCRIPTION_API_URL } from '@/constants/events/eventsConstants';
 import { format } from 'date-fns';
+import { storeToday, isPreviewMode } from '@/utils/storeDate';
 import {
     trackEventViewed, trackEventLocationSelected, trackEventDateSelected,
     trackEventTimeSelected, trackEventContactFormViewed, trackEventContactFormSubmitted,
@@ -135,6 +136,25 @@ const roleFromEventType = (eventType) => {
     return (t === 'fundraiser' || t === 'rolling fundraiser') ? 'Host' : 'Participant';
 };
 
+// Resolve the tournament this registration is for (mirrors backend resolveEffectiveTournamentId).
+// Event-level tournamentId, or for a Tentpole the matching schedule stop's tournamentId. A truthy
+// result means this is a "gaming" registration → a named PLAYER, and multiple players can share one contact.
+export const resolveEventTournamentId = (currentEvent, selectedDate, selectedLocationId) => {
+    if (!currentEvent) return null;
+    let tid = currentEvent.tournamentId || currentEvent['Tournament ID'] || null;
+    const type = (currentEvent.type || currentEvent.Type || '').toLowerCase();
+    if (type === 'tentpole' && Array.isArray(currentEvent.schedule)) {
+        const d = (selectedDate || '').substring(0, 10);
+        const stop = currentEvent.schedule.find(s => s.date === d && s.locationId === selectedLocationId)
+            || currentEvent.schedule.find(s => s.date === d)
+            || currentEvent.schedule.find(s => s.locationId === selectedLocationId);
+        if (stop && stop.tournamentId) tid = stop.tournamentId;
+    }
+    return tid;
+};
+export const isGamingEvent = (currentEvent, selectedDate, selectedLocationId) =>
+    !!resolveEventTournamentId(currentEvent, selectedDate, selectedLocationId);
+
 // Helper function to validate the contact form
 const validateContactForm = (contactInfo, currentEvent, selectedLocation) => {
     const errors = {};
@@ -161,13 +181,6 @@ const validateContactForm = (contactInfo, currentEvent, selectedLocation) => {
 
     if (!contactInfo.email) errors.email = 'Email is required';
     if (!contactInfo.mobileNumber) errors.mobileNumber = 'Mobile number is required';
-
-    // Per-event parental consent — must be checked before registering when enabled.
-    // Gate on consentText too, matching the checkbox's render condition, so an event with
-    // consent required but no statement text can't deadlock the form.
-    if (currentEvent?.requireConsent && currentEvent?.consentText && !contactInfo.consentAccepted) {
-        errors.consentAccepted = 'You must agree to continue';
-    }
     return errors;
 };
 
@@ -187,7 +200,7 @@ const initialContext = {
         email: '',
         mobileNumber: '',
         smsOptIn: true,
-        consentAccepted: false,
+        playerName: '', // gaming events: the named player being registered (may differ from the contact)
     },
     formErrors: {},
     error: null,
@@ -197,6 +210,7 @@ const initialContext = {
     viewingEventId: null,
     guestId: null,
     otpChannel: null,
+    manualMethodChoice: false,
     potentialAccounts: [],
     selectedAccountId: null,
     matchType: null,
@@ -216,7 +230,11 @@ const initialContext = {
     subscriptions: null,
     deepLinkStopIndex: null,
     duplicateNotice: false,
+    justRegisteredGaming: null, // set to { eventId, eventName, playerName } after a gaming reg to offer "register another player"
+    playerPromptReason: null, // 'duplicate' (already-registered interception) | 'another' (add-another button) — drives the player-name prompt copy
     autoRegister: false,
+    fromSeriesId: null,
+    fromSeriesSlug: null,
     lastSessionCreatedAt: null,
     paymentMethod: null,
     paymentNonce: null,
@@ -277,7 +295,7 @@ export const eventsMachine = setup({
         const response = await fetch(CREATE_EVENT_REGISTRATION_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'checkDuplicateRegistration', guestId: input.guestId, eventId: input.eventId, date: input.date })
+            body: JSON.stringify({ action: 'checkDuplicateRegistration', guestId: input.guestId, eventId: input.eventId, date: input.date, locationId: input.locationId || null, playerName: input.playerName || null })
         });
         if (!response.ok) throw new Error('Failed to check registration status.');
         const data = await response.json();
@@ -554,7 +572,11 @@ export const eventsMachine = setup({
         error: null,
         deepLinkStopIndex: null,
         duplicateNotice: false,
+        justRegisteredGaming: null,
+        playerPromptReason: null,
         autoRegister: false,
+        fromSeriesId: null,
+        fromSeriesSlug: null,
         paymentMethod: null,
         paymentNonce: null,
         stripeToken: null,
@@ -584,6 +606,9 @@ export const eventsMachine = setup({
     },
     DISMISS_DUPLICATE_NOTICE: {
         actions: assign({ duplicateNotice: false }),
+    },
+    DISMISS_REGISTER_ANOTHER: {
+        actions: assign({ justRegisteredGaming: null }),
     },
     'DATA.LOADED': {
         actions: [
@@ -634,12 +659,14 @@ export const eventsMachine = setup({
                     duplicateNotice: ({ event }) => !!event.duplicate,
                 }),
             },
-            CHOOSE_FUNDRAISER: {
+            CHOOSE_EVENT: {
               target: 'wizardFlow',
               actions: assign({
                 selectedEventId: ({ event }) => event.eventId,
                 deepLinkStopIndex: ({ event }) => event.stopIndex != null ? event.stopIndex : null,
                 autoRegister: ({ event }) => !!event.register,
+                fromSeriesId: ({ event }) => event.fromSeriesId || null,
+                fromSeriesSlug: ({ event }) => event.fromSeriesSlug || null,
               })
             },
         }
@@ -752,11 +779,50 @@ export const eventsMachine = setup({
                     REDEEM_REWARD: {
                         target: 'redeemingReward',
                     },
-                    // Force a fresh fetch of registered events (bypasses the 2-min
-                    // cache) so time-sensitive spot-confirmation state stays current
-                    // when the user lands on / returns to the dashboard.
+                    // Force a fresh (background) refetch of registered events so time-sensitive
+                    // spot-confirmation state (a newly-reserved seat + its Confirm button) stays
+                    // current on dashboard entry / focus / poll WITHOUT requiring a re-login.
+                    // Targets refreshingEvents (not loadingEvents) so it bypasses the 2-min
+                    // checkingCache guard and does not flash the full-screen loader.
                     REFRESH_EVENTS: {
-                        target: 'loadingEvents',
+                        target: 'refreshingEvents',
+                    }
+                }
+            },
+            // Background refresh: refetches account data but keeps the dashboard rendered (no
+            // full-screen spinner), unlike loadingEvents. Falls back to existing data on error.
+            refreshingEvents: {
+                invoke: {
+                    src: 'fetchAccountData',
+                    input: ({ context }) => ({
+                        guestId: context.guestId,
+                        sid: context.sid,
+                        sessionToken: context.sessionToken,
+                        email: context.contactInfo?.email,
+                        phone: context.contactInfo?.mobileNumber || context.loginIdentifier,
+                    }),
+                    onDone: {
+                        target: 'idle',
+                        actions: [
+                            assign({
+                                registeredEvents: ({ event }) => {
+                                    let output = event.output.rawEvents;
+                                    if (Array.isArray(output) && output.length > 0) output = output[0];
+                                    if (output && typeof output === 'object' &&
+                                        (output.hostedEvents || output.participantEvents)) {
+                                        return output;
+                                    }
+                                    return Array.isArray(output) ? output : [];
+                                },
+                                orders: ({ event }) => event.output.orders,
+                                loyalty: ({ event }) => event.output.loyalty,
+                                subscriptions: ({ event }) => event.output.subscriptions,
+                                lastFetchTimestamp: () => Date.now(),
+                            }),
+                        ]
+                    },
+                    onError: {
+                        target: 'idle',
                     }
                 }
             },
@@ -813,7 +879,26 @@ export const eventsMachine = setup({
             },
         },
         on: {
-            SCHEDULE_NEW: 'directory',
+            SCHEDULE_NEW: { target: 'directory', actions: assign({ justRegisteredGaming: null, playerPromptReason: null }) },
+            // Gaming events: after a successful registration, register another named player under the same
+            // contact. Keep the event/date/location/time and contact fields; clear only the player name and
+            // any payment selection so the contact form re-prompts "Who's playing?".
+            REGISTER_ANOTHER_PLAYER: {
+                target: '#fundraiser.wizardFlow.enteringPlayerName',
+                actions: assign({
+                    contactInfo: ({ context }) => ({ ...context.contactInfo, playerName: '' }),
+                    paymentMethod: null,
+                    paymentNonce: null,
+                    stripeToken: null,
+                    encryptedCard: null,
+                    paymentError: null,
+                    formErrors: {},
+                    duplicateNotice: false,
+                    newlyRegisteredEvent: null,
+                    justRegisteredGaming: null,
+                    playerPromptReason: 'another',
+                }),
+            },
             LOGOUT: {
                 target: 'directory',
                 actions: 'hardReset'
@@ -1024,11 +1109,20 @@ export const eventsMachine = setup({
                         target: 'validating',
                         actions: ({ context }) => trackEventFlowStarted(context.selectedEventId, { source: 'manual' }),
                     },
-                    BACK: '#fundraiser.directory'
+                    BACK: {
+                        target: '#fundraiser.directory',
+                        actions: 'softReset',
+                    }
                 }
             },
-            
+
             validating: {
+                // Consume the deep-link/auto-register intent on the way through the router. The
+                // eventLanding 'always' guard has already used autoRegister to skip the landing by
+                // the time we reach here, so clearing it now prevents BACK → eventLanding from being
+                // auto-forwarded straight back into the wizard (which trapped the user on the stop
+                // picker). deepLinkStopIndex is left intact — the selectingContact route below needs it.
+                entry: assign({ autoRegister: () => false }),
                 always: [
                     { target: '#fundraiser.directory', guard: ({ context }) => !context.selectedEventId },
 
@@ -1040,13 +1134,14 @@ export const eventsMachine = setup({
                             const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
                             if (!currentEvent || (currentEvent.type || '').toLowerCase() !== 'tentpole' || !Array.isArray(currentEvent.schedule)) return false;
                             const schedule = currentEvent.schedule;
-                            const today = new Date().toISOString().slice(0, 10);
+                            const today = storeToday();
                             const isFuture = (stop) => !stop.date || stop.date >= today;
 
                             // Deep-link stopIndex is set, valid, AND the stop is in the future
                             if (context.deepLinkStopIndex != null && schedule[context.deepLinkStopIndex] && isFuture(schedule[context.deepLinkStopIndex])) return true;
-                            // Exactly one future stop → auto-select it
-                            const futureStops = schedule.filter(isFuture);
+                            // Exactly one future, non-hidden stop → auto-select it. (Hidden stops are
+                            // URL-only; they never count toward the single-session auto-skip.)
+                            const futureStops = schedule.filter(s => isFuture(s) && (!s.hidden || isPreviewMode()));
                             if (futureStops.length === 1) return true;
                             return false;
                         },
@@ -1054,32 +1149,32 @@ export const eventsMachine = setup({
                             assign({
                                 selectedLocationId: ({ context }) => {
                                     const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
-                                    const today = new Date().toISOString().slice(0, 10);
+                                    const today = storeToday();
                                     const isFuture = (stop) => !stop.date || stop.date >= today;
                                     // Use deepLinkStopIndex if it points to a future stop, else first future stop
                                     if (context.deepLinkStopIndex != null && currentEvent.schedule[context.deepLinkStopIndex] && isFuture(currentEvent.schedule[context.deepLinkStopIndex])) {
                                         return currentEvent.schedule[context.deepLinkStopIndex].locationId;
                                     }
-                                    return currentEvent.schedule.find(isFuture)?.locationId;
+                                    return currentEvent.schedule.find(s => isFuture(s) && (!s.hidden || isPreviewMode()))?.locationId;
                                 },
                                 selectedDate: ({ context }) => {
                                     const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
-                                    const today = new Date().toISOString().slice(0, 10);
+                                    const today = storeToday();
                                     const isFuture = (stop) => !stop.date || stop.date >= today;
                                     if (context.deepLinkStopIndex != null && currentEvent.schedule[context.deepLinkStopIndex] && isFuture(currentEvent.schedule[context.deepLinkStopIndex])) {
                                         return currentEvent.schedule[context.deepLinkStopIndex].date;
                                     }
-                                    return currentEvent.schedule.find(isFuture)?.date;
+                                    return currentEvent.schedule.find(s => isFuture(s) && (!s.hidden || isPreviewMode()))?.date;
                                 },
                                 selectedTime: ({ context }) => {
                                     const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
-                                    const today = new Date().toISOString().slice(0, 10);
+                                    const today = storeToday();
                                     const isFuture = (stop) => !stop.date || stop.date >= today;
                                     let stop;
                                     if (context.deepLinkStopIndex != null && currentEvent.schedule[context.deepLinkStopIndex] && isFuture(currentEvent.schedule[context.deepLinkStopIndex])) {
                                         stop = currentEvent.schedule[context.deepLinkStopIndex];
                                     } else {
-                                        stop = currentEvent.schedule.find(isFuture);
+                                        stop = currentEvent.schedule.find(s => isFuture(s) && (!s.hidden || isPreviewMode()));
                                     }
                                     return stop?.startTime && stop?.endTime ? `${stop.startTime} - ${stop.endTime}` : null;
                                 },
@@ -1247,14 +1342,21 @@ export const eventsMachine = setup({
                                 : null,
                         })
                     },
-                    BACK: {
-                        target: 'eventLanding',
-                        actions: assign({
-                            selectedLocationId: null,
-                            selectedDate: null,
-                            selectedTime: null,
-                        })
-                    }
+                    BACK: [
+                        {
+                            target: '#fundraiser.directory',
+                            guard: ({ context }) => !!context.fromSeriesId,
+                            actions: 'softReset',
+                        },
+                        {
+                            target: 'eventLanding',
+                            actions: assign({
+                                selectedLocationId: null,
+                                selectedDate: null,
+                                selectedTime: null,
+                            })
+                        }
+                    ]
                 }
             },
             selectingDate: {
@@ -1297,13 +1399,20 @@ export const eventsMachine = setup({
                             target: 'selectingTime'
                         }
                     ],
-                    BACK: {
-                        target: 'eventLanding',
-                        actions: assign({ 
-                            selectedLocationId: null,
-                            selectedDate: null 
-                        })
-                    }
+                    BACK: [
+                        {
+                            target: '#fundraiser.directory',
+                            guard: ({ context }) => !!context.fromSeriesId,
+                            actions: 'softReset',
+                        },
+                        {
+                            target: 'eventLanding',
+                            actions: assign({
+                                selectedLocationId: null,
+                                selectedDate: null
+                            })
+                        }
+                    ]
                 },
             },
             selectingTime: {
@@ -1315,10 +1424,17 @@ export const eventsMachine = setup({
                         ]
                     },
                     PROCEED_TO_CONTACT: 'selectingContact',
-                    BACK: {
-                        target: 'selectingDate',
-                        actions: assign({ selectedTime: null })
-                    }
+                    BACK: [
+                        {
+                            target: '#fundraiser.directory',
+                            guard: ({ context }) => !!context.fromSeriesId,
+                            actions: 'softReset',
+                        },
+                        {
+                            target: 'selectingDate',
+                            actions: assign({ selectedTime: null })
+                        }
+                    ]
                 }
             },
             selectingContact: {
@@ -1381,13 +1497,19 @@ export const eventsMachine = setup({
                     ],
                     // ✅ SMART BACK BUTTON: Go to the last screen the user actually saw
                     BACK: [
+                        // Entered from a series stop card → exit wizard entirely (UI handles navigation to series detail)
+                        {
+                            target: '#fundraiser.directory',
+                            guard: ({ context }) => !!context.fromSeriesId,
+                            actions: 'softReset',
+                        },
                         // Tentpole events with multiple future stops: user saw stop picker → go back there
                         {
                             target: 'selectingStop',
                             guard: ({ context }) => {
                                 const currentEvent = context.fundraiserEvents.find(e => e.id === context.selectedEventId);
                                 if (!currentEvent || (currentEvent.type || '').toLowerCase() !== 'tentpole' || !Array.isArray(currentEvent.schedule)) return false;
-                                const today = new Date().toISOString().slice(0, 10);
+                                const today = storeToday();
                                 const futureStops = currentEvent.schedule.filter(s => !s.date || s.date >= today);
                                 return futureStops.length > 1; // Only if user would have seen stop picker (multiple stops)
                             },
@@ -1432,6 +1554,38 @@ export const eventsMachine = setup({
                     ]
                 },
             },
+            // Collects an additional player's name for a gaming event (reached from the already-registered
+            // interception or the "register another player" button). Contact/date/location are unchanged;
+            // on submit we re-check duplicates with the new name, then flow into payment as usual.
+            enteringPlayerName: {
+                on: {
+                    UPDATE_PLAYER_NAME: {
+                        actions: assign({
+                            contactInfo: ({ context, event }) => ({ ...context.contactInfo, playerName: event.value }),
+                            formErrors: ({ context }) => { const e = { ...context.formErrors }; delete e.playerName; return e; },
+                        }),
+                    },
+                    SUBMIT_PLAYER: [
+                        {
+                            target: 'submitting.checkingDuplicate',
+                            guard: ({ context }) => !!(context.contactInfo.playerName && context.contactInfo.playerName.trim()),
+                            actions: assign({ formErrors: {}, playerPromptReason: null }),
+                        },
+                        {
+                            actions: assign({ formErrors: ({ context }) => ({ ...context.formErrors, playerName: "Player's name is required" }) }),
+                        },
+                    ],
+                    CANCEL_PLAYER: {
+                        target: '#fundraiser.userDashboard',
+                        actions: assign({
+                            contactInfo: ({ context }) => ({ ...context.contactInfo, playerName: '' }),
+                            playerPromptReason: null,
+                            formErrors: {},
+                            paymentMethod: null, paymentNonce: null, stripeToken: null, encryptedCard: null, paymentError: null,
+                        }),
+                    },
+                },
+            },
             selectingPayment: {
                 on: {
                     SELECT_PAYMENT_METHOD: {
@@ -1453,10 +1607,17 @@ export const eventsMachine = setup({
                             actions: assign({ paymentError: 'Please select a payment method' }),
                         }
                     ],
-                    BACK: {
-                        target: 'selectingContact',
-                        actions: assign({ paymentMethod: null, paymentNonce: null, stripeToken: null, encryptedCard: null, paymentError: null }),
-                    }
+                    BACK: [
+                        {
+                            target: '#fundraiser.directory',
+                            guard: ({ context }) => !!context.fromSeriesId,
+                            actions: 'softReset',
+                        },
+                        {
+                            target: 'selectingContact',
+                            actions: assign({ paymentMethod: null, paymentNonce: null, stripeToken: null, encryptedCard: null, paymentError: null }),
+                        }
+                    ]
                 }
             },
             submitting: {
@@ -1665,27 +1826,28 @@ export const eventsMachine = setup({
                         states: {
                             choosingMethod: {
                                 always: [
-                                    // Auto-select email if only email matched
+                                    // Auto-select email if only email matched — but NOT when the user
+                                    // deliberately navigated back here (manualMethodChoice), or we'd loop.
                                     {
                                         target: 'sendingGuestOtp',
-                                        guard: ({ context }) => context.matchType === 'email',
+                                        guard: ({ context }) => context.matchType === 'email' && !context.manualMethodChoice,
                                         actions: assign({ otpChannel: 'email' })
                                     },
                                     // Auto-select phone if only phone matched
                                     {
                                         target: 'sendingGuestOtp',
-                                        guard: ({ context }) => context.matchType === 'phone',
+                                        guard: ({ context }) => context.matchType === 'phone' && !context.manualMethodChoice,
                                         actions: assign({ otpChannel: 'sms' })
                                     },
                                 ],
                                 on: {
                                     CHOOSE_EMAIL: {
                                         target: 'sendingGuestOtp',
-                                        actions: assign({ otpChannel: 'email' })
+                                        actions: assign({ otpChannel: 'email', manualMethodChoice: false })
                                     },
                                     CHOOSE_SMS: {
                                         target: 'sendingGuestOtp',
-                                        actions: assign({ otpChannel: 'sms' })
+                                        actions: assign({ otpChannel: 'sms', manualMethodChoice: false })
                                     },
                                     BACK: '#fundraiser.wizardFlow.selectingContact'
                                 }
@@ -1721,7 +1883,11 @@ export const eventsMachine = setup({
                             enteringGuestOtp: {
                                 on: {
                                     SUBMIT_GUEST_OTP: 'verifyingGuestOtp',
-                                    BACK_TO_GUEST_METHOD_CHOICE: 'choosingMethod'
+                                    // Both the in-page "Change Method" and the header back arrow return to
+                                    // the method choice. manualMethodChoice stops choosingMethod from
+                                    // auto-forwarding straight back to sending the OTP.
+                                    BACK_TO_GUEST_METHOD_CHOICE: { target: 'choosingMethod', actions: assign({ manualMethodChoice: true }) },
+                                    BACK: { target: 'choosingMethod', actions: assign({ manualMethodChoice: true }) }
                                 }
                             },
                             verifyingGuestOtp: {
@@ -1928,9 +2094,23 @@ export const eventsMachine = setup({
                                     guestId: context.guestId,
                                     eventId: context.selectedEventId,
                                     date: dateIso,
+                                    locationId: context.selectedLocationId,
+                                    playerName: context.contactInfo?.playerName || null,
                                 };
                             },
                             onDone: [
+                                {
+                                    // Gaming event + this contact/player is already registered → don't just block.
+                                    // Intercept: offer to register a DIFFERENT named player under the same contact.
+                                    // (A plain contact double-registering can simply cancel — no phantom player.)
+                                    target: '#fundraiser.wizardFlow.enteringPlayerName',
+                                    guard: ({ context, event }) => {
+                                        if (!event.output.isDuplicate) return false;
+                                        const currentEvent = context.fundraiserEvents?.find(e => e.id === context.selectedEventId);
+                                        return isGamingEvent(currentEvent, context.selectedDate, context.selectedLocationId);
+                                    },
+                                    actions: assign({ playerPromptReason: 'duplicate', duplicateNotice: false, formErrors: {} }),
+                                },
                                 {
                                     target: '#fundraiser.userDashboard',
                                     guard: ({ event }) => event.output.isDuplicate,
@@ -2032,8 +2212,8 @@ export const eventsMachine = setup({
                                     locationId: context.selectedLocationId,
                                     sid: context.sid,
                                     role,
+                                    playerName: context.contactInfo.playerName || null,
                                     smsOptIn: context.contactInfo.smsOptIn === true,
-                                    consentAccepted: context.contactInfo.consentAccepted === true,
                                     reservationType: context.contactInfo.reservationType || null,
                                     partySize: context.contactInfo.partySize ? Number(context.contactInfo.partySize) : null,
                                     paymentMethod: context.paymentMethod || null,
@@ -2072,7 +2252,12 @@ export const eventsMachine = setup({
                                             // Build the newly registered event object from context
                                             const currentEvent = context.fundraiserEvents?.find(e => e.id === context.selectedEventId);
                                             const selectedLocation = context.locations?.find(loc => loc.id === context.selectedLocationId);
-                                            const role = roleFromEventType(currentEvent?.['Event Type'] || currentEvent?.eventType);
+                                            const gaming = isGamingEvent(currentEvent, context.selectedDate, context.selectedLocationId);
+                                            // Gaming regs are 'Player' on the backend; a named player may differ from the contact.
+                                            const role = gaming ? 'Player' : roleFromEventType(currentEvent?.['Event Type'] || currentEvent?.eventType);
+                                            const optimisticPlayerName = gaming
+                                                ? (context.contactInfo?.playerName?.trim() || [context.contactInfo?.firstName, context.contactInfo?.lastName].filter(Boolean).join(' ') || null)
+                                                : null;
 
                                             // Format date for display — use date string directly to avoid UTC shift
                                             const formattedDate = (context.selectedDate || '').split('T')[0];
@@ -2089,7 +2274,8 @@ export const eventsMachine = setup({
                                                 'Description': currentEvent?.description || currentEvent?.['Description'],
                                                 'Bullet Points': currentEvent?.bulletPoints || currentEvent?.['Bullet Points'],
                                                 'Status': 'Pending',
-                                                'Role': role
+                                                'Role': role,
+                                                'Player Name': optimisticPlayerName,
                                             };
 
                                             console.log('🎉 Registration successful! Adding event to list:', newEvent);
@@ -2109,13 +2295,20 @@ export const eventsMachine = setup({
                                                     participantEvents: [...(currentEvents.participantEvents || []), newEvent]
                                                 };
                                             }
-                                            
+
+                                            // `gaming` computed above (with the newEvent). Reuse it to offer
+                                            // registering another player under the same contact.
                                             return {
                                                 isAuthenticated: true,
                                                 registeredEvents: updatedEvents,
                                                 newlyRegisteredEvent: newEvent,
                                                 lastFetchTimestamp: Date.now(),
                                                 duplicateNotice: false,
+                                                justRegisteredGaming: gaming ? {
+                                                    eventId: context.selectedEventId,
+                                                    eventName: currentEvent?.title || currentEvent?.['Event Name'] || 'this event',
+                                                    playerName: context.contactInfo?.playerName || '',
+                                                } : null,
                                             };
                                         }),
                                         ({ context }) => {

@@ -235,7 +235,7 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
                 const res = await fetch(CHECKOUT_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'getCheckoutConfig' }),
+                    body: JSON.stringify({ action: 'getCheckoutConfig', environment: window.location.hostname.includes('beta') ? 'beta' : 'production' }),
                 });
                 const data = await res.json();
                 const result = typeof data.body === 'string' ? JSON.parse(data.body) : data;

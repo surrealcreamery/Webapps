@@ -834,12 +834,14 @@ export default function CheckoutPage() {
   }, [cart, locations]);
   const { groups: fulfillmentGroups, requiresSplitShipping } = fulfillmentGroupsData;
 
+  // Payment config is resolved PER LOCATION (so a store on Stripe renders Stripe Elements, one on
+  // Square renders the Square form). Refetch whenever the selected pickup location changes.
   useEffect(() => {
-    callApi('getCheckoutConfig')
+    callApi('getCheckoutConfig', { environment: window.location.hostname.includes('beta') ? 'beta' : 'production', locationId: selectedLocationSlug || undefined })
       .then(setPaymentConfig)
       .catch(() => setPaymentConfig({ paymentMethod: 'square_web_sdk' }))
       .finally(() => setConfigLoading(false));
-  }, []);
+  }, [selectedLocationSlug]);
 
   useEffect(() => {
     if (cart.length === 0 && !checkoutConfirmation) {
