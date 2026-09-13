@@ -119,10 +119,10 @@ function HeroSection({ config, navigate }) {
               sx={{
                 position: 'absolute', top: 0, left: 0, px: { xs: 3, md: 6 },
                 fontFamily: "'Fredoka', sans-serif", fontWeight: 700,
-                fontSize: { xs: '3.6rem', sm: '5rem', md: '6.4rem' },
+                fontSize: { xs: 'clamp(1.6rem, 7vw, 2.6rem)', sm: '5rem', md: '6.4rem' },
                 lineHeight: 1.05, letterSpacing: '-0.02em', whiteSpace: 'pre-line',
                 color: '#3BBCE0',
-                WebkitTextStroke: { xs: '6px #3BBCE0', md: '8px #3BBCE0' },
+                WebkitTextStroke: { xs: '3px #3BBCE0', md: '8px #3BBCE0' },
                 textShadow: '0px 6px 0 #0a2a5e, 0px 7px 0 #0a2a5e, 0px 8px 0 #0a2a5e, 0px 9px 0 #0a2a5e',
               }}
             >
@@ -133,7 +133,7 @@ function HeroSection({ config, navigate }) {
               sx={{
                 position: 'relative',
                 fontFamily: "'Fredoka', sans-serif", fontWeight: 700,
-                fontSize: { xs: '3.6rem', sm: '5rem', md: '6.4rem' },
+                fontSize: { xs: 'clamp(1.6rem, 7vw, 2.6rem)', sm: '5rem', md: '6.4rem' },
                 lineHeight: 1.05, letterSpacing: '-0.02em', whiteSpace: 'pre-line',
                 background: 'linear-gradient(to bottom, #ffffff 0%, #ffffff 40%, #d8e8f0 55%, #ffffff 70%, #ffffff 100%)',
                 WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
@@ -417,7 +417,7 @@ function CtaButtonsSection({ config, navigate }) {
     <motion.div variants={childFadeUp}>
       <Container maxWidth="lg" sx={{ py: 4 }}>
         {config.title && <Typography variant="h2" sx={{ fontWeight: 700, fontSize: 'h4.fontSize', mb: 2, textAlign: 'center' }}>{config.title}</Typography>}
-        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }} role="group" aria-label={config.title || 'Actions'}>
+        <Box sx={{ display: 'flex', gap: { xs: 1, sm: 2 }, justifyContent: 'center', flexWrap: 'wrap' }} role="group" aria-label={config.title || 'Actions'}>
           {config.buttons.map((button, idx) => (
             <Button
               key={idx}
@@ -433,8 +433,11 @@ function CtaButtonsSection({ config, navigate }) {
               }}
               sx={{
                 backgroundColor: button.color || '#0A6E88', color: button.textColor || 'white',
-                fontSize: '1.6rem', fontWeight: 700, textTransform: 'none',
-                px: 4, py: 1.5, borderRadius: '30px', boxShadow: 'none',
+                // Shrink on mobile so a two-button row (e.g. View Bounties / Submit Bounty) fits side
+                // by side instead of wrapping; wrap remains the fallback for 3+ buttons.
+                fontSize: { xs: '1.25rem', sm: '1.6rem' }, fontWeight: 700, textTransform: 'none',
+                px: { xs: 2, sm: 4 }, py: { xs: 1, sm: 1.5 }, borderRadius: '30px', boxShadow: 'none',
+                whiteSpace: 'nowrap',
                 '&:hover': { opacity: 0.9, boxShadow: 'none' },
               }}
             >
@@ -1439,6 +1442,16 @@ const formatStopDateTime = (dateStr, timeStr) => {
   } catch { return dateStr; }
 };
 
+// Cost to register → "$16", "$16.50", "50 pts", or "Free"
+const eventCostLabel = (feeCents, pointsCost) => {
+  if (feeCents > 0) {
+    const dollars = feeCents / 100;
+    return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+  }
+  if (pointsCost > 0) return `${pointsCost} pts`;
+  return 'Free';
+};
+
 function EventsSection({ config, navigate }) {
   const contentSource = config.contentSource || 'events';
   const [events, setEvents] = useState(null);
@@ -1481,9 +1494,8 @@ function EventsSection({ config, navigate }) {
         if (isTentpole) return e.schedule.some(s => s.date >= today);
         return e.startDate >= today || e.endDate >= today;
       })
-      .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''))
-      .slice(0, config.maxEvents || 3);
-  }, [events, config.eventSource, config.eventIds, config.maxEvents]);
+      .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+  }, [events, config.eventSource, config.eventIds]);
 
   // Fetch reg counts for displayed events
   useEffect(() => {
@@ -1586,99 +1598,125 @@ function EventsSection({ config, navigate }) {
   const isListFormat = config.displayFormat === 'list';
   const isCardList = config.displayFormat === 'card-list';
 
-  // ── List format: vertical stop cards ──
+  // ── List format: image left, details right, cost aligned right ──
   if (isListFormat) {
-    // Build a flat list of stops from all display events
     const today = new Date().toISOString().slice(0, 10);
-    const allStops = [];
-    displayEvents.forEach(ev => {
-      const isTentpole = (ev.type || '').toLowerCase() === 'tentpole' && Array.isArray(ev.schedule);
-      if (isTentpole) {
-        // If admin picked specific stops via eventStops, use those; otherwise show all future stops
-        const pickedStopIdx = config.eventStops?.[ev.id];
-        if (pickedStopIdx != null && ev.schedule[pickedStopIdx]) {
-          allStops.push({ event: ev, stop: ev.schedule[pickedStopIdx], stopIndex: pickedStopIdx });
-        } else {
-          ev.schedule.forEach((stop, i) => {
-            if (!stop.date || stop.date >= today) {
-              allStops.push({ event: ev, stop, stopIndex: i });
-            }
-          });
-        }
-      } else {
-        // Non-tentpole: single entry
-        allStops.push({ event: ev, stop: null, stopIndex: null });
-      }
-    });
-    allStops.sort((a, b) => ((a.stop?.date || a.event.startDate || '').localeCompare(b.stop?.date || b.event.startDate || '')));
+    // One row per event (next upcoming occurrence for multi-stop / tentpole events).
+    // Show all upcoming events by default; only cap when the admin sets a max.
+    const listEvents = config.maxEvents ? displayEvents.slice(0, config.maxEvents) : displayEvents;
 
-    if (!allStops.length) return null;
+    if (!listEvents.length) return null;
 
     return (
       <motion.div variants={childFadeUp}>
         <Box sx={{ py: 3, bgcolor: config.backgroundColor || 'white' }}>
-          <Container maxWidth="sm" sx={{ textAlign: 'center' }}>
+          <Container maxWidth="sm">
             {config.title && (
-              <Typography sx={{ fontWeight: 700, mb: 1, fontSize: '2rem' }}>
+              <Typography sx={{ fontWeight: 700, mb: 0.5, fontSize: '2rem', textAlign: 'center' }}>
                 {config.title}
               </Typography>
             )}
             {config.subtitle && (
-              <Typography sx={{ fontSize: '1.4rem', mb: 3, opacity: 0.8 }}>
+              <Typography sx={{ fontSize: '1.4rem', mb: 3, opacity: 0.8, textAlign: 'center' }}>
                 {config.subtitle}
               </Typography>
             )}
-            <Stack spacing={2}>
-              {allStops.map(({ event: ev, stop, stopIndex }, i) => {
-                const regCount = regCounts[ev.id];
+            <Stack spacing={1.5}>
+              {listEvents.map((ev) => {
+                const isTentpole = (ev.type || '').toLowerCase() === 'tentpole' && Array.isArray(ev.schedule);
+                // Resolve which stop to represent: admin-picked, else next upcoming, else last.
+                const pickedStopIdx = config.eventStops?.[ev.id];
+                const stopIndex = isTentpole
+                  ? (pickedStopIdx != null
+                      ? pickedStopIdx
+                      : (ev.schedule.findIndex(s => s.date >= today) === -1
+                          ? ev.schedule.length - 1
+                          : ev.schedule.findIndex(s => s.date >= today)))
+                  : null;
+                const stop = isTentpole ? ev.schedule[stopIndex] : null;
+
                 const locName = stop ? (locations?.find(l => l.id === stop.locationId)?.name || '') : '';
                 const dateLabel = stop
                   ? formatStopDateTime(stop.date, stop.startTime)
                   : formatEventDate(ev.startDate);
+
+                const feeCents = stop
+                  ? (stop.admissionFeeCents ?? ev.admissionFeeCents ?? 0)
+                  : (ev.admissionFeeCents ?? 0);
+                const pointsCost = stop
+                  ? (stop.pointsCost ?? ev.pointsCost ?? 0)
+                  : (ev.pointsCost ?? 0);
+                const costLabel = eventCostLabel(feeCents, pointsCost);
+
+                const regCount = regCounts[ev.id];
                 const count = stop ? (regCount?.byDate?.[stop.date] || 0) : (regCount?.total || 0);
                 const capacity = stop ? regCount?.capacityByDate?.[stop.date] : null;
                 const isFull = capacity && count >= capacity;
-                const remaining = capacity ? capacity - count : null;
 
                 const handleClick = () => {
+                  if (isFull) return;
                   sessionStorage.setItem('eventDeepLinkReturn', window.location.pathname);
                   navigate(`/events/${ev.id}/register`, { state: { stopIndex } });
                 };
 
                 return (
-                  <Button
-                    key={`${ev.id}-${stopIndex ?? 'all'}-${i}`}
-                    variant="outlined"
+                  <Box
+                    key={ev.id}
                     onClick={handleClick}
-                    disabled={!!isFull}
-                    sx={{ justifyContent: 'flex-start', textAlign: 'left', p: 2, textTransform: 'none', borderRadius: 2, opacity: isFull ? 0.6 : 1 }}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'stretch',
+                      gap: 2,
+                      p: 1.5,
+                      borderRadius: 2,
+                      border: '1px solid',
+                      borderColor: 'grey.300',
+                      bgcolor: 'white',
+                      cursor: isFull ? 'default' : 'pointer',
+                      opacity: isFull ? 0.6 : 1,
+                      transition: 'transform 0.15s, box-shadow 0.15s',
+                      '&:hover': isFull ? {} : { transform: 'translateY(-1px)', boxShadow: 3 },
+                    }}
                   >
-                    <Box>
-                      {(locName || ev.title) && (
-                        <Typography variant="subtitle1" fontWeight={600}>
-                          {locName || ev.title}
+                    {/* Image on the left — native aspect ratio (fixed height, natural width); capped narrower on mobile */}
+                    <Box sx={{ height: { xs: 88, sm: 128 }, minWidth: { xs: 72, sm: 96 }, maxWidth: { xs: 150, sm: 280 }, borderRadius: 1.5, overflow: 'hidden', bgcolor: 'grey.200', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {ev.imageUrl ? (
+                        <img src={ev.imageUrl} alt="" aria-hidden="true" style={{ height: '100%', width: 'auto', display: 'block' }} />
+                      ) : (
+                        <Box sx={{ width: 128, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Typography sx={{ color: 'grey.400', fontSize: '0.9rem' }}>No Image</Typography>
+                        </Box>
+                      )}
+                    </Box>
+
+                    {/* Details on the right */}
+                    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                      <Typography sx={{ fontWeight: 700, fontSize: '1.3rem', lineHeight: 1.2 }}>
+                        {ev.title}
+                      </Typography>
+                      {locName && (
+                        <Typography sx={{ color: 'grey.600', fontSize: '1.05rem', mt: 0.25 }} noWrap>
+                          {locName}
                         </Typography>
                       )}
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography sx={{ color: 'grey.500', fontSize: '1.05rem', mt: 0.25 }}>
                         {dateLabel}
                       </Typography>
-                      {isFull && (
-                        <Typography variant="body2" sx={{ color: 'error.main', fontWeight: 600, mt: 0.5 }}>
+                    </Box>
+
+                    {/* Cost aligned to the right */}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', flexShrink: 0, pl: 1 }}>
+                      {isFull ? (
+                        <Typography sx={{ color: 'error.main', fontWeight: 700, fontSize: '1.05rem' }}>
                           Sold Out
                         </Typography>
-                      )}
-                      {!isFull && remaining !== null && (
-                        <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 600, mt: 0.5 }}>
-                          {remaining} spot{remaining !== 1 ? 's' : ''} remaining
-                        </Typography>
-                      )}
-                      {!isFull && remaining === null && count > 0 && (
-                        <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
-                          {count} registered
+                      ) : (
+                        <Typography sx={{ fontWeight: 700, fontSize: '1.3rem', whiteSpace: 'nowrap' }}>
+                          {costLabel}
                         </Typography>
                       )}
                     </Box>
-                  </Button>
+                  </Box>
                 );
               })}
             </Stack>
@@ -1711,7 +1749,7 @@ function EventsSection({ config, navigate }) {
             pb: 2,
             scrollSnapType: isCardList ? { xs: 'none', md: 'x mandatory' } : 'x mandatory',
           }}>
-            {displayEvents.map((ev) => {
+            {(config.eventSource === 'manual' ? displayEvents : displayEvents.slice(0, config.maxEvents || 3)).map((ev) => {
               const isTentpole = (ev.type || '').toLowerCase() === 'tentpole' && Array.isArray(ev.schedule);
               const today = new Date().toISOString().slice(0, 10);
               const pickedStopIdx = config.eventStops?.[ev.id];

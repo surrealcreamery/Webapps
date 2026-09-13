@@ -891,6 +891,7 @@ export default function EventsHome() {
                     <PlayerNameSection
                         eventName={currentEvent?.title || currentEvent?.['Event Name'] || 'this event'}
                         reason={fundraiserState.context.playerPromptReason}
+                        registeredPlayers={fundraiserState.context.registeredPlayers || []}
                         playerName={contactInfo.playerName || ''}
                         error={formErrors.playerName}
                         onChange={(value) => sendToFundraiser({ type: 'UPDATE_PLAYER_NAME', value })}

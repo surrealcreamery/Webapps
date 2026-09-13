@@ -53,12 +53,33 @@ class GlobalErrorBoundary extends React.Component {
   }
 }
 
+// Evervault's SDK calls window.crypto.subtle.generateKey on init, which only
+// exists in a SECURE CONTEXT (https:// or localhost). On an insecure context —
+// e.g. a kiosk WebView pointed at http:// or a raw LAN IP — crypto.subtle is
+// undefined and Evervault throws, which would crash the ENTIRE app (Commerce
+// included). Kiosks pay at the physical Square terminal and never use Evervault
+// card entry anyway, so when the context can't support it we simply skip the
+// provider and render the app normally. Consumer web (https) keeps Evervault.
+const canUseEvervault = typeof window !== 'undefined'
+  && window.isSecureContext
+  && !!window.crypto?.subtle;
+
+const AppTree = canUseEvervault
+  ? (
+    <EvervaultProvider teamId="team_740904ab1baf" appId="app_e2350847da00">
+      <Router />
+    </EvervaultProvider>
+  )
+  : <Router />;
+
+if (!canUseEvervault) {
+  console.warn('[main] Insecure context (no window.crypto.subtle) — skipping EvervaultProvider. Card entry is unavailable here; kiosks pay at the terminal.');
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
 //  <React.StrictMode>
       <GlobalErrorBoundary>
-        <EvervaultProvider teamId="team_740904ab1baf" appId="app_e2350847da00">
-          <Router />
-        </EvervaultProvider>
+        {AppTree}
       </GlobalErrorBoundary>
 //  </React.StrictMode>
 );

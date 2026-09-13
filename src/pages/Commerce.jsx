@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useRef, useLayoutEffect, useState, useMemo, useCallback } from 'react';
-import { Box, Typography, Button, CircularProgress, Alert, Divider, Container, Grid, Card, CardMedia, CardContent, Modal, IconButton, Chip, ToggleButtonGroup, ToggleButton, useMediaQuery, useTheme, TextField, Stack, Skeleton } from '@mui/material';
+import { Box, Typography, Button, CircularProgress, Alert, Divider, Container, Grid, Card, CardMedia, CardContent, Modal, IconButton, Chip, ToggleButtonGroup, ToggleButton, useMediaQuery, useTheme, TextField, Stack, Skeleton, Menu, MenuItem } from '@mui/material';
 import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
@@ -34,6 +34,7 @@ import { useCatalog } from '@/contexts/commerce/CatalogContext';
 import { getTextColorForBackground, getItemBackground, resolveDisplayModifiers } from '@/state/catalog/catalogUtils';
 import { useLocationAvailability } from '@/hooks/useLocationAvailability';
 import { useRealTimeInventory } from '@/hooks/useRealTimeInventory';
+import { getInventoryForSkus } from '@/services/inventoryService';
 import { resolveFulfillmentLocation } from '@/utils/fulfillmentRouter';
 import { trackProductClicked, trackProductViewed, trackVariantSelected, trackAddedToCart, setCartId, trackExternalLinkClicked, trackEventCardClicked, trackCrossSellAddedToCart, trackCrossSellProductClicked } from '@/services/analytics';
 import { useSegment } from '@/contexts/commerce/SegmentContext';
@@ -65,15 +66,264 @@ const buildPointsPrice = (dollarPrices, pointsPerDollar) => {
     return min === max ? `${min} points` : `${min} to ${max} points`;
 };
 
+// Events "list" display format: vertically-stacked cards (big image on top) that scroll
+// vertically. Pulls all upcoming events (ignores the module's manual selection) and offers a
+// game-category filter. When a store location is selected, scopes to that location, titles the
+// section "…in <Location>", and offers a Change Location control. Falls back to all events when
+// the selected store has none.
+const EventsListSection = ({ config = {}, events = [], navigate, selectedLocationId = null, storeLocations = [] }) => {
+    const [category, setCategory] = useState('All');
+    const [locMenuAnchor, setLocMenuAnchor] = useState(null);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const pickableLocations = (storeLocations || []).filter(l => l.type !== 'Warehouse');
+    const changeLocation = (loc) => {
+        setLocMenuAnchor(null);
+        if (!loc?.id) return;
+        localStorage.setItem('selectedLocation', loc.id);
+        window.dispatchEvent(new CustomEvent('locationChanged', { detail: { locationId: loc.id } }));
+    };
+
+    const fmtCost = (cents, pts) => {
+        if (cents > 0) {
+            const dollars = cents / 100;
+            return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+        }
+        return pts > 0 ? `${pts} pts` : 'Free';
+    };
+    const fmtDateTime = (dateStr, timeStr) => {
+        if (!dateStr) return 'Date TBD';
+        let label = new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        if (timeStr) {
+            const [h, m] = timeStr.split(':').map(Number);
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const hr = h % 12 || 12;
+            label += ` at ${m ? `${hr}:${String(m).padStart(2, '0')}` : hr}${ampm}`;
+        }
+        return label;
+    };
+
+    // All upcoming events → represent each by its next upcoming (non-hidden) stop.
+    // When a store location is selected (a slug like "forest-hills"), scope to events at that
+    // location. Events carry location slugs in `locationIds` (and per-stop `locationId`), which
+    // match the selected slug directly.
+    const upcoming = useMemo(() => {
+        let list = (events || [])
+            .map((event) => {
+                const isTentpole = event.type?.toLowerCase() === 'tentpole' && Array.isArray(event.schedule) && event.schedule.length > 0;
+                let stop = null;
+                if (isTentpole) {
+                    const futureStops = event.schedule
+                        .filter(s => s.date && s.date >= today && !s.hidden)
+                        .sort((a, b) => a.date.localeCompare(b.date));
+                    // Prefer the next stop at the selected location for multi-venue events.
+                    stop = (selectedLocationId && futureStops.find(s => s.locationId === selectedLocationId)) || futureStops[0] || null;
+                }
+                const nextDate = stop?.date || (isTentpole ? null : event.startDate);
+                return { event, stop, nextDate };
+            })
+            .filter(x => x.nextDate && x.nextDate >= today)
+            .sort((a, b) => a.nextDate.localeCompare(b.nextDate));
+
+        if (selectedLocationId) {
+            // Scope to the selected location when it actually has events. If it has none
+            // (e.g. a default/auto-selected store the user never chose), fall back to all
+            // events rather than showing an empty section.
+            const scoped = list.filter(({ event, stop }) =>
+                (event.locationIds || []).includes(selectedLocationId) ||
+                (stop && stop.locationId === selectedLocationId)
+            );
+            if (scoped.length > 0) list = scoped;
+        }
+        return list;
+    }, [events, today, selectedLocationId]);
+
+    // Game categories present (ordered by Series Category Order when available).
+    const categories = useMemo(() => {
+        const order = new Map();
+        upcoming.forEach(({ event }) => {
+            const c = event.seriesCategory;
+            if (c && !order.has(c)) order.set(c, event.seriesCategoryOrder ?? 999);
+        });
+        return [...order.entries()].sort((a, b) => a[1] - b[1]).map(e => e[0]);
+    }, [upcoming]);
+
+    // If the active game filter isn't offered at the current location, show all for that location.
+    const activeCategory = category !== 'All' && categories.includes(category) ? category : 'All';
+    const shown = activeCategory === 'All' ? upcoming : upcoming.filter(x => x.event.seriesCategory === activeCategory);
+
+    // Is the list actually scoped to the selected location (vs. fallen back to all)?
+    const scopedToLocation = !!selectedLocationId && upcoming.some(x =>
+        (x.event.locationIds || []).includes(selectedLocationId) || x.stop?.locationId === selectedLocationId
+    );
+    const selectedStore = pickableLocations.find(l => l.id === selectedLocationId || l.slug === selectedLocationId);
+    const locationName = selectedStore?.name || (selectedLocationId ? String(selectedLocationId).replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
+    const heading = `${config.title || 'Upcoming Events'}${scopedToLocation && locationName ? ` in ${locationName}` : ''}`;
+
+    if (!upcoming.length) return null;
+
+    const filterBtnSx = (selected) => ({
+        textTransform: 'none',
+        fontSize: '1.3rem',
+        fontWeight: selected ? 700 : 500,
+        borderRadius: 999,
+        px: 2,
+        py: 0.5,
+        minWidth: 0,
+        flexShrink: 0,
+        whiteSpace: 'nowrap',
+        color: selected ? '#fff' : '#595959',
+        backgroundColor: selected ? '#000' : 'transparent',
+        border: '1px solid',
+        borderColor: selected ? '#000' : 'grey.300',
+        '&:hover': { backgroundColor: selected ? '#000' : 'grey.100' },
+    });
+
+    return (
+        <Box sx={{ width: '100vw', marginLeft: 'calc(-50vw + 50%)', backgroundColor: config.backgroundColor || 'white', py: 6 }}>
+            <Container maxWidth="md">
+                {/* Heading + Change Location */}
+                <Box sx={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 1, px: 2, mb: config.subtitle ? 0.5 : 2 }}>
+                    <Typography variant="h2" sx={{ fontWeight: 700, fontSize: 'h4.fontSize' }}>
+                        {heading}
+                    </Typography>
+                    {pickableLocations.length > 0 && (
+                        <Button
+                            disableRipple
+                            onClick={(e) => setLocMenuAnchor(e.currentTarget)}
+                            endIcon={<Box component="span" sx={{ fontSize: '1rem' }}>▾</Box>}
+                            sx={{ textTransform: 'none', fontSize: '1.3rem', fontWeight: 600, color: '#000', textDecoration: 'underline', p: 0, minWidth: 0, '&:hover': { backgroundColor: 'transparent' } }}
+                        >
+                            Change Location
+                        </Button>
+                    )}
+                    <Menu anchorEl={locMenuAnchor} open={Boolean(locMenuAnchor)} onClose={() => setLocMenuAnchor(null)}>
+                        {pickableLocations.map((loc) => (
+                            <MenuItem
+                                key={loc.id}
+                                selected={loc.id === selectedLocationId}
+                                onClick={() => changeLocation(loc)}
+                                sx={{ fontSize: '1.4rem' }}
+                            >
+                                {loc.name}
+                            </MenuItem>
+                        ))}
+                    </Menu>
+                </Box>
+                {config.subtitle && (
+                    <Typography sx={{ color: 'text.secondary', mb: 2, px: 2, fontSize: '1.6rem' }}>
+                        {config.subtitle}
+                    </Typography>
+                )}
+
+                {/* Game filter — wraps to multiple lines on narrow screens so pills never overflow */}
+                {categories.length > 1 && (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, px: 2, mb: 2 }}>
+                        <Button disableRipple onClick={() => setCategory('All')} sx={filterBtnSx(activeCategory === 'All')}>All Games</Button>
+                        {categories.map(cat => (
+                            <Button key={cat} disableRipple onClick={() => setCategory(cat)} sx={filterBtnSx(activeCategory === cat)}>{cat}</Button>
+                        ))}
+                    </Box>
+                )}
+
+                {/* Vertically-stacked cards (image on top, big & legible); 1 col mobile / 2 col desktop */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2, px: 2 }}>
+                    {shown.map(({ event, stop, nextDate }) => {
+                        const dateLabel = fmtDateTime(nextDate, stop?.startTime);
+                        const feeCents = stop ? (stop.admissionFeeCents ?? event.admissionFeeCents ?? 0) : (event.admissionFeeCents ?? 0);
+                        const pointsCost = stop ? (stop.pointsCost ?? event.pointsCost ?? 0) : (event.pointsCost ?? 0);
+                        const costLabel = fmtCost(feeCents, pointsCost);
+                        return (
+                            <Box
+                                component="a"
+                                href="/events"
+                                key={`event-card-${event.id}`}
+                                onClick={(e) => { e.preventDefault(); trackEventCardClicked(event.id, event.title); navigate('/events', { state: { selectedEventId: event.id } }); }}
+                                sx={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    borderRadius: 2,
+                                    overflow: 'hidden',
+                                    border: '1px solid',
+                                    borderColor: 'grey.300',
+                                    backgroundColor: 'white',
+                                    textDecoration: 'none',
+                                    color: 'inherit',
+                                    transition: 'transform 0.15s, box-shadow 0.15s',
+                                    '&:hover, &:focus-visible': { transform: 'translateY(-2px)', boxShadow: 4 },
+                                }}
+                            >
+                                {/* Image on top — full card width, native aspect ratio */}
+                                {event.imageUrl ? (
+                                    <img src={event.imageUrl} alt="" aria-hidden="true" loading="lazy" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                                ) : (
+                                    <Box sx={{ width: '100%', pt: '56.25%', backgroundColor: '#f5f5f5', position: 'relative' }}>
+                                        <Typography sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#999', fontSize: '2rem' }}>
+                                            {event.title?.charAt(0) || 'E'}
+                                        </Typography>
+                                    </Box>
+                                )}
+
+                                {/* Details */}
+                                <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                                    <Box sx={{ minWidth: 0 }}>
+                                        <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', lineHeight: 1.25 }}>
+                                            {event.title}
+                                        </Typography>
+                                        <Typography sx={{ color: 'text.secondary', fontSize: '1.4rem', mt: 0.25 }}>
+                                            {dateLabel}
+                                        </Typography>
+                                    </Box>
+                                    <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                        {costLabel}
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        );
+                    })}
+                </Box>
+            </Container>
+        </Box>
+    );
+};
+
 const ProductCardGrid = ({ items = [], feedItems = [], onProductTap, onMYOOptionTap, collapsingFeedIndex, storeLocations = [], selectedLocation }) => {
     const selectedLocationId = selectedLocation || localStorage.getItem('selectedLocation');
     const storeLocationIds = storeLocations.filter(l => l.type !== 'Warehouse').map(l => l.id);
     const warehouseIds = storeLocations.filter(l => l.type === 'Warehouse').map(l => l.id);
     const { isLoyaltyMember, pointsPerDollar } = useLoyalty();
+
+    // Live inventory for the visible cards. The published catalog.json embeds a stock SNAPSHOT that
+    // goes stale between publishes, so we fetch real stock for these SKUs and override it — a card
+    // shows sold-out based on current inventory, not the last publish.
+    const [liveInv, setLiveInv] = useState(null);
+    const gridSkus = useMemo(() => {
+        const s = new Set();
+        for (const it of items) {
+            const p = it.product || it;
+            if (p?.sku) s.add(String(p.sku).toUpperCase());
+            (p?.variants || []).forEach(v => v?.sku && s.add(String(v.sku).toUpperCase()));
+        }
+        return [...s];
+    }, [items]);
+    const gridSkusKey = gridSkus.join(',');
+    useEffect(() => {
+        if (!gridSkus.length) return undefined;
+        let cancelled = false;
+        getInventoryForSkus(gridSkus)
+            .then(map => { if (!cancelled) setLiveInv(map || {}); })
+            .catch(err => console.warn('[ProductCardGrid] live inventory fetch failed:', err.message));
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gridSkusKey]);
+
     const renderCard = (item, isFullWidth) => {
         const itemFeedIndex = feedItems.findIndex(f => f.id === item.id);
         const product = item.product || item;
-        const inv = item.inventory;
+        // Prefer live inventory (by product or variant sku); fall back to the catalog snapshot.
+        const inv = liveInv?.[String(product?.sku || '').toUpperCase()]
+            || liveInv?.[String(item?.sku || '').toUpperCase()]
+            || item.inventory;
         const isTracked = inv?.trackInventory;
         const locations = inv?.byLocation || [];
         // Check store qty at user's selected location
@@ -6508,6 +6758,16 @@ function CommerceInner() {
                                         </Box>
                                     </Container>
                                 </Box>
+                            </motion.div>
+                        );
+                    }
+
+                    // List format — pulls ALL upcoming events (ignores manual selection + store filter)
+                    // and provides a game-category filter. Separate component so it can own filter state.
+                    if (eventCarouselConfig.displayFormat === 'list') {
+                        return (
+                            <motion.div variants={childFadeUp}>
+                                <EventsListSection config={eventCarouselConfig} events={events} navigate={navigate} selectedLocationId={selectedLocationForFilter} storeLocations={storeLocations} />
                             </motion.div>
                         );
                     }

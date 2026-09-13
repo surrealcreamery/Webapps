@@ -115,6 +115,8 @@ export const fetchEvents = async () => {
     endDate: event['End Date'],
     daysOfWeek: (event['Days of Week'] || []).map(d => dayNameToNumber[d]),
     eventTimes: event['Event Times'] || [],
+    admissionFeeCents: event['Admission Fee Cents'] || 0,
+    pointsCost: event['Points Cost'] || 0,
     schedule: event['Schedule'] || null,
   }));
 };

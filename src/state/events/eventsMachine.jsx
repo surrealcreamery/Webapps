@@ -232,6 +232,7 @@ const initialContext = {
     duplicateNotice: false,
     justRegisteredGaming: null, // set to { eventId, eventName, playerName } after a gaming reg to offer "register another player"
     playerPromptReason: null, // 'duplicate' (already-registered interception) | 'another' (add-another button) — drives the player-name prompt copy
+    registeredPlayers: [], // names already registered for this event/date (shown in the interception)
     autoRegister: false,
     fromSeriesId: null,
     fromSeriesSlug: null,
@@ -299,7 +300,7 @@ export const eventsMachine = setup({
         });
         if (!response.ok) throw new Error('Failed to check registration status.');
         const data = await response.json();
-        return { isDuplicate: !!data.isDuplicate };
+        return { isDuplicate: !!data.isDuplicate, isGaming: !!data.isGaming, registeredPlayers: Array.isArray(data.registeredPlayers) ? data.registeredPlayers : [] };
     }),
     createEventRegistration: fromPromise(async ({ input }) => {
         const response = await fetch(CREATE_EVENT_REGISTRATION_URL, {
@@ -561,6 +562,15 @@ export const eventsMachine = setup({
             return err?.message || 'An unknown error occurred.';
         },
     }),
+    // Leave the player-name interception without losing the contact/event context — clears just the
+    // transient player prompt + any half-entered payment so the contact form / dashboard is clean.
+    clearPlayerPrompt: assign({
+        contactInfo: ({ context }) => ({ ...context.contactInfo, playerName: '' }),
+        playerPromptReason: null,
+        registeredPlayers: [],
+        formErrors: {},
+        paymentMethod: null, paymentNonce: null, stripeToken: null, encryptedCard: null, paymentError: null,
+    }),
     softReset: assign({
         selectedEventId: null,
         selectedLocationId: null,
@@ -574,6 +584,7 @@ export const eventsMachine = setup({
         duplicateNotice: false,
         justRegisteredGaming: null,
         playerPromptReason: null,
+        registeredPlayers: [],
         autoRegister: false,
         fromSeriesId: null,
         fromSeriesSlug: null,
@@ -1575,15 +1586,26 @@ export const eventsMachine = setup({
                             actions: assign({ formErrors: ({ context }) => ({ ...context.formErrors, playerName: "Player's name is required" }) }),
                         },
                     ],
-                    CANCEL_PLAYER: {
-                        target: '#fundraiser.userDashboard',
-                        actions: assign({
-                            contactInfo: ({ context }) => ({ ...context.contactInfo, playerName: '' }),
-                            playerPromptReason: null,
-                            formErrors: {},
-                            paymentMethod: null, paymentNonce: null, stripeToken: null, encryptedCard: null, paymentError: null,
-                        }),
-                    },
+                    // "Go back" and the header Back both return the user to where they came from:
+                    //  - reached from the already-registered interception ('duplicate') → back to the
+                    //    contact form they just submitted (NOT the dashboard).
+                    //  - reached from the dashboard's "register another player" ('another') → the dashboard.
+                    CANCEL_PLAYER: [
+                        {
+                            target: '#fundraiser.userDashboard',
+                            guard: ({ context }) => context.playerPromptReason === 'another',
+                            actions: 'clearPlayerPrompt',
+                        },
+                        { target: 'selectingContact', actions: 'clearPlayerPrompt' },
+                    ],
+                    BACK: [
+                        {
+                            target: '#fundraiser.userDashboard',
+                            guard: ({ context }) => context.playerPromptReason === 'another',
+                            actions: 'clearPlayerPrompt',
+                        },
+                        { target: 'selectingContact', actions: 'clearPlayerPrompt' },
+                    ],
                 },
             },
             selectingPayment: {
@@ -2090,26 +2112,33 @@ export const eventsMachine = setup({
                                 if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
                                     dateIso = new Date(Date.UTC(y, m - 1, d)).toISOString();
                                 }
+                                // The player's identity for the dup check is the name entered in the form:
+                                // the explicit player-name field if present, else the contact's own name
+                                // (the payer registers themselves by default). A DIFFERENT name is a new player.
+                                const effPlayerName = (context.contactInfo?.playerName || '').trim()
+                                    || [context.contactInfo?.firstName, context.contactInfo?.lastName].filter(Boolean).join(' ').trim()
+                                    || null;
                                 return {
                                     guestId: context.guestId,
                                     eventId: context.selectedEventId,
                                     date: dateIso,
                                     locationId: context.selectedLocationId,
-                                    playerName: context.contactInfo?.playerName || null,
+                                    playerName: effPlayerName,
                                 };
                             },
                             onDone: [
                                 {
-                                    // Gaming event + this contact/player is already registered → don't just block.
-                                    // Intercept: offer to register a DIFFERENT named player under the same contact.
-                                    // (A plain contact double-registering can simply cancel — no phantom player.)
+                                    // Gaming event + a player with THIS NAME is already registered → intercept.
+                                    // Show who's already registered and let them enter a DIFFERENT player.
+                                    // (A different name is not a duplicate — it flows straight through to payment.)
                                     target: '#fundraiser.wizardFlow.enteringPlayerName',
-                                    guard: ({ context, event }) => {
-                                        if (!event.output.isDuplicate) return false;
-                                        const currentEvent = context.fundraiserEvents?.find(e => e.id === context.selectedEventId);
-                                        return isGamingEvent(currentEvent, context.selectedDate, context.selectedLocationId);
-                                    },
-                                    actions: assign({ playerPromptReason: 'duplicate', duplicateNotice: false, formErrors: {} }),
+                                    guard: ({ event }) => event.output.isDuplicate && event.output.isGaming,
+                                    actions: assign({
+                                        playerPromptReason: 'duplicate',
+                                        duplicateNotice: false,
+                                        formErrors: {},
+                                        registeredPlayers: ({ event }) => event.output.registeredPlayers || [],
+                                    }),
                                 },
                                 {
                                     target: '#fundraiser.userDashboard',

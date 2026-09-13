@@ -1,10 +1,11 @@
 import React from 'react';
-import { Box, Typography, Button, TextField, Alert } from '@mui/material';
+import { Box, Typography, Button, TextField, Alert, Paper, Stack } from '@mui/material';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 
 // Collects an additional player's name for a gaming event. Reached either from the
 // "already registered — different player?" interception (reason='duplicate') or the
 // "register another player" button after a successful registration (reason='another').
-export const PlayerNameSection = ({ eventName, reason, playerName, error, onChange, onSubmit, onCancel }) => {
+export const PlayerNameSection = ({ eventName, reason, playerName, error, registeredPlayers = [], onChange, onSubmit, onCancel }) => {
     const isDuplicate = reason === 'duplicate';
 
     const handleKeyDown = (e) => {
@@ -13,19 +14,35 @@ export const PlayerNameSection = ({ eventName, reason, playerName, error, onChan
 
     return (
         <Box>
-            <Typography variant="h2" component="h2" gutterBottom>
-                {isDuplicate ? "You're already registered" : 'Register another player'}
+            <Typography variant="h2" component="h2" sx={{ mb: '24px !important' }}>
+                {isDuplicate ? 'Already registered' : 'Register another player'}
             </Typography>
 
             {isDuplicate ? (
                 <Alert severity="info" sx={{ mb: 2 }}>
-                    That registration is all set. If you're registering a <strong>different</strong> player for {eventName},
-                    enter their name below. Otherwise you can go back — nothing else is needed.
+                    The player information you have submitted is already registered. If you're registering a{' '}
+                    <strong>different</strong> player, enter their information below.
                 </Alert>
             ) : (
                 <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
                     Enter the next player's name to register them for {eventName}. Each player gets their own spot.
                 </Typography>
+            )}
+
+            {registeredPlayers.length > 0 && (
+                <Paper variant="outlined" sx={{ mb: 2, p: 2, borderRadius: 2, bgcolor: 'action.hover' }}>
+                    <Typography sx={{ fontSize: '1.5rem', fontWeight: 600, mb: 1.25 }}>
+                        The following player{registeredPlayers.length === 1 ? ' has' : 's have'} already been registered:
+                    </Typography>
+                    <Stack component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }} spacing={1}>
+                        {registeredPlayers.map((name, i) => (
+                            <Box component="li" key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <CheckCircleRoundedIcon sx={{ fontSize: '1.8rem', color: 'success.main', flexShrink: 0 }} />
+                                <Typography sx={{ fontSize: '1.5rem' }}>{name}</Typography>
+                            </Box>
+                        ))}
+                    </Stack>
+                </Paper>
             )}
 
             <Box component="form" noValidate sx={{ mt: 1 }}>
