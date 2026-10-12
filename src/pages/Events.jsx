@@ -509,38 +509,71 @@ export default function EventsHome() {
         return () => { cancelled = true; };
     }, [currentEventId]);
 
-    // Fetch registration counts for all events in directory
+    // Fetch registration counts for all events in directory.
     const eventIds = useMemo(() => (fundraiserEvents || []).filter(e => e.status === 'Active').map(e => e.id), [fundraiserEvents]);
     useEffect(() => {
         if (!eventIds.length) return;
         let cancelled = false;
         const API_URL = 'https://svlh6ckfdkcgh4fbvub2nyz2r40mcvdq.lambda-url.us-east-1.on.aws';
-        const fetchWithRetry = async (id, retries = 2) => {
-            for (let attempt = 0; attempt <= retries; attempt++) {
+        const COUNTS_CDN_URL = 'https://data.surrealcreamery.com/counts.json';
+        const STALE_MS = 60000; // if the published file is older than this, warm it for the next viewer
+
+        const applyCounts = (countsObj) => {
+            if (cancelled || !countsObj) return;
+            const counts = {};
+            for (const [id, c] of Object.entries(countsObj)) {
+                if (c && c.success !== false) counts[id] = c;
+            }
+            setDirectoryCounts(prev => ({ ...prev, ...counts }));
+        };
+        // Fire-and-forget: ask the server to recompute + republish counts.json (debounced server-side,
+        // so concurrent viewers trigger at most one recompute). Never blocks the page.
+        const triggerRepublish = (force = false) => {
+            try {
+                fetch(API_URL, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'republishCounts', ...(force ? { force: true } : {}) }),
+                    keepalive: true,
+                }).catch(() => {});
+            } catch { /* ignore */ }
+        };
+        // Live compute fallback (used when the published file is missing/unreadable).
+        const fetchLive = async () => {
+            for (let attempt = 0; attempt <= 1; attempt++) {
                 try {
                     const r = await fetch(API_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'getRegistrationCount', eventId: id }),
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'getRegistrationCounts', eventIds }),
                     });
                     const data = await r.json();
-                    return { id, data };
+                    if (cancelled) return;
+                    if (data?.counts) applyCounts(data.counts);
+                    return;
                 } catch {
-                    if (attempt < retries) await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+                    if (attempt < 1) await new Promise(res => setTimeout(res, 600));
                 }
             }
-            return null;
         };
+
+        // Stale-while-revalidate: read the published counts.json from the CDN for an instant display;
+        // if it's missing fall back to the live compute; if it's stale, warm it for the next viewer.
         (async () => {
-            const counts = {};
-            for (let i = 0; i < eventIds.length; i += 4) {
+            try {
+                const r = await fetch(COUNTS_CDN_URL, { cache: 'no-cache' });
+                if (!r.ok) throw new Error('no counts.json');
+                const data = await r.json();
                 if (cancelled) return;
-                const batch = eventIds.slice(i, i + 4);
-                const results = await Promise.all(batch.map(id => fetchWithRetry(id)));
-                for (const r of results) {
-                    if (r && r.data?.success !== false) counts[r.id] = r.data;
+                if (data?.counts) {
+                    applyCounts(data.counts);
+                    const age = data.generatedAt ? (Date.now() - new Date(data.generatedAt).getTime()) : Infinity;
+                    if (!(age >= 0 && age < STALE_MS)) triggerRepublish(false); // stale → revalidate for next viewer
+                } else {
+                    await fetchLive();
                 }
-                if (!cancelled) setDirectoryCounts(prev => ({ ...prev, ...counts }));
+            } catch {
+                // counts.json missing/unreadable → live compute now, and warm the file for next time.
+                await fetchLive();
+                triggerRepublish(false);
             }
         })();
         return () => { cancelled = true; };
@@ -563,6 +596,20 @@ export default function EventsHome() {
 
     // The actual payment/registration submit — show the web-checkout-style processing interstitial here.
     const isProcessingRegistration = fundraiserState.matches({ wizardFlow: { submitting: 'creatingRegistration' } });
+    // When a registration submit finishes (creatingRegistration true → false), force-republish counts.json
+    // so the just-taken spot reflects immediately for everyone (debounced server-side). Fire-and-forget.
+    const wasCreatingRef = useRef(false);
+    useEffect(() => {
+        if (wasCreatingRef.current && !isProcessingRegistration) {
+            try {
+                fetch('https://svlh6ckfdkcgh4fbvub2nyz2r40mcvdq.lambda-url.us-east-1.on.aws', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'republishCounts', force: true }), keepalive: true,
+                }).catch(() => {});
+            } catch { /* ignore */ }
+        }
+        wasCreatingRef.current = isProcessingRegistration;
+    }, [isProcessingRegistration]);
     // The identity/verification pre-steps keep the simple "Verifying your information" loader.
     const shouldShowVerifyingLoader =
       fundraiserState.matches({ wizardFlow: { submitting: 'decidingAuthPath' } }) ||
@@ -735,12 +782,20 @@ export default function EventsHome() {
                                                 ?? (stopStopKey ? regCount?.capacityByStop?.[stopStopKey] : undefined)
                                                 ?? ((stop.date && regCount?.capacityByDate?.[stop.date]) || null);
                                             const stopSoldOut = stopCapacity && stopCount >= stopCapacity;
-                                            // Staged availability: reveal spots in per-series brackets (default 4) to create urgency.
-                                            // Display-only — real capacity/sold-out above is unchanged.
-                                            const bStep = currentEvent.seriesBracketSize || currentEvent['Series Bracket Size'] || 4;
-                                            const stopRemaining = !stopCapacity ? null
-                                                : stopSoldOut ? 0
-                                                : Math.min(stopCapacity, Math.ceil((stopCount + 1) / bStep) * bStep) - stopCount;
+                                            // Staged availability: reveal capacity one bracket (step) at a time — the
+                                            // next multiple of step above the count, capped at true capacity. Spots are
+                                            // relative to that revealed total; while in the first bracket show only
+                                            // "{n} spot(s) left" (no registered line). Matches FlatDirectorySection.
+                                            let stopSpotsLabel = null;
+                                            let stopRegisteredLabel = null;
+                                            if (stopCapacity && !stopSoldOut) {
+                                                const inc = Number(currentEvent.seriesBracketSize || currentEvent['Series Bracket Size'] || 4) || 4;
+                                                const revealed = Math.min(stopCapacity, (Math.floor(stopCount / inc) + 1) * inc);
+                                                const spots = revealed - stopCount;
+                                                const firstBracket = stopCount < inc;
+                                                stopSpotsLabel = `${spots} ${spots === 1 ? 'spot' : 'spots'} ${firstBracket ? 'left' : 'remaining'}`;
+                                                stopRegisteredLabel = firstBracket ? null : `${stopCount} of ${revealed} Players Registered`;
+                                            }
                                             return (
                                                 <Button
                                                     key={i}
@@ -767,9 +822,14 @@ export default function EventsHome() {
                                                             <Typography variant="body2" sx={{ color: 'error.main', fontWeight: 600, mt: 0.5 }}>
                                                                 Sold Out
                                                             </Typography>
-                                                        ) : stopRemaining !== null && (
+                                                        ) : stopSpotsLabel && (
                                                             <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 600, mt: 0.5 }}>
-                                                                {stopRemaining} spot{stopRemaining !== 1 ? 's' : ''} remaining
+                                                                {stopSpotsLabel}
+                                                            </Typography>
+                                                        )}
+                                                        {stopRegisteredLabel && (
+                                                            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 500 }}>
+                                                                {stopRegisteredLabel}
                                                             </Typography>
                                                         )}
                                                     </Box>
@@ -906,10 +966,13 @@ export default function EventsHome() {
                         paymentMethod={fundraiserState.context.paymentMethod}
                         paymentError={fundraiserState.context.paymentError}
                         squareLocationId={fundraiserState.context.locations?.find(l => l.id === fundraiserState.context.selectedLocationId)?.squareLocationId}
+                        locationTaxRate={fundraiserState.context.locations?.find(l => l.id === fundraiserState.context.selectedLocationId)?.taxRate}
+                        locationState={fundraiserState.context.locations?.find(l => l.id === fundraiserState.context.selectedLocationId)?.state}
                         selectedDate={fundraiserState.context.selectedDate}
                         selectedLocationId={fundraiserState.context.selectedLocationId}
                         onSelectPaymentMethod={(method, cardData) => sendToFundraiser({ type: 'SELECT_PAYMENT_METHOD', method, cardData })}
                         onSubmit={() => sendToFundraiser({ type: 'SUBMIT_PAYMENT' })}
+                        onAddOnsChange={(addOns) => sendToFundraiser({ type: 'SET_ADDONS', addOns })}
                         onBack={handleWizardBack}
                     />
                 )}

@@ -31,7 +31,7 @@
 		</script>
 
 		<title>Surreal Creamery | Ice Cream, Desserts & Collectibles</title>
-		<meta name="description" content="Shop exclusive tokidoki x Surreal Creamery ice cream, desserts, and blind box collectibles. Order online for pickup, delivery, or shipping." />
+		<meta name="description" content="Shop Surreal Creamery Desserts and Collectibles. Order online for pickup, delivery, or shipping." />
 
 		<link rel="preconnect" href="https://fonts.googleapis.com">
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -74,22 +74,16 @@
 	}(window, document, 'ttq');
 	</script>
 
-		<script type="module" crossorigin src="/assets/index-BASypl3V.js"></script>
+		<script type="module" crossorigin src="/assets/index-DhL0qpDm.js"></script>
 		<link rel="stylesheet" crossorigin href="/assets/index-f3AwpyYW.css">
 	</head>
 	<body>
-		<div id="error-display" role="alert" aria-live="assertive" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:yellow;color:red;padding:20px;font-family:monospace;font-size:14px;white-space:pre-wrap;max-height:50vh;overflow:auto;border-bottom:3px solid red"></div>
 		<script>
-		window.addEventListener('error', function(e) {
-			var el = document.getElementById('error-display');
-			el.style.display = 'block';
-			el.textContent = 'JS ERROR: ' + e.message + '\n' + (e.filename || '') + ':' + (e.lineno || '') + '\n' + (e.error && e.error.stack || '');
-		});
-		window.addEventListener('unhandledrejection', function(e) {
-			var el = document.getElementById('error-display');
-			el.style.display = 'block';
-			el.textContent = 'PROMISE ERROR: ' + (e.reason && e.reason.message || e.reason || 'unknown') + '\n' + (e.reason && e.reason.stack || '');
-		});
+		// Quietly log runtime errors to the console (no user-facing banner). Evervault's key-retrieval
+		// can reject on machines where ad blockers / corporate filters / clock skew block js.evervault.com;
+		// that must never dump an error overlay over the storefront. Card entry degrades on its own.
+		window.addEventListener('error', function(e) { try { console.error('[app] error', e.message, e.filename, e.lineno); } catch (_) {} });
+		window.addEventListener('unhandledrejection', function(e) { try { console.error('[app] unhandledrejection', e.reason && e.reason.message || e.reason); } catch (_) {} });
 		</script>
 		<div id="root"></div>
 

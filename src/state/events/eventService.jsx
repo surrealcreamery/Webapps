@@ -48,6 +48,7 @@ export const fetchInitialData = async () => {
         admissionFeeCents: event['Admission Fee Cents'] || 0,
         pointsCost: event['Points Cost'] || 0,
         tournamentId: event['Tournament ID'] || null,
+        registrationUpsellBundles: event['Registration Upsell Bundles'] || [],
         termsPageSlug: event['Terms Page Slug'] || null,
         requireConsent: event['Require Consent'] || false,
         consentText: event['Consent Text'] || '',
@@ -57,6 +58,7 @@ export const fetchInitialData = async () => {
         seriesName: event['Series Name'] || null,
         seriesCategory: event['Series Category'] || null,
         seriesCategoryOrder: event['Series Category Order'] ?? null,
+        seriesCategoryImageUrl: event['Series Category Image URL'] || null,
         seriesBracketSize: event['Series Bracket Size'] || null,
         seriesImageUrl: event['Series Image URL'] || null,
         seriesImageAltText: event['Series Image Alt Text'] || null,
@@ -64,6 +66,7 @@ export const fetchInitialData = async () => {
         seriesPrizesDescription: event['Series Prizes Description'] || null,
         seriesAdditionalInfo: event['Series Additional Info'] || null,
         seriesOrder: event['Series Order'] ?? null,
+        order: event['Order'] ?? null, // manual event sort order (admin Reorder); standalone events sort by this
         seriesLinkedPages: event['Series Linked Pages'] || [],
         seriesBundleName: event['Series Bundle Name'] || null,
         seriesBundlePrice: event['Series Bundle Price'] || null,
@@ -80,6 +83,8 @@ export const fetchInitialData = async () => {
             'Location Name': loc['Location Name'] || loc.name,
             Address: loc['Location Address'] || [loc.address, loc.city, loc.state, loc.zip].filter(Boolean).join(', '),
             squareLocationId: loc['Square Location ID'] || loc.squareLocationId || null,
+            taxRate: loc.taxRate ?? loc['Tax Rate'] ?? null, // decimal (e.g. 0.08875); null → fall back
+            state: loc.state || loc['State'] || null,
             hours: loc.hours || {},
             maxEventSize: loc.maxEventSize || null,
             imageUrl: loc.imageUrl || null,

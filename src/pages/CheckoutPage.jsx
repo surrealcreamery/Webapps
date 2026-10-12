@@ -126,10 +126,28 @@ const evCardTheme = evervaultThemes.minimal({
   },
 });
 
-// ─── Evervault Card Form ───
-function EvervaultCardForm({ onCardData, isProcessing, children }) {
+// Catches a hard render throw from the Evervault card (provider never initialized) → parent falls back.
+class EvervaultErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { crashed: false }; }
+  static getDerivedStateFromError() { return { crashed: true }; }
+  componentDidCatch(err) { try { console.error('[EvervaultCard] render error', err?.message); } catch (_) {} this.props.onError?.(); }
+  render() { return this.state.crashed ? null : this.props.children; }
+}
+
+// ─── Evervault Card Form (with graceful fallback) ───
+// Evervault's app-key fetch fails on some machines (ad blockers / corporate filters / clock skew
+// blocking js.evervault.com). When it does, fall back to the same underlying processor's native card
+// form — the checkout backend charges whatever credential it receives, so the order still completes.
+function EvervaultCardForm({ onCardData, isProcessing, children, fallbackKind, stripePublishableKey, squareAppId, squareLocationId }) {
   const [cardState, setCardState] = useState(null);
   const [error, setError] = useState(null);
+  const [evPhase, setEvPhase] = useState('loading'); // 'loading' | 'ready' | 'failed'
+
+  useEffect(() => {
+    if (evPhase !== 'loading') return undefined;
+    const t = setTimeout(() => setEvPhase((p) => (p === 'loading' ? 'failed' : p)), 6500);
+    return () => clearTimeout(t);
+  }, [evPhase]);
 
   const handleChange = useCallback((state) => {
     setCardState(state);
@@ -154,24 +172,53 @@ function EvervaultCardForm({ onCardData, isProcessing, children }) {
     onCardData({ encryptedCard: card });
   }, [cardState, onCardData]);
 
+  if (evPhase === 'failed') {
+    const canStripe = fallbackKind === 'stripe' && !!stripePublishableKey;
+    const canSquare = fallbackKind === 'square' && !!squareAppId && !!squareLocationId;
+    return (
+      <Box>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Our secure card form couldn&apos;t load on this device — using standard card entry instead.
+        </Alert>
+        {canStripe && <StripeCardForm onCardData={onCardData} isProcessing={isProcessing} stripePublishableKey={stripePublishableKey}>{children}</StripeCardForm>}
+        {canSquare && <PaymentCardForm onCardData={onCardData} isProcessing={isProcessing} squareAppId={squareAppId} squareLocationId={squareLocationId}>{children}</PaymentCardForm>}
+        {!canStripe && !canSquare && (
+          <Alert severity="error">
+            Card entry is unavailable on this device (a browser extension or network may be blocking it). Please try a
+            different browser or network to complete your order.
+          </Alert>
+        )}
+      </Box>
+    );
+  }
+
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      <Box sx={{ mb: 2 }}>
-        <EvervaultCard
-          theme={evCardTheme}
-          icons={true}
-          onChange={handleChange}
-          fields={['number', 'expiry', 'cvc']}
-        />
-      </Box>
+      {evPhase === 'loading' && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Loading secure card form…
+        </Typography>
+      )}
+      <EvervaultErrorBoundary onError={() => setEvPhase('failed')}>
+        <Box sx={{ mb: 2 }}>
+          <EvervaultCard
+            theme={evCardTheme}
+            icons={true}
+            onChange={handleChange}
+            onReady={() => setEvPhase('ready')}
+            onError={() => setEvPhase('failed')}
+            fields={['number', 'expiry', 'cvc']}
+          />
+        </Box>
+      </EvervaultErrorBoundary>
       {children}
       <Button
         variant="contained"
         fullWidth
         size="large"
         onClick={handlePay}
-        disabled={isProcessing}
+        disabled={isProcessing || evPhase !== 'ready'}
         sx={{
           bgcolor: '#000',
           '&:hover': { bgcolor: '#222' },
@@ -3037,7 +3084,14 @@ export default function CheckoutPage() {
           {saveCardCheckbox}
         </StripeCardForm>
       ) : paymentConfig?.paymentMethod?.startsWith('evervault') ? (
-        <EvervaultCardForm onCardData={handleCardPayment} isProcessing={paymentProcessing}>
+        <EvervaultCardForm
+          onCardData={handleCardPayment}
+          isProcessing={paymentProcessing}
+          fallbackKind={paymentConfig?.paymentMethod === 'evervault_square' ? 'square' : 'stripe'}
+          stripePublishableKey={paymentConfig?.stripePublishableKey}
+          squareAppId={paymentConfig?.squareAppId}
+          squareLocationId={paymentConfig?.squareLocationId}
+        >
           {saveCardCheckbox}
         </EvervaultCardForm>
       ) : (

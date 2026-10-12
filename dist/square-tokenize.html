@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Square Tokenizer</title>
+  <style>
+    body { margin: 0; padding: 20px; font-family: sans-serif; }
+    #card-container { min-height: 90px; }
+  </style>
+</head>
+<body>
+  <div id="card-container"></div>
+  <script src="https://web.squarecdn.com/v1/square.js"></script>
+  <script>
+    window.__ready = false;
+    window.__result = null;
+    window.__error = null;
+
+    (async function init() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const appId = params.get('appId');
+        const locationId = params.get('locationId');
+        const env = params.get('env') || 'production';
+
+        if (!appId || !locationId) {
+          window.__error = 'Missing appId or locationId';
+          return;
+        }
+
+        const payments = window.Square.payments(appId, locationId);
+        const card = await payments.card();
+        await card.attach('#card-container');
+
+        window.__card = card;
+        window.__ready = true;
+
+        window.tokenize = async function () {
+          try {
+            window.__result = null;
+            window.__error = null;
+            const result = await card.tokenize();
+            if (result.status === 'OK') {
+              window.__result = { token: result.token, status: 'OK' };
+            } else {
+              window.__error = result.errors?.[0]?.message || 'Tokenization failed';
+              window.__result = { status: result.status, errors: result.errors };
+            }
+          } catch (err) {
+            window.__error = err.message;
+            window.__result = { status: 'ERROR', errors: [{ message: err.message }] };
+          }
+          return window.__result;
+        };
+      } catch (err) {
+        window.__error = err.message;
+        console.error('Square init failed:', err);
+      }
+    })();
+  </script>
+</body>
+</html>

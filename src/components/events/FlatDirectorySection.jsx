@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Typography, Container, Grid, Button, IconButton, Dialog, DialogTitle, DialogContent, Tabs, Tab } from '@mui/material';
+import { Box, Typography, Container, Grid, Button, IconButton, Dialog, DialogTitle, DialogContent, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import { format, parse } from 'date-fns';
 import { storeToday, isPreviewMode } from '@/utils/storeDate';
+import { LayoutContext as EventsLayoutContext } from '@/contexts/events/EventsLayoutContext';
 
 // Visually hidden style for screen-reader-only text
 const srOnly = {
@@ -302,42 +303,106 @@ const BookSpaceBanner = ({ onClick }) => (
     </Box>
 );
 
-const SeriesLanding = ({ seriesGroups, standaloneCards, categories = [], category = 'All', onCategory, onSelectSeries, onRegisterSeries, onSelectCard, regCounts, scopeLocationName = null, onExitLocation = null, onBookSpace = null }) => (
+// ============================================
+// GAME LANDING — choose a game before seeing its events
+// One tile per game category (image + name + count), plus an "All Games" tile.
+// Shown only when there is more than one game to choose from.
+// ============================================
+// A game tile: the series flyer image on top (its own baked-in text stays legible), then a solid
+// dark footer bar carrying the game name + upcoming count — so the label never fights the artwork.
+const GameTile = ({ label, imageUrl, count, location = null, gradient = null, onClick }) => (
+    <Box
+        component="button"
+        type="button"
+        onClick={onClick}
+        aria-label={`${label}${count != null ? `, ${count} upcoming` : ''}`}
+        sx={{
+            width: '100%', p: 0, border: 'none', cursor: 'pointer', font: 'inherit',
+            display: 'flex', flexDirection: 'column', textAlign: 'left', borderRadius: '10px',
+            overflow: 'hidden', backgroundColor: '#111', boxShadow: 1,
+            transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+            '&:hover': { transform: 'translateY(-3px)', boxShadow: 6 },
+            '&:focus-visible': { outline: '3px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+        }}
+    >
+        <Box aria-hidden="true" sx={{ aspectRatio: '16 / 9', backgroundColor: 'grey.200', overflow: 'hidden' }}>
+            {imageUrl ? (
+                <img src={imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            ) : (
+                <Box sx={{ width: '100%', height: '100%', background: gradient || 'linear-gradient(135deg, #6d28d9 0%, #be185d 100%)' }} />
+            )}
+        </Box>
+        <Box sx={{ px: { xs: 2, sm: 2.5 }, py: { xs: 1.5, sm: 1.75 }, color: '#fff' }}>
+            <Typography component="div" sx={{ fontWeight: 800, fontSize: { xs: '2rem', sm: '2.3rem' }, lineHeight: 1.2 }}>
+                {label}
+            </Typography>
+            {(location || count != null) && (
+                <Typography component="div" sx={{ fontWeight: 600, fontSize: '1.4rem', opacity: 0.82, mt: 0.25 }}>
+                    {[location, count != null ? `${count} upcoming` : null].filter(Boolean).join(' · ')}
+                </Typography>
+            )}
+        </Box>
+    </Box>
+);
+
+const GameLanding = ({ categories = [], seriesGroups = [], standaloneCards = [], showLocation = false, onPick, scopeLocationName = null, onBookSpace = null }) => {
+    // Derive a representative image, upcoming count, and location label for each game from its series.
+    // Prefer the game's own tile image (Series Category image, set in admin → Assets/Games); fall
+    // back to the first series' flyer only when no dedicated tile image exists.
+    const games = categories.map(cat => {
+        const inCat = seriesGroups.filter(s => s.category === cat);
+        const tileImg = inCat.find(s => s.categoryImageUrl)?.categoryImageUrl;
+        const withImg = inCat.find(s => s.imageUrl);
+        const stopCount = inCat.reduce((n, s) => n + (s.stops?.length || 0), 0);
+        const locNames = [...new Set(inCat.flatMap(s => (s.stops || []).map(st => st._stopLocationName).filter(Boolean)))];
+        const location = !showLocation ? null : locNames.length === 1 ? locNames[0] : locNames.length > 1 ? `${locNames[0]} +${locNames.length - 1}` : null;
+        return { name: cat, imageUrl: tileImg || withImg?.imageUrl || null, count: stopCount, location };
+    });
+    const totalCount = seriesGroups.reduce((n, s) => n + (s.stops?.length || 0), 0) + standaloneCards.length;
+
+    return (
+        <Container maxWidth="md" sx={{ pt: 0, pb: 4 }}>
+            <Typography variant="h1" component="h1" align="center" sx={{ mb: '8px !important' }}>
+                Events
+            </Typography>
+            <Typography component="p" align="center" color="text.secondary" sx={{ fontSize: '1.7rem', mb: '24px' }}>
+                Choose a game to see its events
+            </Typography>
+
+            {onBookSpace && !scopeLocationName && <BookSpaceBanner onClick={onBookSpace} />}
+
+            <Grid container spacing={2} justifyContent="center">
+                {games.map(g => (
+                    <Grid size={{ xs: 12, sm: 6 }} key={g.name} sx={{ display: 'flex' }}>
+                        <GameTile label={g.name} imageUrl={g.imageUrl} count={g.count} location={g.location} onClick={() => onPick(g.name)} />
+                    </Grid>
+                ))}
+                {/* See-everything option */}
+                <Grid size={{ xs: 12, sm: 6 }} sx={{ display: 'flex' }}>
+                    <GameTile
+                        label="All Games"
+                        imageUrl={null}
+                        count={totalCount}
+                        gradient="linear-gradient(135deg, #111827 0%, #374151 100%)"
+                        onClick={() => onPick('All')}
+                    />
+                </Grid>
+            </Grid>
+        </Container>
+    );
+};
+
+const SeriesLanding = ({ seriesGroups, standaloneCards, activeGameLabel = null, onBackToGames = null, onSelectSeries, onRegisterSeries, onSelectCard, regCounts, scopeLocationName = null, onExitLocation = null, onBookSpace = null }) => (
     <Container maxWidth="md" sx={{ pt: 0, pb: 4 }}>
         <Typography variant="h1" component="h1" align="center" sx={{ mb: '24px !important' }}>
-            Events
+            {onBackToGames && activeGameLabel && activeGameLabel !== 'All' ? activeGameLabel : 'Events'}
         </Typography>
 
         {onBookSpace && !scopeLocationName && <BookSpaceBanner onClick={onBookSpace} />}
 
-        {categories.length > 0 && (
-            <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-                <Tabs
-                    value={category}
-                    onChange={(_, v) => onCategory && onCategory(v)}
-                    variant="scrollable"
-                    scrollButtons="auto"
-                    allowScrollButtonsMobile
-                    aria-label="Filter events by game category"
-                    sx={{
-                        '& .MuiTabs-flexContainer': { justifyContent: { xs: 'flex-start', sm: 'center' } },
-                        '& .MuiTabs-indicator': { backgroundColor: '#000' },
-                        // Inactive: #595959 on white ≈ 7:1 (passes WCAG AA & AAA). Active: black + bold + underline.
-                        '& .MuiTab-root': { textTransform: 'none', fontWeight: 500, color: '#595959' },
-                        '& .MuiTab-root.Mui-selected': { color: '#000', fontWeight: 700 },
-                    }}
-                >
-                    <Tab label="All Games" value="All" />
-                    {categories.map(cat => (
-                        <Tab key={cat} label={cat} value={cat} />
-                    ))}
-                </Tabs>
-            </Box>
-        )}
-
         {seriesGroups.length === 0 && standaloneCards.length === 0 && (
             <Typography variant="body1" align="center" color="text.secondary" sx={{ mt: 4 }}>
-                {category === 'All' ? 'No upcoming events found.' : `No upcoming ${category} events.`}
+                {!activeGameLabel || activeGameLabel === 'All' ? 'No upcoming events found.' : `No upcoming ${activeGameLabel} events.`}
             </Typography>
         )}
 
@@ -433,15 +498,50 @@ const formatSeriesSchedule = (stops) => {
     });
 };
 
-// Staged availability: reveal "spots left" in brackets of `step` (default 4) so a mostly-empty
-// tournament shows a small, urgent number (e.g. "4 spots left") instead of the full open count,
-// opening the next bracket as it fills. Display-only — real capacity and sold-out are unchanged.
-// e.g. cap 18, step 4: count 0→4 left, 4→4 left, 12→4 left, 16→2 left, 18→sold out.
-const bracketedSpots = (count, cap, step) => {
-    const s = (Number.isFinite(step) && step > 0) ? step : 4;
-    if (count >= cap) return 0;
-    const nextBracket = Math.min(cap, Math.ceil((count + 1) / s) * s);
-    return nextBracket - count;
+// Staged availability. Capacity is revealed one bracket (`step`, from the series' availability bracket
+// size, default 4) at a time: the shown total is the next multiple of `step` ABOVE the current count,
+// capped at the true capacity. Spots remaining is relative to that revealed total — so the true depth
+// stays hidden for urgency. While still in the FIRST bracket (count < step) show only "{n} spot(s) left"
+// (no registered line) so early sign-ups feel almost-full. Sold out at true capacity. Display-only.
+// e.g. step 4, cap 18: count 3 → "1 spot left"; 5 → "3 spots remaining" + "5 of 8"; 8 → "4 spots
+//                      remaining" + "8 of 12"; 16 → "2 spots remaining" + "16 of 18"; 18 → sold out.
+const STAGE_STEP_DEFAULT = 4;
+const stageLabel = (count, cap, step) => {
+    if (cap - count <= 0) return { isSoldOut: true, spotsLabel: null, registeredLabel: null };
+    const inc = (Number.isFinite(step) && step > 0) ? step : STAGE_STEP_DEFAULT;
+    const revealed = Math.min(cap, (Math.floor(count / inc) + 1) * inc); // next bracket above count, capped
+    const spots = revealed - count;
+    const firstBracket = count < inc; // opening bracket → pure urgency, hide the "of N" line
+    return {
+        isSoldOut: false,
+        spotsLabel: `${spots} ${spots === 1 ? 'spot' : 'spots'} ${firstBracket ? 'left' : 'remaining'}`,
+        registeredLabel: firstBracket ? null : `${count} of ${revealed} Players Registered`,
+    };
+};
+
+// Resolve capacity + count for a stop from regCounts using the key precedence
+// (per-tournament → per-stop date:location → per-date) and return its staged availability label.
+const resolveSpots = (rc, { tid, stopKey, dateKey }, step) => {
+    if (rc && tid && rc.capacityByTournament?.[tid]) return stageLabel(rc.byTournament?.[tid] || 0, rc.capacityByTournament[tid], step);
+    if (rc && stopKey && rc.capacityByStop?.[stopKey]) return stageLabel(rc.byStop?.[stopKey] || 0, rc.capacityByStop[stopKey], step);
+    if (rc && dateKey && rc.capacityByDate?.[dateKey]) return stageLabel(rc.byDate?.[dateKey] || 0, rc.capacityByDate[dateKey], step);
+    return { isSoldOut: false, spotsLabel: null, registeredLabel: null };
+};
+const spotKeys = (card) => ({
+    tid: card._stopTournamentId,
+    dateKey: card._stopDate,
+    stopKey: card._stopDate && card._stopLocationId ? `${card._stopDate}:${card._stopLocationId}` : null,
+});
+
+// Price + capacity/sold-out status for a single stop card.
+const stopStatus = (card, regCounts) => {
+    const feeCents = card._stopAdmissionFeeCents;
+    const ptsCost = card._stopPointsCost;
+    const { isSoldOut, spotsLabel, registeredLabel } = resolveSpots(regCounts?.[card.id], spotKeys(card), card.seriesBracketSize);
+    const priceLabel = feeCents > 0
+        ? `$${(feeCents / 100).toFixed(feeCents % 100 === 0 ? 0 : 2)}`
+        : ptsCost > 0 ? `${ptsCost} pts` : 'Free';
+    return { priceLabel, isSoldOut, spotsLabel, registeredLabel };
 };
 
 const StopCard = ({ card, onClick, regCounts }) => {
@@ -453,29 +553,7 @@ const StopCard = ({ card, onClick, regCounts }) => {
     // Sold out check — prefer per-tournament (unique per session), then per-stop
     // (date:locationId aggregate), then per-date. Per-tournament is the only key that
     // is correct when one location runs multiple sessions on the same day.
-    const rc = regCounts[card.id];
-    const dateKey = card._stopDate;
-    const tid = card._stopTournamentId;
-    const stopKey = dateKey && card._stopLocationId ? `${dateKey}:${card._stopLocationId}` : null;
-    let isSoldOut = false;
-    let spotsRemaining = null;
-    const bracketStep = card.seriesBracketSize; // per-series; bracketedSpots() falls back to 4
-    if (rc && tid && rc.capacityByTournament?.[tid]) {
-        const cap = rc.capacityByTournament[tid];
-        const count = rc.byTournament?.[tid] || 0;
-        isSoldOut = (cap - count) <= 0;
-        spotsRemaining = isSoldOut ? 0 : bracketedSpots(count, cap, bracketStep);
-    } else if (rc && stopKey && rc.capacityByStop?.[stopKey]) {
-        const cap = rc.capacityByStop[stopKey];
-        const count = rc.byStop?.[stopKey] || 0;
-        isSoldOut = (cap - count) <= 0;
-        spotsRemaining = isSoldOut ? 0 : bracketedSpots(count, cap, bracketStep);
-    } else if (rc && dateKey && rc.capacityByDate?.[dateKey]) {
-        const cap = rc.capacityByDate[dateKey];
-        const count = rc.byDate?.[dateKey] || 0;
-        isSoldOut = (cap - count) <= 0;
-        spotsRemaining = isSoldOut ? 0 : bracketedSpots(count, cap, bracketStep);
-    }
+    const { isSoldOut, spotsLabel, registeredLabel } = resolveSpots(regCounts[card.id], spotKeys(card), card.seriesBracketSize);
 
     const priceLabel = feeCents > 0
         ? `$${(feeCents / 100).toFixed(feeCents % 100 === 0 ? 0 : 2)}`
@@ -492,7 +570,7 @@ const StopCard = ({ card, onClick, regCounts }) => {
         card._stopLocationName,
         dateTimeLabel,
         priceLabel,
-        isSoldOut ? 'Sold out' : spotsRemaining !== null ? `${spotsRemaining} spots left` : null,
+        isSoldOut ? 'Sold out' : spotsLabel,
     ].filter(Boolean).join(', ');
 
     const imageBlock = (
@@ -553,9 +631,14 @@ const StopCard = ({ card, onClick, regCounts }) => {
                 <Typography component="div" sx={{ color: 'error.main', fontSize: '1.6rem', fontWeight: 700, mt: 0.15 }}>
                     Sold Out
                 </Typography>
-            ) : spotsRemaining !== null && (
+            ) : spotsLabel && (
                 <Typography component="div" sx={{ color: 'success.main', fontSize: '1.6rem', fontWeight: 600, mt: 0.15 }}>
-                    {spotsRemaining} {spotsRemaining === 1 ? 'spot' : 'spots'} left
+                    {spotsLabel}
+                </Typography>
+            )}
+            {registeredLabel && (
+                <Typography component="div" sx={{ color: 'text.secondary', fontSize: '0.95rem', fontWeight: 500, mt: 0.1 }}>
+                    {registeredLabel}
                 </Typography>
             )}
         </Box>
@@ -640,22 +723,8 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
     );
     const scopedInfo = useMemo(() => {
         if (!scopedStop) return null;
-        const rc = regCounts[scopedStop.id];
-        const dateKey = scopedStop._stopDate;
-        const tid = scopedStop._stopTournamentId;
-        const stopKey = dateKey && scopedStop._stopLocationId ? `${dateKey}:${scopedStop._stopLocationId}` : null;
-        let isSoldOut = false, spotsRemaining = null;
-        if (rc && tid && rc.capacityByTournament?.[tid]) {
-            const cap = rc.capacityByTournament[tid]; const count = rc.byTournament?.[tid] || 0;
-            isSoldOut = (cap - count) <= 0; spotsRemaining = isSoldOut ? 0 : bracketedSpots(count, cap, scopedStop.seriesBracketSize);
-        } else if (rc && stopKey && rc.capacityByStop?.[stopKey]) {
-            const cap = rc.capacityByStop[stopKey]; const count = rc.byStop?.[stopKey] || 0;
-            isSoldOut = (cap - count) <= 0; spotsRemaining = isSoldOut ? 0 : bracketedSpots(count, cap, scopedStop.seriesBracketSize);
-        } else if (rc && dateKey && rc.capacityByDate?.[dateKey]) {
-            const cap = rc.capacityByDate[dateKey]; const count = rc.byDate?.[dateKey] || 0;
-            isSoldOut = (cap - count) <= 0; spotsRemaining = isSoldOut ? 0 : bracketedSpots(count, cap, scopedStop.seriesBracketSize);
-        }
-        return { dateTimeLabel: formatStopDateTime(scopedStop._stopDate, scopedStop._stopStartTime), isSoldOut, spotsRemaining };
+        const { isSoldOut, spotsLabel, registeredLabel } = resolveSpots(regCounts[scopedStop.id], spotKeys(scopedStop), scopedStop.seriesBracketSize);
+        return { dateTimeLabel: formatStopDateTime(scopedStop._stopDate, scopedStop._stopStartTime), isSoldOut, spotsLabel, registeredLabel };
     }, [scopedStop, regCounts]);
 
     // Scoped: register straight for this location's stop. Otherwise: scroll to the stops list.
@@ -680,9 +749,14 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                     )}
                     {scopedInfo.isSoldOut ? (
                         <Typography variant="body1" sx={{ color: 'error.main', fontWeight: 700 }}>Sold Out</Typography>
-                    ) : scopedInfo.spotsRemaining !== null && (
+                    ) : scopedInfo.spotsLabel && (
                         <Typography variant="body1" sx={{ color: 'success.main', fontWeight: 700 }}>
-                            {scopedInfo.spotsRemaining} {scopedInfo.spotsRemaining === 1 ? 'spot' : 'spots'} left
+                            {scopedInfo.spotsLabel}
+                        </Typography>
+                    )}
+                    {scopedInfo.registeredLabel && (
+                        <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                            {scopedInfo.registeredLabel}
                         </Typography>
                     )}
                 </Box>
@@ -798,7 +872,6 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                         sx={{ color: 'text.secondary', fontSize: '1.4rem', mb: 2, textDecoration: 'underline', textTransform: 'none', p: 0, minWidth: 0, justifyContent: 'flex-start', '&:hover': { color: 'text.primary', textDecoration: 'underline' } }}
                     >
                         {series.bundleName}
-                        {series.bundlePrice > 0 && ` — $${(series.bundlePrice / 100).toFixed(series.bundlePrice % 100 === 0 ? 0 : 2)}`}
                     </Button>
                     <Dialog open={bundleOpen} onClose={() => setBundleOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { maxHeight: '80vh' } }} aria-labelledby={bundleTitleId}>
                         <DialogTitle id={bundleTitleId} sx={{ fontWeight: 700, fontSize: '2rem', pb: 0 }}>
@@ -922,6 +995,90 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
 // MAIN COMPONENT
 // ============================================
 
+// ============================================
+// SCHEDULE VIEW — all upcoming events, chronological (cross-game, "what's on")
+// ============================================
+const ScheduleRow = ({ card, onSelectCard, regCounts, showLocation = true }) => {
+    const { priceLabel, isSoldOut, spotsLabel, registeredLabel } = stopStatus(card, regCounts);
+    const time = formatShortTime(card._stopStartTime);
+    const name = card.seriesName || card.title;
+    const meta = [card.seriesCategory, time, showLocation ? card._stopLocationName : null].filter(Boolean).join(' · ');
+    return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography component="div" sx={{ fontWeight: 700, fontSize: '1.7rem', lineHeight: 1.25 }}>{name}</Typography>
+                {meta && <Typography component="div" sx={{ color: 'text.secondary', fontSize: '1.4rem', mt: 0.25 }}>{meta}</Typography>}
+                {isSoldOut ? (
+                    <Typography component="div" sx={{ color: 'error.main', fontWeight: 700, fontSize: '1.4rem', mt: 0.25 }}>Sold out</Typography>
+                ) : spotsLabel && (
+                    <Typography component="div" sx={{ color: 'success.main', fontWeight: 600, fontSize: '1.4rem', mt: 0.25 }}>{spotsLabel}</Typography>
+                )}
+                {registeredLabel && (
+                    <Typography component="div" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: '1.2rem', mt: 0.1 }}>{registeredLabel}</Typography>
+                )}
+            </Box>
+            <Box sx={{ flexShrink: 0, textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.75 }}>
+                <Typography component="div" sx={{ fontWeight: 700, fontSize: '1.6rem' }}>{priceLabel}</Typography>
+                <Button variant={isSoldOut ? 'outlined' : 'contained'} size="small" disabled={isSoldOut}
+                    onClick={() => onSelectCard(card)} sx={{ fontSize: '1.4rem', textTransform: 'none', whiteSpace: 'nowrap' }}>
+                    {isSoldOut ? 'Sold out' : 'Register'}
+                    <Box component="span" sx={srOnly}> for {name}</Box>
+                </Button>
+            </Box>
+        </Box>
+    );
+};
+
+const ScheduleView = ({ cards = [], regCounts = {}, onSelectCard, scopeLocationName = null, onBookSpace = null, showLocation = true }) => {
+    const sorted = [...cards].sort((a, b) =>
+        (a._stopDate || '9999').localeCompare(b._stopDate || '9999') ||
+        (a._stopStartTime || '99').localeCompare(b._stopStartTime || '99'));
+    const byDate = [];
+    const idx = {};
+    for (const c of sorted) {
+        const d = c._stopDate || '';
+        if (!(d in idx)) { idx[d] = byDate.length; byDate.push({ date: d, cards: [] }); }
+        byDate[idx[d]].cards.push(c);
+    }
+    return (
+        <Container maxWidth="md" sx={{ pt: 0, pb: 4 }}>
+            <Typography variant="h1" component="h1" align="center" sx={{ mb: '24px !important' }}>Events</Typography>
+            {onBookSpace && !scopeLocationName && <BookSpaceBanner onClick={onBookSpace} />}
+            {byDate.length === 0 && (
+                <Typography variant="body1" align="center" color="text.secondary" sx={{ mt: 4 }}>No upcoming events found.</Typography>
+            )}
+            {byDate.map(group => (
+                <Box key={group.date || 'tbd'} sx={{ mb: 3 }}>
+                    <Typography component="h2" sx={{ fontWeight: 800, fontSize: '1.9rem', mb: 1, pb: 0.5, borderBottom: '2px solid', borderColor: 'text.primary' }}>
+                        {group.date ? formatCardDate(group.date) : 'Date TBD'}
+                    </Typography>
+                    {group.cards.map(c => (
+                        <ScheduleRow key={c._cardKey} card={c} onSelectCard={onSelectCard} regCounts={regCounts} showLocation={showLocation} />
+                    ))}
+                </Box>
+            ))}
+        </Container>
+    );
+};
+
+// Top control strip shared by the landing views: [ By game | Schedule ] toggle. The location
+// filter lives in the header (under-logo selector + LocationModal), driven by the same
+// events:locationFilter signal, so there's a single location control site-wide.
+const EventsControls = ({ view, onView }) => (
+    <Container maxWidth="md" sx={{ pt: { xs: 2, sm: 3 }, pb: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+            <ToggleButtonGroup exclusive size="small" value={view} onChange={(_, v) => v && onView(v)} aria-label="Browse events by"
+                sx={{
+                    '& .MuiToggleButton-root': { textTransform: 'none', fontWeight: 600, fontSize: '1.5rem', px: 2.5, py: 0.6, color: '#595959', borderColor: 'divider' },
+                    '& .MuiToggleButton-root.Mui-selected': { color: '#fff', bgcolor: '#111', '&:hover': { bgcolor: '#111' } },
+                }}>
+                <ToggleButton value="games">By game</ToggleButton>
+                <ToggleButton value="schedule">Schedule</ToggleButton>
+            </ToggleButtonGroup>
+        </Box>
+    </Container>
+);
+
 export const FlatDirectorySection = ({ events, locations, onSelectCard, regCounts = {}, selectedSeriesId = null, onSeriesSelect, locationScope = null, onLocationScopeExit }) => {
     const navigate = useNavigate();
     // Use lifted state from parent if provided, otherwise fall back to local state
@@ -940,17 +1097,75 @@ export const FlatDirectorySection = ({ events, locations, onSelectCard, regCount
         [events]
     );
 
-    const flatCards = useMemo(() => {
-        const all = buildFlatCards(activeEvents, locations);
-        return locationScope ? all.filter(c => c._stopLocationId === locationScope) : all;
-    }, [activeEvents, locations, locationScope]);
+    const flatCards = useMemo(() => buildFlatCards(activeEvents, locations), [activeEvents, locations]);
+
+    // Locations that actually have upcoming events (busiest first), for the location filter.
+    const locationOptions = useMemo(() => {
+        const m = new Map();
+        for (const c of flatCards) {
+            if (!c._stopLocationId) continue;
+            const e = m.get(c._stopLocationId) || { id: c._stopLocationId, name: c._stopLocationName || 'Location', count: 0 };
+            e.count += 1;
+            m.set(c._stopLocationId, e);
+        }
+        return [...m.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    }, [flatCards]);
+
+    // View: 'games' (tile picker) | 'schedule' (chronological). Remembered across visits.
+    const [view, setView] = useState(() => {
+        try { return localStorage.getItem('events:view') || 'games'; } catch { return 'games'; }
+    });
+    useEffect(() => { try { localStorage.setItem('events:view', view); } catch { /* ignore */ } }, [view]);
+
+    // Location filter: a store id or 'all'. Never silently applied — defaults to All, or to the
+    // URL scope on a /events/<loc> page, or to the user's remembered choice. Only surfaced when
+    // more than one store has events (so single-store shops see no filter clutter).
+    const [locFilter, setLocFilter] = useState(() => {
+        if (locationScope) return locationScope;
+        try { return localStorage.getItem('events:locationFilter') || 'all'; } catch { return 'all'; }
+    });
+    // A /events/<loc> page locks the filter to its location. locationScope resolves asynchronously
+    // (the URL resolver runs only after the locations feed loads), so it's null at first render and
+    // the one-time useState initializer above misses it — re-apply it whenever the scope arrives or
+    // changes, otherwise the scoped page falls back to showing every location.
+    useEffect(() => {
+        if (locationScope) setLocFilter(locationScope);
+    }, [locationScope]);
+    // Source of truth for the shared header control: persist + broadcast on every change so the
+    // header's events location selector stays in sync (see utils/eventsLocationBridge).
+    useEffect(() => {
+        try { localStorage.setItem('events:locationFilter', locFilter); } catch { /* ignore */ }
+        window.dispatchEvent(new CustomEvent('events:locationFilter'));
+    }, [locFilter]);
+    // React to the header changing the location filter.
+    useEffect(() => {
+        const onFilter = () => { try { setLocFilter(localStorage.getItem('events:locationFilter') || 'all'); } catch { setLocFilter('all'); } };
+        window.addEventListener('events:locationFilter', onFilter);
+        return () => window.removeEventListener('events:locationFilter', onFilter);
+    }, []);
+    // Publish the stores that actually have events so the header can render the options.
+    useEffect(() => {
+        try { localStorage.setItem('events:locationOptions', JSON.stringify(locationOptions.map(o => ({ id: o.id, name: o.name })))); } catch { /* ignore */ }
+        window.dispatchEvent(new CustomEvent('events:locationOptions'));
+    }, [locationOptions]);
+    // Drop a remembered/scoped location that no longer has events.
+    useEffect(() => {
+        if (locFilter !== 'all' && locationOptions.length && !locationOptions.some(o => o.id === locFilter)) setLocFilter('all');
+    }, [locationOptions, locFilter]);
+
+    const locFilteredCards = useMemo(
+        () => (locFilter === 'all' ? flatCards : flatCards.filter(c => c._stopLocationId === locFilter)),
+        [flatCards, locFilter]
+    );
+    // Show location on tiles/rows only when there's more than one store to distinguish.
+    const showLocation = locationOptions.length > 1;
 
     // Group cards by seriesId
     const { seriesGroups, standaloneCards } = useMemo(() => {
         const seriesMap = {};
         const standalone = [];
 
-        for (const card of flatCards) {
+        for (const card of locFilteredCards) {
             if (card.seriesId) {
                 if (!seriesMap[card.seriesId]) {
                     seriesMap[card.seriesId] = {
@@ -970,6 +1185,7 @@ export const FlatDirectorySection = ({ events, locations, onSelectCard, regCount
                         disclaimer: card.seriesDisclaimer || null,
                         category: card.seriesCategory || null,
                         categoryOrder: card.seriesCategoryOrder ?? 999,
+                        categoryImageUrl: card.seriesCategoryImageUrl || null,
                         order: card.seriesOrder ?? 999,
                         stops: [],
                     };
@@ -982,14 +1198,19 @@ export const FlatDirectorySection = ({ events, locations, onSelectCard, regCount
 
         const groups = Object.values(seriesMap).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
         // Sort standalone by date
-        standalone.sort((a, b) => (a._stopDate || '9999').localeCompare(b._stopDate || '9999'));
+        // Manual event order first (admin Reorder), then date as the tiebreak/fallback.
+        standalone.sort((a, b) =>
+            ((a.order ?? 9999) - (b.order ?? 9999)) ||
+            (a._stopDate || '9999').localeCompare(b._stopDate || '9999'));
 
         return { seriesGroups: groups, standaloneCards: standalone };
-    }, [flatCards]);
+    }, [locFilteredCards]);
 
-    // Category filter (Pokemon, Magic, …) — options come from whatever categories the series carry.
-    const [category, setCategory] = useState('All');
-    // Order tabs by the category's configured display order (from admin), then alphabetically as a tiebreaker.
+    // Game gate (Pokemon, Magic, …) — options come from whatever categories the series carry.
+    // `category` is null until the user picks a game (shows the game-tile landing first), then a
+    // game name or 'All'. The gate only applies when there's more than one game to choose from.
+    const [category, setCategory] = useState(null);
+    // Order games by the category's configured display order (from admin), then alphabetically.
     const categories = useMemo(() => {
         const orderByName = {};
         for (const s of seriesGroups) {
@@ -998,14 +1219,34 @@ export const FlatDirectorySection = ({ events, locations, onSelectCard, regCount
         return [...new Set(seriesGroups.map(s => s.category).filter(Boolean))]
             .sort((a, b) => (orderByName[a] - orderByName[b]) || a.localeCompare(b));
     }, [seriesGroups]);
+    // Only gate when there are multiple games to choose between; otherwise go straight to events.
+    const gateEnabled = categories.length > 1;
+    // If a picked game vanishes (data refresh), fall back to the tiles (gated) or 'All' (ungated).
     useEffect(() => {
-        if (category !== 'All' && !categories.includes(category)) setCategory('All');
-    }, [categories, category]);
+        if (category && category !== 'All' && !categories.includes(category)) setCategory(gateEnabled ? null : 'All');
+    }, [categories, category, gateEnabled]);
 
-    // Apply the filter: a specific category shows only that game's series (standalone cards have no
-    // category, so they're hidden while a category is active).
-    const visibleSeriesGroups = category === 'All' ? seriesGroups : seriesGroups.filter(s => s.category === category);
-    const visibleStandaloneCards = category === 'All' ? standaloneCards : [];
+    // Show the game tiles when gating is on and no game has been picked yet.
+    const showGameTiles = gateEnabled && category === null && !activeSeriesId;
+    // Effective filter: ungated events behave as 'All'; a picked game filters to that game.
+    const effectiveCategory = !gateEnabled ? 'All' : (category || 'All');
+
+    // Drive the shared header back button: while a game is drilled into (game selected, on the
+    // games view, not inside a series detail), register a handler that returns to the game tiles.
+    // Cleared otherwise (and on unmount) so the header falls back to its default events back logic.
+    const { setCustomBackHandler } = useContext(EventsLayoutContext) || {};
+    useEffect(() => {
+        if (!setCustomBackHandler) return undefined;
+        const showGamesBack = view === 'games' && gateEnabled && category !== null && !activeSeriesId;
+        // useState setter: wrap in a thunk so the handler function is STORED, not treated as an updater.
+        setCustomBackHandler(showGamesBack ? () => () => setCategory(null) : null);
+        return () => setCustomBackHandler(null);
+    }, [view, gateEnabled, category, activeSeriesId, setCustomBackHandler]);
+
+    // Apply the filter: a specific game shows only that game's series (standalone cards have no
+    // category, so they're hidden while a game is active).
+    const visibleSeriesGroups = effectiveCategory === 'All' ? seriesGroups : seriesGroups.filter(s => s.category === effectiveCategory);
+    const visibleStandaloneCards = effectiveCategory === 'All' ? standaloneCards : [];
 
     // Find selected series
     const selectedSeries = activeSeriesId
@@ -1033,20 +1274,60 @@ export const FlatDirectorySection = ({ events, locations, onSelectCard, regCount
         );
     }
 
+    // Landing views share a top control strip (By game / Schedule toggle + location filter).
+    const controls = flatCards.length > 0 ? (
+        <EventsControls view={view} onView={setView} />
+    ) : null;
+
+    if (view === 'schedule') {
+        return (
+            <>
+                {controls}
+                <ScheduleView
+                    cards={locFilteredCards}
+                    regCounts={regCounts}
+                    onSelectCard={onSelectCard}
+                    scopeLocationName={scopeLocationName}
+                    onBookSpace={() => navigate('/events/book-a-space')}
+                    showLocation={showLocation}
+                />
+            </>
+        );
+    }
+
+    if (showGameTiles) {
+        return (
+            <>
+                {controls}
+                <GameLanding
+                    categories={categories}
+                    seriesGroups={seriesGroups}
+                    standaloneCards={standaloneCards}
+                    showLocation={showLocation}
+                    onPick={setCategory}
+                    scopeLocationName={scopeLocationName}
+                    onBookSpace={() => navigate('/events/book-a-space')}
+                />
+            </>
+        );
+    }
+
     return (
-        <SeriesLanding
-            seriesGroups={visibleSeriesGroups}
-            standaloneCards={visibleStandaloneCards}
-            categories={categories}
-            category={category}
-            onCategory={setCategory}
-            scopeLocationName={scopeLocationName}
-            onExitLocation={locationScope ? () => { window.history.pushState(null, '', '/events'); window.dispatchEvent(new Event('events:nav')); onLocationScopeExit && onLocationScopeExit(); } : null}
-            onSelectSeries={(slug) => { setScrollToStops(false); window.history.pushState(null, '', seriesUrl(slug)); window.dispatchEvent(new Event('events:nav')); setActiveSeriesId(slug); }}
-            onRegisterSeries={(slug) => { setScrollToStops(true); window.history.pushState(null, '', seriesUrl(slug)); window.dispatchEvent(new Event('events:nav')); setActiveSeriesId(slug); }}
-            onSelectCard={onSelectCard}
-            regCounts={regCounts}
-            onBookSpace={() => navigate('/events/book-a-space')}
-        />
+        <>
+            {controls}
+            <SeriesLanding
+                seriesGroups={visibleSeriesGroups}
+                standaloneCards={visibleStandaloneCards}
+                activeGameLabel={effectiveCategory}
+                onBackToGames={gateEnabled ? () => setCategory(null) : null}
+                scopeLocationName={scopeLocationName}
+                onExitLocation={locationScope ? () => { window.history.pushState(null, '', '/events'); window.dispatchEvent(new Event('events:nav')); onLocationScopeExit && onLocationScopeExit(); } : null}
+                onSelectSeries={(slug) => { setScrollToStops(false); window.history.pushState(null, '', seriesUrl(slug)); window.dispatchEvent(new Event('events:nav')); setActiveSeriesId(slug); }}
+                onRegisterSeries={(slug) => { setScrollToStops(true); window.history.pushState(null, '', seriesUrl(slug)); window.dispatchEvent(new Event('events:nav')); setActiveSeriesId(slug); }}
+                onSelectCard={onSelectCard}
+                regCounts={regCounts}
+                onBookSpace={() => navigate('/events/book-a-space')}
+            />
+        </>
     );
 };

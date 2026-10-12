@@ -17,7 +17,7 @@ import { useSegment } from '@/contexts/commerce/SegmentContext';
 
 const STATE_NAMES = { PA: 'Pennsylvania', NY: 'New York', NJ: 'New Jersey', DE: 'Delaware' };
 
-export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocation, locations = [] }) => {
+export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocation, locations = [], showAllOption = false, headingSelected = "Store You're Currently Shopping" }) => {
     const theme = useTheme();
     const { recordDirectionsClicked, recordCallClicked } = useSegment();
     const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'));
@@ -81,7 +81,7 @@ export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocat
                     <>
                         {/* Has Selected Location - Show current store */}
                         <Typography id="location-modal-title" variant="h5" sx={{ fontWeight: 700, mb: 3 }}>
-                            Store You're Currently Shopping
+                            {headingSelected}
                         </Typography>
 
                         {/* Currently Selected Location */}
@@ -202,6 +202,30 @@ export const LocationModal = ({ open, onClose, selectedLocationId, onSelectLocat
 
                 {/* Locations List - Grouped by state */}
                 <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                    {/* Events: "All locations" option (shows events from every store) */}
+                    {showAllOption && (
+                        <React.Fragment>
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 3 }}>
+                                <Box sx={{ flex: 1 }}>
+                                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>All locations</Typography>
+                                    <Typography variant="body2" color="text.secondary">Show events from every store</Typography>
+                                </Box>
+                                {selectedLocationId ? (
+                                    <Button
+                                        variant="contained"
+                                        onClick={() => handleSelectLocation('all')}
+                                        aria-label="Select All locations"
+                                        sx={{ backgroundColor: '#000000', color: '#ffffff', '&:hover': { backgroundColor: '#333333' }, ml: 2 }}
+                                    >
+                                        Select
+                                    </Button>
+                                ) : (
+                                    <Typography variant="body1" sx={{ color: 'success.main', fontWeight: 600, ml: 2 }}>Selected</Typography>
+                                )}
+                            </Box>
+                            <Box sx={{ borderBottom: 1, borderColor: 'divider' }} />
+                        </React.Fragment>
+                    )}
                     {Object.entries(
                         locations
                             .filter(loc => loc.id !== selectedLocationId)

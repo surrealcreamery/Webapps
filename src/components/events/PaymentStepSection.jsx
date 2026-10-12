@@ -5,6 +5,7 @@ import { Card as EvervaultCard, themes as evervaultThemes } from '@evervault/rea
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { LOYALTY_API_URL } from '@/constants/events/eventsConstants';
+import { AddOnsStepSection } from '@/components/events/AddOnsStepSection';
 
 const CHECKOUT_API_URL = 'https://viif6favb73jr3pm2ph6qcten40ethnp.lambda-url.us-east-1.on.aws';
 
@@ -67,10 +68,31 @@ const evCardTheme = evervaultThemes.minimal({
     },
 });
 
-// ─── Evervault Card Form ───
-function EvervaultCardForm({ onCardData, isProcessing }) {
+// Catches a hard render throw from the Evervault card (e.g. its provider never initialized) and
+// signals the parent to fall back to the underlying processor's native form.
+class EvervaultErrorBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { crashed: false }; }
+    static getDerivedStateFromError() { return { crashed: true }; }
+    componentDidCatch(err) { try { console.error('[EvervaultCard] render error', err?.message); } catch (_) {} this.props.onError?.(); }
+    render() { return this.state.crashed ? null : this.props.children; }
+}
+
+// ─── Evervault Card Form (with graceful fallback) ───
+// Evervault's app-key fetch can fail on some machines (ad blockers / corporate filters / clock skew
+// blocking js.evervault.com). When it does, we detect it (onError, a hard crash, or a readiness
+// timeout) and fall back to the SAME underlying processor's native card form — the checkout backend
+// charges whatever credential it receives (Stripe token or Square nonce), so payment still completes.
+function EvervaultCardForm({ onCardData, isProcessing, fallbackKind, stripePublishableKey, squareAppId, squareLocationId }) {
     const [cardState, setCardState] = useState(null);
     const [error, setError] = useState(null);
+    const [evPhase, setEvPhase] = useState('loading'); // 'loading' | 'ready' | 'failed'
+
+    // If Evervault hasn't signaled ready within the window, treat it as failed and fall back.
+    useEffect(() => {
+        if (evPhase !== 'loading') return undefined;
+        const t = setTimeout(() => setEvPhase((p) => (p === 'loading' ? 'failed' : p)), 6500);
+        return () => clearTimeout(t);
+    }, [evPhase]);
 
     const handleChange = useCallback((state) => {
         setCardState(state);
@@ -95,18 +117,53 @@ function EvervaultCardForm({ onCardData, isProcessing }) {
         onCardData({ encryptedCard: card });
     }, [cardState, onCardData]);
 
+    // Evervault failed — render the underlying processor's native form instead.
+    if (evPhase === 'failed') {
+        const canStripe = fallbackKind === 'stripe' && !!stripePublishableKey;
+        const canSquare = fallbackKind === 'square' && !!squareAppId && !!squareLocationId;
+        return (
+            <Box>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                    Our secure card form couldn&apos;t load on this device — using standard card entry instead.
+                </Alert>
+                {canStripe && <StripeCardForm onCardData={onCardData} isProcessing={isProcessing} stripePublishableKey={stripePublishableKey} />}
+                {canSquare && <SquareCardForm onCardData={onCardData} isProcessing={isProcessing} squareAppId={squareAppId} squareLocationId={squareLocationId} />}
+                {!canStripe && !canSquare && (
+                    <Alert severity="error">
+                        Card entry is unavailable on this device (a browser extension or network may be blocking it). Please try a
+                        different browser or network, or contact us to complete your registration.
+                    </Alert>
+                )}
+            </Box>
+        );
+    }
+
     return (
         <Box>
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-            <Box sx={{ mb: 2 }}>
-                <EvervaultCard theme={evCardTheme} icons={true} onChange={handleChange} fields={['number', 'expiry', 'cvc']} />
-            </Box>
+            {evPhase === 'loading' && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    Loading secure card form…
+                </Typography>
+            )}
+            <EvervaultErrorBoundary onError={() => setEvPhase('failed')}>
+                <Box sx={{ mb: 2 }}>
+                    <EvervaultCard
+                        theme={evCardTheme}
+                        icons={true}
+                        onChange={handleChange}
+                        onReady={() => setEvPhase('ready')}
+                        onError={() => setEvPhase('failed')}
+                        fields={['number', 'expiry', 'cvc']}
+                    />
+                </Box>
+            </EvervaultErrorBoundary>
             <Button
                 variant="contained"
                 fullWidth
                 size="large"
                 onClick={handlePay}
-                disabled={isProcessing}
+                disabled={isProcessing || evPhase !== 'ready'}
                 sx={{ bgcolor: '#000', '&:hover': { bgcolor: '#222' }, fontSize: '16px', fontWeight: 600, height: 48 }}
             >
                 {isProcessing ? <CircularProgress size={24} color="inherit" /> : 'Pay & Register'}
@@ -187,10 +244,15 @@ function StripeCardForm({ onCardData, isProcessing, stripePublishableKey }) {
 }
 
 // ─── Main PaymentStepSection ───
-export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, squareLocationId, selectedDate, selectedLocationId, onSelectPaymentMethod, onSubmit, onBack }) => {
+// US states with NO state sales tax — mirror the server guard so the payment page never DISPLAYS a
+// phantom tax for these even if a rate is missing/misconfigured. (AK omitted: local-option taxes.)
+const ZERO_TAX_STATES = new Set(['DE', 'MT', 'NH', 'OR']);
+
+export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, squareLocationId, locationTaxRate, locationState, selectedDate, selectedLocationId, onSelectPaymentMethod, onSubmit, onAddOnsChange, onBack }) => {
     // Resolve per-stop pricing for tentpole events
     let admissionFeeCents = currentEvent?.['Admission Fee Cents'] || currentEvent?.admissionFeeCents || 0;
     let pointsCost = currentEvent?.['Points Cost'] || currentEvent?.pointsCost || 0;
+    let upsellBundles = currentEvent?.registrationUpsellBundles || currentEvent?.['Registration Upsell Bundles'] || [];
     if ((currentEvent?.type === 'Tentpole') && Array.isArray(currentEvent?.schedule) && selectedDate) {
         const selDate = (selectedDate || '').substring(0, 10);
         const stop = currentEvent.schedule.find(s => s.date === selDate && s.locationId === selectedLocationId)
@@ -200,12 +262,17 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
             const stopPts = stop.pointsCost || stop['Points Cost'] || 0;
             if (stopFee > 0) admissionFeeCents = stopFee;
             if (stopPts > 0) pointsCost = stopPts;
+            if (Array.isArray(stop.registrationUpsellBundles) && stop.registrationUpsellBundles.length) upsellBundles = stop.registrationUpsellBundles;
         }
     }
     const hasDollarPrice = admissionFeeCents > 0;
-    const TAX_RATE = 0.06625; // NJ 6.625%
-    const taxCents = hasDollarPrice ? Math.round(admissionFeeCents * TAX_RATE) : 0;
-    const totalCents = admissionFeeCents + taxCents;
+    // Per-location sales-tax rate (decimal) from the locations feed; fall back to NJ 6.625% only if the
+    // location has no rate on file. The server still computes the authoritative charge per location.
+    // Guard: a no-sales-tax state (DE, etc.) always shows 0% regardless of feed/fallback — mirrors the
+    // server clamp so Newark DE can never display a phantom tax even if its rate is missing.
+    const rawRate = (locationTaxRate != null && !isNaN(Number(locationTaxRate))) ? Number(locationTaxRate) : 0.06625;
+    const TAX_RATE = ZERO_TAX_STATES.has(String(locationState || '').toUpperCase()) ? 0 : rawRate;
+    const taxRateLabel = `${+(TAX_RATE * 100).toFixed(4)}%`;
     const hasPointsPrice = pointsCost > 0;
     const hasBothOptions = hasDollarPrice && hasPointsPrice;
 
@@ -213,6 +280,18 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
     const defaultMethod = paymentMethod || (hasBothOptions ? '' : hasDollarPrice ? 'card' : hasPointsPrice ? 'points' : '');
     const [selectedMethod, setSelectedMethod] = useState(defaultMethod);
     const [isProcessing, setIsProcessing] = useState(false);
+    // Registration add-ons apply to card payment only (server ignores them for points). Their cents
+    // feed the preview; the server re-derives the authoritative price.
+    const [addOnCents, setAddOnCents] = useState(0);
+    const effectiveAddOnCents = selectedMethod === 'card' ? addOnCents : 0;
+    const subtotalCents = admissionFeeCents + effectiveAddOnCents;
+    const taxCents = hasDollarPrice ? Math.round(subtotalCents * TAX_RATE) : 0;
+    const totalCents = subtotalCents + taxCents;
+    // Clear add-on selection if the user switches away from card.
+    useEffect(() => {
+        if (selectedMethod !== 'card' && addOnCents !== 0) { setAddOnCents(0); onAddOnsChange?.([]); }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedMethod]);
     const [loyaltyPhone, setLoyaltyPhone] = useState('');
     const [loyaltyBalance, setLoyaltyBalance] = useState(null);
     const [loyaltyLoading, setLoyaltyLoading] = useState(false);
@@ -346,6 +425,10 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
                 <EvervaultCardForm
                     onCardData={handleCardData}
                     isProcessing={isProcessing}
+                    fallbackKind={pm === 'evervault_square' ? 'square' : 'stripe'}
+                    stripePublishableKey={checkoutConfig.stripePublishableKey}
+                    squareAppId={effectiveSquareAppId}
+                    squareLocationId={effectiveSquareLocationId}
                 />
             );
         }
@@ -358,6 +441,15 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
             <Typography variant="h2" component="h2" gutterBottom>
                 Payment
             </Typography>
+            {hasDollarPrice && selectedMethod === 'card' && upsellBundles.length > 0 && (
+                <AddOnsStepSection
+                    bundles={upsellBundles}
+                    onChange={(sel) => {
+                        setAddOnCents((sel || []).reduce((s, a) => s + (a.priceCents || 0), 0));
+                        onAddOnsChange?.(sel);
+                    }}
+                />
+            )}
             {hasDollarPrice && (
                 <Box sx={{ mb: 3 }}>
                     <Stack spacing={0.5}>
@@ -365,8 +457,14 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
                             <Typography variant="body1" color="text.secondary">Registration fee</Typography>
                             <Typography variant="body1" color="text.secondary">${(admissionFeeCents / 100).toFixed(2)}</Typography>
                         </Stack>
+                        {effectiveAddOnCents > 0 && (
+                            <Stack direction="row" justifyContent="space-between">
+                                <Typography variant="body1" color="text.secondary">Add-ons</Typography>
+                                <Typography variant="body1" color="text.secondary">${(effectiveAddOnCents / 100).toFixed(2)}</Typography>
+                            </Stack>
+                        )}
                         <Stack direction="row" justifyContent="space-between">
-                            <Typography variant="body2" color="text.secondary">Tax (6.625%)</Typography>
+                            <Typography variant="body2" color="text.secondary">Tax ({taxRateLabel})</Typography>
                             <Typography variant="body2" color="text.secondary">${(taxCents / 100).toFixed(2)}</Typography>
                         </Stack>
                         <Divider sx={{ my: 0.5 }} />

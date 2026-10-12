@@ -243,6 +243,9 @@ const initialContext = {
     encryptedCard: null,
     loyaltyBalance: null,
     paymentError: null,
+    // Optional registration upsell bundles the player selected on the payment screen. Each entry:
+    // { sku, variantSku?, bundleItems:[{slotId, productSku|null, name}], priceCents }. Server re-prices.
+    selectedAddOns: [],
 };
 
 export const eventsMachine = setup({
@@ -593,6 +596,7 @@ export const eventsMachine = setup({
         stripeToken: null,
         encryptedCard: null,
         paymentError: null,
+        selectedAddOns: [],
     }),
     hardReset: assign({
         ...initialContext,
@@ -614,6 +618,9 @@ export const eventsMachine = setup({
     RESET: {
       target: '.directory',
       actions: 'softReset',
+    },
+    SET_ADDONS: {
+        actions: assign({ selectedAddOns: ({ event }) => Array.isArray(event.addOns) ? event.addOns : [] }),
     },
     DISMISS_DUPLICATE_NOTICE: {
         actions: assign({ duplicateNotice: false }),
@@ -2249,6 +2256,7 @@ export const eventsMachine = setup({
                                     paymentNonce: context.paymentNonce || null,
                                     stripeToken: context.stripeToken || null,
                                     encryptedCard: context.encryptedCard || null,
+                                    addOns: context.selectedAddOns || [],
                                     customerId: context.customerId || null,
                                     fbc,
                                     fbp,

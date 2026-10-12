@@ -13,6 +13,7 @@ import { LayoutContext } from '@/contexts/commerce/CommerceLayoutContext';
 import { CateringLayoutContext } from '@/contexts/catering/CateringLayoutContext';
 import { LayoutContext as EventsLayoutContext } from '@/contexts/events/EventsLayoutContext';
 import { LocationModal } from '@/components/commerce/LocationModal';
+import { useEventsLocation } from '@/utils/eventsLocationBridge';
 import { MenuDrawer } from '@/components/commerce/MenuDrawer';
 import { initializeLocationSelection, getLocationFromIP } from '@/components/commerce/geolocation';
 import { setGeoData } from '@/services/eventTracker';
@@ -146,6 +147,11 @@ const Header = () => {
     const [locationModalOpen, setLocationModalOpen] = useState(false);
     const [menuDrawerOpen, setMenuDrawerOpen] = useState(false);
 
+    // Events location filter (own control + modal, mirrors the commerce store selector's placement
+    // under the logo but drives the events directory filter — see eventsLocationBridge).
+    const { options: eventsLocOptions, filter: eventsLocFilter, setFilter: setEventsLocFilter } = useEventsLocation();
+    const [eventsLocModalOpen, setEventsLocModalOpen] = useState(false);
+
     // In kiosk mode, listen for location_sync updates from POS
     useEffect(() => {
         if (!isKioskMode) return;
@@ -263,12 +269,21 @@ const Header = () => {
     const evLocationId = isEventsMode
         ? (evPath.split('/').filter(Boolean).slice(1).find(seg => locations.some(l => l.id === seg)) || null)
         : null;
+    // Events use their own under-logo selector + All-capable LocationModal (see showEventsLocSelector
+    // below), so this commerce store selector is commerce-only.
     const showLocationSelector =
-        (isCommerceRoute && !isEventsMode && !isCheckoutPage && !isAccountPage && (!isCateringMode || cateringState?.context?.showingAvailabilityPage))
-        // Events: only on a location-scoped page (/events/<loc> or /events/<series>/<loc>), not the main directory.
-        || (isEventsMode && !isEventsWizard && !!evLocationId);
+        (isCommerceRoute && !isEventsMode && !isCheckoutPage && !isAccountPage && (!isCateringMode || cateringState?.context?.showingAvailabilityPage));
     // Which location the selector displays / highlights (events → from URL; else → the stored store).
     const displayLocationId = isEventsMode ? evLocationId : selectedLocation;
+
+    // Events location selector (under the logo, same treatment/modal as commerce, but All-capable
+    // and driving the events directory filter). Only when >1 store has events and not in the wizard.
+    const eventsLocStores = (locations || []).filter(l => eventsLocOptions.some(o => o.id === l.id));
+    const eventsLocLabel = eventsLocFilter === 'all'
+        ? 'All locations'
+        : (eventsLocOptions.find(o => o.id === eventsLocFilter)?.name
+            || locations.find(l => l.id === eventsLocFilter)?.name || 'All locations');
+    const showEventsLocSelector = isEventsMode && !isEventsWizard && eventsLocOptions.length > 1;
 
     const handleLogoClick = (e) => {
         e.preventDefault();
@@ -756,6 +771,31 @@ const Header = () => {
                                                 </Box>
                                             </Box>
                                         )}
+                                        {/* Events location selector — under the logo, same treatment + modal as commerce */}
+                                        {showEventsLocSelector && (
+                                            <Box
+                                                role="button"
+                                                tabIndex={0}
+                                                aria-haspopup="dialog"
+                                                aria-label={`Location: ${eventsLocLabel}. Change location`}
+                                                sx={{
+                                                    mt: -1.5,
+                                                    display: 'flex',
+                                                    justifyContent: 'center',
+                                                    cursor: 'pointer',
+                                                    '&:focus-visible': { outline: '2px solid #1976d2', outlineOffset: 2, borderRadius: 1 },
+                                                }}
+                                                onClick={() => setEventsLocModalOpen(true)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEventsLocModalOpen(true); } }}
+                                            >
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                    <Typography variant="body1" sx={{ fontWeight: 600, whiteSpace: 'nowrap', fontSize: '1.6rem', color: activeTextColor, transition: 'color 0.4s ease' }}>
+                                                        {eventsLocLabel}
+                                                    </Typography>
+                                                    <KeyboardArrowDownIcon aria-hidden="true" sx={{ fontSize: 22, color: activeTextColor === 'white' || activeTextColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'text.secondary', transition: 'color 0.4s ease' }} />
+                                                </Box>
+                                            </Box>
+                                        )}
                                     </>
                                 )}
                             </div>
@@ -951,6 +991,17 @@ const Header = () => {
                             selectedLocationId={displayLocationId}
                             onSelectLocation={handleLocationChange}
                             locations={locations.filter(l => l.type !== 'Warehouse')}
+                        />
+
+                        {/* Events Location Modal — same modal, All-capable, drives the events filter */}
+                        <LocationModal
+                            open={eventsLocModalOpen}
+                            onClose={() => setEventsLocModalOpen(false)}
+                            selectedLocationId={eventsLocFilter === 'all' ? null : eventsLocFilter}
+                            onSelectLocation={(id) => { setEventsLocFilter(id); setEventsLocModalOpen(false); }}
+                            locations={eventsLocStores}
+                            showAllOption
+                            headingSelected="Currently viewing"
                         />
 
                         {/* Menu Drawer - for Shop pages */}
