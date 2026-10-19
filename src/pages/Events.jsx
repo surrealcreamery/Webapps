@@ -35,6 +35,7 @@ import { ResolvingPartialMatch } from '@/components/events/ResolvingPartialMatch
 import { ConfirmProfileUpdate } from '@/components/events/ConfirmProfileUpdate';
 import { DuplicateErrorSection } from '@/components/events/DuplicateErrorSection';
 import { PaymentStepSection } from '@/components/events/PaymentStepSection';
+import { AddOnsStepSection } from '@/components/events/AddOnsStepSection';
 
 import { fetchInitialData } from '@/state/events/eventService';
 import { trackEventViewed, trackSpaPageView } from '@/services/analytics';
@@ -782,10 +783,10 @@ export default function EventsHome() {
                                                 ?? (stopStopKey ? regCount?.capacityByStop?.[stopStopKey] : undefined)
                                                 ?? ((stop.date && regCount?.capacityByDate?.[stop.date]) || null);
                                             const stopSoldOut = stopCapacity && stopCount >= stopCapacity;
-                                            // Staged availability: reveal capacity one bracket (step) at a time — the
-                                            // next multiple of step above the count, capped at true capacity. Spots are
-                                            // relative to that revealed total; while in the first bracket show only
-                                            // "{n} spot(s) left" (no registered line). Matches FlatDirectorySection.
+                                            // Staged availability (matches FlatDirectorySection.stageLabel): reveal one
+                                            // bracket (step) at a time — next multiple of step above the count, capped at
+                                            // the live table/player limit (stopCapacity). First bracket shows "{n} Spots
+                                            // Open" (hide count); after that "{count} of {revealed} Players Registered".
                                             let stopSpotsLabel = null;
                                             let stopRegisteredLabel = null;
                                             if (stopCapacity && !stopSoldOut) {
@@ -793,7 +794,9 @@ export default function EventsHome() {
                                                 const revealed = Math.min(stopCapacity, (Math.floor(stopCount / inc) + 1) * inc);
                                                 const spots = revealed - stopCount;
                                                 const firstBracket = stopCount < inc;
-                                                stopSpotsLabel = `${spots} ${spots === 1 ? 'spot' : 'spots'} ${firstBracket ? 'left' : 'remaining'}`;
+                                                stopSpotsLabel = firstBracket
+                                                    ? `${spots} ${spots === 1 ? 'Spot' : 'Spots'} Open`
+                                                    : `${spots} ${spots === 1 ? 'spot' : 'spots'} remaining`;
                                                 stopRegisteredLabel = firstBracket ? null : `${stopCount} of ${revealed} Players Registered`;
                                             }
                                             return (
@@ -946,6 +949,27 @@ export default function EventsHome() {
 
                 {fundraiserState.matches({ wizardFlow: 'selectingTime' }) && currentEvent && (<TimePickerSection currentEvent={currentEvent} selectedDate={fundraiserState.context.selectedDate} selectedTime={fundraiserState.context.selectedTime} onTimeChange={handleTimeSelect} onBack={handleWizardBack} onContinue={handleProceedToContact} locations={fundraiserState.context.locations} selectedLocationId={fundraiserState.context.selectedLocationId} />)}
 
+                {fundraiserState.matches({ wizardFlow: 'selectingAddOns' }) && currentEvent && (() => {
+                    // Resolve the selected stop's upsell bundles (mirrors the machine's resolveStopAddOns).
+                    const selDate = (fundraiserState.context.selectedDate || '').substring(0, 10);
+                    const selLoc = fundraiserState.context.selectedLocationId;
+                    let bundles = currentEvent.registrationUpsellBundles || currentEvent['Registration Upsell Bundles'] || [];
+                    if ((currentEvent.type || '').toLowerCase() === 'tentpole' && Array.isArray(currentEvent.schedule) && selDate) {
+                        const stop = currentEvent.schedule.find(s => s.date === selDate && s.locationId === selLoc)
+                            || currentEvent.schedule.find(s => s.date === selDate);
+                        if (stop && Array.isArray(stop.registrationUpsellBundles) && stop.registrationUpsellBundles.length) bundles = stop.registrationUpsellBundles;
+                    }
+                    return (
+                        <Container maxWidth="sm" sx={{ py: 3 }}>
+                            <Typography variant="h2" component="h2" gutterBottom>Add to your registration</Typography>
+                            <AddOnsStepSection bundles={bundles} onChange={(addOns) => sendToFundraiser({ type: 'SET_ADDONS', addOns })} />
+                            <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+                                <Button variant="outlined" onClick={() => sendToFundraiser({ type: 'BACK' })}>Back</Button>
+                                <Button variant="contained" onClick={() => sendToFundraiser({ type: 'CONTINUE' })} sx={{ flex: 1 }}>Continue</Button>
+                            </Stack>
+                        </Container>
+                    );
+                })()}
                 {fundraiserState.matches({ wizardFlow: 'selectingContact' }) && currentEvent && (<ContactFormSection onBack={handleWizardBack} onSubmit={handleSubmitContact} contactInfo={contactInfo} onFieldChange={handleContactChange} formErrors={formErrors} currentEvent={currentEvent} selectedLocation={fundraiserState.context.locations?.find(l => l.id === fundraiserState.context.selectedLocationId)} />)}
                 {fundraiserState.matches({ wizardFlow: 'enteringPlayerName' }) && currentEvent && (
                     <PlayerNameSection
@@ -960,8 +984,23 @@ export default function EventsHome() {
                     />
                 )}
 
-                {fundraiserState.matches({ wizardFlow: 'selectingPayment' }) && currentEvent && (
+                {fundraiserState.matches({ wizardFlow: 'selectingPayment' }) && currentEvent && (() => {
+                    // Resolve the selected stop's upgrade offer (first upsell bundle with an `upgrade`
+                    // descriptor). Rendered inline inside PaymentStepSection as an optional add-on card.
+                    const selDate = (fundraiserState.context.selectedDate || '').substring(0, 10);
+                    const selLoc = fundraiserState.context.selectedLocationId;
+                    let bundles = currentEvent.registrationUpsellBundles || currentEvent['Registration Upsell Bundles'] || [];
+                    if ((currentEvent.type || '').toLowerCase() === 'tentpole' && Array.isArray(currentEvent.schedule) && selDate) {
+                        const stop = currentEvent.schedule.find(s => s.date === selDate && s.locationId === selLoc)
+                            || currentEvent.schedule.find(s => s.date === selDate);
+                        if (stop && Array.isArray(stop.registrationUpsellBundles) && stop.registrationUpsellBundles.length) bundles = stop.registrationUpsellBundles;
+                    }
+                    const found = (bundles || []).find(b => b && b.upgrade && (b.upgrade.deltaCents || 0) > 0);
+                    const upsellOffer = found ? { bundle: found, upgrade: found.upgrade } : null;
+                    return (
                     <PaymentStepSection
+                        upsellOffer={upsellOffer}
+                        onSetAddOns={(addOns) => sendToFundraiser({ type: 'SET_ADDONS', addOns })}
                         currentEvent={currentEvent}
                         paymentMethod={fundraiserState.context.paymentMethod}
                         paymentError={fundraiserState.context.paymentError}
@@ -970,12 +1009,22 @@ export default function EventsHome() {
                         locationState={fundraiserState.context.locations?.find(l => l.id === fundraiserState.context.selectedLocationId)?.state}
                         selectedDate={fundraiserState.context.selectedDate}
                         selectedLocationId={fundraiserState.context.selectedLocationId}
+                        selectedAddOns={fundraiserState.context.selectedAddOns}
+                        guestId={fundraiserState.context.guestId}
                         onSelectPaymentMethod={(method, cardData) => sendToFundraiser({ type: 'SELECT_PAYMENT_METHOD', method, cardData })}
                         onSubmit={() => sendToFundraiser({ type: 'SUBMIT_PAYMENT' })}
-                        onAddOnsChange={(addOns) => sendToFundraiser({ type: 'SET_ADDONS', addOns })}
+                        onSaveCardChange={(v) => sendToFundraiser({ type: 'SET_SAVE_CARD', value: v })}
+                        onSelectSavedCardRef={(ref) => sendToFundraiser({ type: 'SET_SAVED_CARD_REF', ref })}
+                        onPayWithSavedCard={(ref) => {
+                            sendToFundraiser({ type: 'SET_SAVED_CARD_REF', ref });
+                            sendToFundraiser({ type: 'SELECT_PAYMENT_METHOD', method: 'card', cardData: null });
+                            sendToFundraiser({ type: 'SUBMIT_PAYMENT' });
+                        }}
+                        onUseDifferentCard={() => sendToFundraiser({ type: 'SET_USE_SAVED_CARD', value: false })}
                         onBack={handleWizardBack}
                     />
-                )}
+                    );
+                })()}
 
                 {fundraiserState.matches('loginFlow') && (<LoginFlow send={sendToFundraiser} context={fundraiserState} />)}
 

@@ -1,13 +1,34 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Box, Typography, Button, Alert, CircularProgress, Stack, Radio, RadioGroup, FormControlLabel, Divider, TextField } from '@mui/material';
+import { Box, Typography, Button, Alert, CircularProgress, Stack, Radio, RadioGroup, FormControlLabel, Checkbox, Divider, TextField, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { PaymentForm, CreditCard } from 'react-square-web-payments-sdk';
 import { Card as EvervaultCard, themes as evervaultThemes } from '@evervault/react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { Icon } from '@iconify/react';
 import { LOYALTY_API_URL } from '@/constants/events/eventsConstants';
-import { AddOnsStepSection } from '@/components/events/AddOnsStepSection';
+import { UpsellCard } from '@/components/events/UpsellStepSection';
 
 const CHECKOUT_API_URL = 'https://viif6favb73jr3pm2ph6qcten40ethnp.lambda-url.us-east-1.on.aws';
+const EVENTS_API_URL = 'https://svlh6ckfdkcgh4fbvub2nyz2r40mcvdq.lambda-url.us-east-1.on.aws';
+
+// Normalize a card brand (Square 'AMERICAN_EXPRESS' / Stripe 'amex' / etc.) to a friendly label + a
+// brand logo (Iconify `logos:` set). Unknown brands get a generic card icon + a title-cased label.
+const cardBrandMeta = (raw) => {
+    const k = String(raw || '').toLowerCase().replace(/[\s_-]+/g, '');
+    const map = {
+        visa: { label: 'Visa', icon: 'logos:visa' },
+        mastercard: { label: 'Mastercard', icon: 'logos:mastercard' },
+        amex: { label: 'American Express', icon: 'logos:amex' },
+        americanexpress: { label: 'American Express', icon: 'logos:amex' },
+        discover: { label: 'Discover', icon: 'logos:discover' },
+        jcb: { label: 'JCB', icon: 'logos:jcb' },
+        dinersclub: { label: 'Diners Club', icon: null },
+        unionpay: { label: 'UnionPay', icon: null },
+    };
+    if (map[k]) return map[k];
+    const label = String(raw || 'Card').toLowerCase().replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return { label, icon: null };
+};
 
 // ─── Square Card Form ───
 function SquareCardForm({ onCardData, isProcessing, squareAppId, squareLocationId }) {
@@ -248,11 +269,10 @@ function StripeCardForm({ onCardData, isProcessing, stripePublishableKey }) {
 // phantom tax for these even if a rate is missing/misconfigured. (AK omitted: local-option taxes.)
 const ZERO_TAX_STATES = new Set(['DE', 'MT', 'NH', 'OR']);
 
-export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, squareLocationId, locationTaxRate, locationState, selectedDate, selectedLocationId, onSelectPaymentMethod, onSubmit, onAddOnsChange, onBack }) => {
+export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, squareLocationId, locationTaxRate, locationState, selectedDate, selectedLocationId, selectedAddOns = [], upsellOffer = null, onSetAddOns, guestId, onSelectPaymentMethod, onSubmit, onSaveCardChange, onPayWithSavedCard, onSelectSavedCardRef, onUseDifferentCard, onBack }) => {
     // Resolve per-stop pricing for tentpole events
     let admissionFeeCents = currentEvent?.['Admission Fee Cents'] || currentEvent?.admissionFeeCents || 0;
     let pointsCost = currentEvent?.['Points Cost'] || currentEvent?.pointsCost || 0;
-    let upsellBundles = currentEvent?.registrationUpsellBundles || currentEvent?.['Registration Upsell Bundles'] || [];
     if ((currentEvent?.type === 'Tentpole') && Array.isArray(currentEvent?.schedule) && selectedDate) {
         const selDate = (selectedDate || '').substring(0, 10);
         const stop = currentEvent.schedule.find(s => s.date === selDate && s.locationId === selectedLocationId)
@@ -262,7 +282,6 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
             const stopPts = stop.pointsCost || stop['Points Cost'] || 0;
             if (stopFee > 0) admissionFeeCents = stopFee;
             if (stopPts > 0) pointsCost = stopPts;
-            if (Array.isArray(stop.registrationUpsellBundles) && stop.registrationUpsellBundles.length) upsellBundles = stop.registrationUpsellBundles;
         }
     }
     const hasDollarPrice = admissionFeeCents > 0;
@@ -280,18 +299,53 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
     const defaultMethod = paymentMethod || (hasBothOptions ? '' : hasDollarPrice ? 'card' : hasPointsPrice ? 'points' : '');
     const [selectedMethod, setSelectedMethod] = useState(defaultMethod);
     const [isProcessing, setIsProcessing] = useState(false);
-    // Registration add-ons apply to card payment only (server ignores them for points). Their cents
-    // feed the preview; the server re-derives the authoritative price.
-    const [addOnCents, setAddOnCents] = useState(0);
+    const [saveCard, setSaveCard] = useState(false);
+    // Saved cards-on-file for this returning authenticated guest. `cardChoice` is a saved card's ref
+    // or 'new' (enter a different card) — selected inline via radio, no reveal button.
+    const [savedCards, setSavedCards] = useState([]);
+    const [cardChoice, setCardChoice] = useState('new');
+    const [removingRef, setRemovingRef] = useState(null);
+    const [confirmRemove, setConfirmRemove] = useState(null); // the card pending remove-confirmation
+    const loadSavedCards = useCallback(async () => {
+        if (!guestId || !hasDollarPrice) return;
+        try {
+            const r = await fetch(EVENTS_API_URL, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'getSavedCards', guestId }),
+            });
+            const data = await r.json();
+            const list = Array.isArray(data?.savedCards) ? data.savedCards.filter(c => c.last4) : [];
+            setSavedCards(list);
+            // Keep the current selection if it still exists; else first card, else the new-card form.
+            setCardChoice(prev => (prev !== 'new' && list.some(c => c.ref === prev)) ? prev : (list[0]?.ref || 'new'));
+        } catch { /* no saved cards — fall through to normal card entry */ }
+    }, [guestId, hasDollarPrice]);
+    useEffect(() => { loadSavedCards(); }, [loadSavedCards]);
+    // Re-enable the pay buttons if a charge comes back with an error.
+    useEffect(() => { if (paymentError) setIsProcessing(false); }, [paymentError]);
+
+    const removeSavedCard = async (ref) => {
+        if (!guestId || !ref || removingRef) return;
+        setConfirmRemove(null);
+        setRemovingRef(ref);
+        try {
+            await fetch(EVENTS_API_URL, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'removeSavedCard', guestId, ref }),
+            });
+            onUseDifferentCard?.();   // clear any saved-card selection in the machine
+            await loadSavedCards();
+        } catch { /* leave as-is on failure */ }
+        finally { setRemovingRef(null); }
+    };
+    // Registration add-ons were chosen on the dedicated add-ons step (context.selectedAddOns). They
+    // apply to CARD payment only (the server ignores them for points), so the preview zeroes them when
+    // paying with points. The server re-derives the authoritative price.
+    const addOnCents = (selectedAddOns || []).reduce((s, a) => s + (a.priceCents || 0), 0);
     const effectiveAddOnCents = selectedMethod === 'card' ? addOnCents : 0;
     const subtotalCents = admissionFeeCents + effectiveAddOnCents;
     const taxCents = hasDollarPrice ? Math.round(subtotalCents * TAX_RATE) : 0;
     const totalCents = subtotalCents + taxCents;
-    // Clear add-on selection if the user switches away from card.
-    useEffect(() => {
-        if (selectedMethod !== 'card' && addOnCents !== 0) { setAddOnCents(0); onAddOnsChange?.([]); }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedMethod]);
     const [loyaltyPhone, setLoyaltyPhone] = useState('');
     const [loyaltyBalance, setLoyaltyBalance] = useState(null);
     const [loyaltyLoading, setLoyaltyLoading] = useState(false);
@@ -441,14 +495,10 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
             <Typography variant="h2" component="h2" gutterBottom>
                 Payment
             </Typography>
-            {hasDollarPrice && selectedMethod === 'card' && upsellBundles.length > 0 && (
-                <AddOnsStepSection
-                    bundles={upsellBundles}
-                    onChange={(sel) => {
-                        setAddOnCents((sel || []).reduce((s, a) => s + (a.priceCents || 0), 0));
-                        onAddOnsChange?.(sel);
-                    }}
-                />
+            {/* Optional bundle upgrade — inline, updates the total live. Card payments only (the server
+                ignores add-ons for points). */}
+            {hasDollarPrice && upsellOffer && (
+                <UpsellCard offer={upsellOffer} currentAddOns={selectedAddOns} onChange={onSetAddOns} />
             )}
             {hasDollarPrice && (
                 <Box sx={{ mb: 3 }}>
@@ -459,7 +509,9 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
                         </Stack>
                         {effectiveAddOnCents > 0 && (
                             <Stack direction="row" justifyContent="space-between">
-                                <Typography variant="body1" color="text.secondary">Add-ons</Typography>
+                                <Typography variant="body1" color="text.secondary">
+                                    {(selectedAddOns || []).some(a => a.isUpgrade) ? 'Bundle upgrade' : 'Add-ons'}
+                                </Typography>
                                 <Typography variant="body1" color="text.secondary">${(effectiveAddOnCents / 100).toFixed(2)}</Typography>
                             </Stack>
                         )}
@@ -486,20 +538,88 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
                 </Typography>
             )}
 
-            {hasBothOptions && (
-                <RadioGroup value={selectedMethod} onChange={handleMethodChange}>
-                    <FormControlLabel value="card" control={<Radio />} label="Pay with Card" />
-                    <FormControlLabel value="points" control={<Radio />} label="Pay with Loyalty Points" />
-                </RadioGroup>
-            )}
-
             {paymentError && <Alert severity="error" sx={{ mt: 1, mb: 1 }}>{paymentError}</Alert>}
 
-            {/* Card payment form */}
-            {selectedMethod === 'card' && (
-                <Box sx={{ mt: 2, mb: 2 }}>
+            {/* Payment method selector — saved cards + a "new payment method" tile, as one choice.
+                Only the control for the selected option shows, so there's never more than one pay
+                button. (No saved cards → nothing to select; the new-card form shows directly below.) */}
+            {selectedMethod === 'card' && savedCards.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Payment method</Typography>
+                    {savedCards.map((c) => {
+                        const m = cardBrandMeta(c.brand);
+                        const sel = cardChoice === c.ref;
+                        return (
+                            <Box key={c.ref}
+                                onClick={() => { setCardChoice(c.ref); onSelectSavedCardRef?.(c.ref); }}
+                                sx={{
+                                    display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1.25, mb: 1,
+                                    border: '2px solid', borderColor: sel ? 'primary.main' : 'divider', borderRadius: 2,
+                                    cursor: 'pointer', bgcolor: sel ? 'action.selected' : 'transparent',
+                                }}
+                            >
+                                <Radio checked={sel} value={c.ref} size="small" sx={{ p: 0.5 }} />
+                                <Icon icon={m.icon || 'mdi:credit-card-outline'} width={32} height={32} style={{ flexShrink: 0 }} />
+                                <Typography variant="body1" fontWeight={600} sx={{ flex: 1, minWidth: 0 }}>{m.label} ending {c.last4}</Typography>
+                                <Button size="small" color="inherit" disabled={removingRef === c.ref}
+                                    onClick={(e) => { e.stopPropagation(); setConfirmRemove(c); }}
+                                    sx={{ textTransform: 'none', color: 'text.secondary', minWidth: 'auto' }}>
+                                    {removingRef === c.ref ? <CircularProgress size={14} /> : 'Remove'}
+                                </Button>
+                            </Box>
+                        );
+                    })}
+                    <Box
+                        onClick={() => { setCardChoice('new'); onUseDifferentCard?.(); }}
+                        sx={{
+                            display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1.25,
+                            border: '2px solid', borderColor: cardChoice === 'new' ? 'primary.main' : 'divider', borderRadius: 2,
+                            cursor: 'pointer', bgcolor: cardChoice === 'new' ? 'action.selected' : 'transparent',
+                        }}
+                    >
+                        <Radio checked={cardChoice === 'new'} value="new" size="small" sx={{ p: 0.5 }} />
+                        <Icon icon="mdi:credit-card-plus-outline" width={32} height={32} style={{ flexShrink: 0 }} />
+                        <Typography variant="body1" fontWeight={600}>Use a new payment method</Typography>
+                    </Box>
+                </Box>
+            )}
+
+            {/* Pay with the SELECTED saved card (only when a saved card is the choice) */}
+            {selectedMethod === 'card' && savedCards.length > 0 && cardChoice !== 'new' && (
+                <Button
+                    variant="contained" fullWidth size="large" disabled={isProcessing}
+                    onClick={() => { setIsProcessing(true); onPayWithSavedCard?.(cardChoice); }}
+                    sx={{ bgcolor: '#000', '&:hover': { bgcolor: '#222' }, fontSize: '16px', fontWeight: 600, height: 48, mb: 2 }}
+                >
+                    {isProcessing ? 'Processing…' : `Pay $${(totalCents / 100).toFixed(2)}`}
+                </Button>
+            )}
+
+            {/* New-card form — shown when "new" is selected, or when there are no saved cards at all
+                (first-timers see the form immediately, no selection needed). Has its own submit button. */}
+            {selectedMethod === 'card' && (cardChoice === 'new' || savedCards.length === 0) && (
+                <Box sx={{ mt: 1 }}>
+                    {onSaveCardChange && (
+                        <FormControlLabel
+                            sx={{ mb: 1, alignItems: 'center' }}
+                            control={<Checkbox checked={saveCard} onChange={(e) => { setSaveCard(e.target.checked); onSaveCardChange(e.target.checked); }} />}
+                            label={<Typography variant="body2" color="text.secondary">Save my card for faster checkout.</Typography>}
+                        />
+                    )}
                     {renderCardForm()}
                 </Box>
+            )}
+
+            {/* Loyalty points (secondary) */}
+            {hasPointsPrice && selectedMethod === 'card' && (
+                <Button variant="text" sx={{ mt: 1.5, textTransform: 'none' }} onClick={() => setSelectedMethod('points')}>
+                    Pay with loyalty points instead
+                </Button>
+            )}
+            {hasPointsPrice && selectedMethod === 'points' && (
+                <Button variant="text" sx={{ mb: 1, textTransform: 'none' }} onClick={() => setSelectedMethod('card')}>
+                    ← Pay with a card instead
+                </Button>
             )}
 
             {/* Points payment — lookup */}
@@ -569,6 +689,22 @@ export const PaymentStepSection = ({ currentEvent, paymentMethod, paymentError, 
                     <Button variant="text" onClick={onBack}>Back</Button>
                 </>
             )}
+
+            {/* In-page confirm modal for removing a saved card */}
+            <Dialog open={!!confirmRemove} onClose={() => setConfirmRemove(null)} maxWidth="xs" fullWidth>
+                <DialogTitle>Remove saved card?</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary">
+                        {confirmRemove
+                            ? `${cardBrandMeta(confirmRemove.brand).label} ending ${confirmRemove.last4} will be removed from your account.`
+                            : ''}
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setConfirmRemove(null)}>Cancel</Button>
+                    <Button color="error" variant="contained" onClick={() => removeSavedCard(confirmRemove?.ref)}>Remove</Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };

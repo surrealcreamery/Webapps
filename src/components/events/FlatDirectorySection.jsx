@@ -498,23 +498,25 @@ const formatSeriesSchedule = (stops) => {
     });
 };
 
-// Staged availability. Capacity is revealed one bracket (`step`, from the series' availability bracket
-// size, default 4) at a time: the shown total is the next multiple of `step` ABOVE the current count,
-// capped at the true capacity. Spots remaining is relative to that revealed total — so the true depth
-// stays hidden for urgency. While still in the FIRST bracket (count < step) show only "{n} spot(s) left"
-// (no registered line) so early sign-ups feel almost-full. Sold out at true capacity. Display-only.
-// e.g. step 4, cap 18: count 3 → "1 spot left"; 5 → "3 spots remaining" + "5 of 8"; 8 → "4 spots
-//                      remaining" + "8 of 12"; 16 → "2 spots remaining" + "16 of 18"; 18 → sold out.
+// Staged availability (dynamic-tabling aware). `cap` is the game's LIVE table/player limit — the
+// shared-pool effective capacity (so e.g. Gundam shows 8 when One Piece holds 16 of a 24-seat room).
+// Reveal capacity one bracket (`step` = series Edit-Series bracket size; the minimum needed to fire,
+// default 4) at a time: the shown total is the next multiple of `step` ABOVE the current count, capped
+// at `cap`. In the FIRST bracket (count < step) show only "{n} Spots Open" (hide the count) so early
+// sign-ups read as almost-full; after that show "{count} of {revealed} Players Registered" (4 of 8,
+// 8 of 12, …) until the table/player limit is hit. Sold out at cap. Display-only.
 const STAGE_STEP_DEFAULT = 4;
 const stageLabel = (count, cap, step) => {
     if (cap - count <= 0) return { isSoldOut: true, spotsLabel: null, registeredLabel: null };
     const inc = (Number.isFinite(step) && step > 0) ? step : STAGE_STEP_DEFAULT;
-    const revealed = Math.min(cap, (Math.floor(count / inc) + 1) * inc); // next bracket above count, capped
+    const revealed = Math.min(cap, (Math.floor(count / inc) + 1) * inc); // next bracket above count, capped at cap
     const spots = revealed - count;
-    const firstBracket = count < inc; // opening bracket → pure urgency, hide the "of N" line
+    const firstBracket = count < inc; // opening bracket → "Spots Open", hide the count
     return {
         isSoldOut: false,
-        spotsLabel: `${spots} ${spots === 1 ? 'spot' : 'spots'} ${firstBracket ? 'left' : 'remaining'}`,
+        spotsLabel: firstBracket
+            ? `${spots} ${spots === 1 ? 'Spot' : 'Spots'} Open`
+            : `${spots} ${spots === 1 ? 'spot' : 'spots'} remaining`,
         registeredLabel: firstBracket ? null : `${count} of ${revealed} Players Registered`,
     };
 };
@@ -863,6 +865,43 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                 )}
             </Box>
 
+            {/* Prizes — auto pack-per-win line + curated product prizes (images + optional placement labels) */}
+            {(series.packPerWin?.enabled || (series.prizes || []).length > 0) && (
+                <Box sx={{ mb: 4 }}>
+                    <Typography sx={{ fontSize: '1.8rem', fontWeight: 700, mb: 1.5 }}>Prizes</Typography>
+                    {series.packPerWin?.enabled && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: (series.prizes || []).length > 0 ? 2 : 0 }}>
+                            <Box component="span" aria-hidden="true" sx={{ fontSize: '1.8rem', lineHeight: 1 }}>⭐</Box>
+                            <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>
+                                Earn {series.packPerWin.packsPerWin > 1 ? `${series.packPerWin.packsPerWin} booster packs` : 'a booster pack'} per win
+                                {series.packPerWin.participationFloor > 0 ? ` (${series.packPerWin.participationFloor} just for playing)` : ''}
+                            </Typography>
+                        </Box>
+                    )}
+                    {(series.prizes || []).length > 0 && (
+                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
+                            {series.prizes.map((pz, i) => (
+                                <Box key={pz.sku || i} sx={{ textAlign: 'center' }}>
+                                    <Box sx={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', backgroundColor: 'grey.100', aspectRatio: '1 / 1', mb: 0.75, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        {pz.imageUrl
+                                            ? <img src={pz.imageUrl} alt={pz.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                                            : <Box aria-hidden="true" sx={{ fontSize: '3rem' }}>🎁</Box>}
+                                        {pz.label && (
+                                            <Box sx={{ position: 'absolute', top: 6, left: 6, bgcolor: 'primary.main', color: 'white', px: 1, py: 0.25, borderRadius: '6px', fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.2 }}>
+                                                {pz.label}
+                                            </Box>
+                                        )}
+                                    </Box>
+                                    <Typography sx={{ fontSize: '1.3rem', fontWeight: 600, lineHeight: 1.2 }}>
+                                        {pz.name}
+                                    </Typography>
+                                </Box>
+                            ))}
+                        </Box>
+                    )}
+                </Box>
+            )}
+
             {/* Trainer Treat Pack */}
             {series.bundleName && (
                 <>
@@ -1176,6 +1215,8 @@ export const FlatDirectorySection = ({ events, locations, onSelectCard, regCount
                         imageAltText: card.seriesImageAltText || '',
                         description: card.seriesDescription || '',
                         prizesDescription: card.seriesPrizesDescription || '',
+                        prizes: card.seriesPrizes || [],
+                        packPerWin: card.packPerWin || null,
                         additionalInfo: card.seriesAdditionalInfo || '',
                         linkedPages: card.seriesLinkedPages || [],
                         bundleName: card.seriesBundleName || null,

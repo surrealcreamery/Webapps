@@ -184,6 +184,26 @@ const validateContactForm = (contactInfo, currentEvent, selectedLocation) => {
     return errors;
 };
 
+// Normalize fetched registered-events into {hostedEvents, participantEvents}, then re-attach an
+// optimistically-added just-registered event if the fresh fetch doesn't include it yet (read-after-
+// write lag on the backend). Matched by Event ID + Event Date so it never duplicates once the backend
+// catches up. Lets the dashboard load orders/loyalty on every registration WITHOUT the new event
+// flickering away.
+function mergeRegisteredEvents(rawOutput, optimistic) {
+    let output = rawOutput;
+    if (Array.isArray(output) && output.length > 0) output = output[0];
+    const base = (output && typeof output === 'object' && (output.hostedEvents || output.participantEvents))
+        ? { hostedEvents: output.hostedEvents || [], participantEvents: output.participantEvents || [] }
+        : { hostedEvents: [], participantEvents: [] };
+    if (!optimistic) return base;
+    const sameEvent = (e) => e && e['Event ID'] === optimistic['Event ID'] && (e['Event Date'] || '') === (optimistic['Event Date'] || '');
+    const alreadyPresent = [...base.hostedEvents, ...base.participantEvents].some(sameEvent);
+    if (alreadyPresent) return base;
+    return optimistic['Role'] === 'Host'
+        ? { ...base, hostedEvents: [...base.hostedEvents, optimistic] }
+        : { ...base, participantEvents: [...base.participantEvents, optimistic] };
+}
+
 const initialContext = {
     fundraiserEvents: [],
     selectedEventId: null,
@@ -243,10 +263,62 @@ const initialContext = {
     encryptedCard: null,
     loyaltyBalance: null,
     paymentError: null,
-    // Optional registration upsell bundles the player selected on the payment screen. Each entry:
-    // { sku, variantSku?, bundleItems:[{slotId, productSku|null, name}], priceCents }. Server re-prices.
+    // Optional registration upsell bundles the player selected on the dedicated add-ons step. Each
+    // entry: { sku, variantSku?, bundleItems:[{slotId, productSku|null, name}], priceCents }. Server re-prices.
     selectedAddOns: [],
+    // Whether the add-ons step has been shown for this registration (so it's offered exactly once,
+    // right after the stop/date is chosen, and BACK from payment doesn't re-bounce into it).
+    addOnsStepShown: false,
+    // Whether the upgrade/upsell step has been shown (offered exactly once, AFTER auth, just before
+    // payment — so BACK from payment doesn't re-bounce into it).
+    upsellStepShown: false,
+    // Cardholder consented to save their card for future charges (consent checkbox at payment).
+    saveCard: false,
+    // Returning authenticated customer chose to pay with their saved card on file (on-session reuse).
+    useSavedCard: false,
+    // Which saved card they chose (ref), when they have more than one on file.
+    savedCardRef: null,
 };
+
+// Resolve the upsell bundles + dollar fee for the currently-selected stop/event (mirrors the
+// consumer PaymentStepSection logic). Drives whether the dedicated add-ons step is shown.
+function resolveStopAddOns(context) {
+  const ev = (context.fundraiserEvents || []).find(e => e.id === context.selectedEventId);
+  if (!ev) return { bundles: [], feeCents: 0 };
+  let bundles = ev.registrationUpsellBundles || ev['Registration Upsell Bundles'] || [];
+  let feeCents = ev.admissionFeeCents || ev['Admission Fee Cents'] || 0;
+  if ((ev.type || '').toLowerCase() === 'tentpole' && Array.isArray(ev.schedule) && context.selectedDate) {
+    const selDate = (context.selectedDate || '').substring(0, 10);
+    const stop = ev.schedule.find(s => s.date === selDate && s.locationId === context.selectedLocationId)
+      || ev.schedule.find(s => s.date === selDate);
+    if (stop) {
+      if ((stop.admissionFeeCents || 0) > 0) feeCents = stop.admissionFeeCents;
+      if (Array.isArray(stop.registrationUpsellBundles) && stop.registrationUpsellBundles.length) bundles = stop.registrationUpsellBundles;
+    }
+  }
+  return { bundles: Array.isArray(bundles) ? bundles : [], feeCents };
+}
+// Only show the dedicated add-ons step when there's at least one upsell bundle AND a dollar fee
+// (add-ons are charged with the card payment; a free/points-only registration can't carry them).
+function shouldShowAddOnsStep(context) {
+  const { bundles, feeCents } = resolveStopAddOns(context);
+  return bundles.length > 0 && feeCents > 0;
+}
+
+// Resolve the single bundle upgrade offer for the current stop: the first upsell bundle the feed
+// embedded an `upgrade` descriptor on (base → bigger bundle + price delta). Returns { bundle, upgrade }
+// or null. The upgrade step is shown AFTER auth, just before payment.
+function resolveStopUpgrade(context) {
+  const { bundles } = resolveStopAddOns(context);
+  const found = (bundles || []).find(b => b && b.upgrade && (b.upgrade.deltaCents || 0) > 0);
+  return found ? { bundle: found, upgrade: found.upgrade } : null;
+}
+// Offer the upgrade only when a real upgrade exists AND the registration carries a dollar fee (the
+// delta is charged with the card payment; a free/points-only registration can't carry it).
+function shouldShowUpsellStep(context) {
+  const { feeCents } = resolveStopAddOns(context);
+  return feeCents > 0 && !!resolveStopUpgrade(context);
+}
 
 export const eventsMachine = setup({
   actors: {
@@ -597,6 +669,11 @@ export const eventsMachine = setup({
         encryptedCard: null,
         paymentError: null,
         selectedAddOns: [],
+        addOnsStepShown: false,
+        upsellStepShown: false,
+        saveCard: false,
+        useSavedCard: false,
+        savedCardRef: null,
     }),
     hardReset: assign({
         ...initialContext,
@@ -621,6 +698,19 @@ export const eventsMachine = setup({
     },
     SET_ADDONS: {
         actions: assign({ selectedAddOns: ({ event }) => Array.isArray(event.addOns) ? event.addOns : [] }),
+    },
+    SET_SAVE_CARD: {
+        actions: assign({ saveCard: ({ event }) => event.value === true }),
+    },
+    SET_USE_SAVED_CARD: {
+        actions: assign({
+            useSavedCard: ({ event }) => event.value === true,
+            savedCardRef: ({ context, event }) => (event.value === true ? context.savedCardRef : null),
+        }),
+    },
+    // Pick a specific saved card (returning customer with multiple on file) → use it.
+    SET_SAVED_CARD_REF: {
+        actions: assign({ savedCardRef: ({ event }) => event.ref || null, useSavedCard: () => true }),
     },
     DISMISS_DUPLICATE_NOTICE: {
         actions: assign({ duplicateNotice: false }),
@@ -726,13 +816,16 @@ export const eventsMachine = setup({
             },
             checkingCache: {
                 always: [
-                    // If we have a newly registered event, go straight to idle (data already added)
+                    // Just registered: the optimistic event is already in registeredEvents (shows
+                    // instantly). Background-refresh (no spinner) to ALSO load orders/loyalty/subscriptions
+                    // and reconcile the real event list — the merge keeps the optimistic event until the
+                    // backend catches up. (Previously this skipped the fetch entirely → "My Events" showed
+                    // no orders for ~2 min after a new registration.)
                     {
-                        target: 'idle',
+                        target: 'refreshingEvents',
                         guard: ({ context }) => !!context.newlyRegisteredEvent,
                         actions: [
-                            assign({ newlyRegisteredEvent: null }),
-                            () => console.log('📋 Skipping fetch - using newly registered event data')
+                            () => console.log('📋 Post-registration: background-refreshing account data (keeps optimistic event, loads orders/loyalty)')
                         ]
                     },
                     // If we fetched within the last 2 minutes, skip fetching
@@ -823,19 +916,13 @@ export const eventsMachine = setup({
                         target: 'idle',
                         actions: [
                             assign({
-                                registeredEvents: ({ event }) => {
-                                    let output = event.output.rawEvents;
-                                    if (Array.isArray(output) && output.length > 0) output = output[0];
-                                    if (output && typeof output === 'object' &&
-                                        (output.hostedEvents || output.participantEvents)) {
-                                        return output;
-                                    }
-                                    return Array.isArray(output) ? output : [];
-                                },
+                                // Merge keeps an optimistic just-registered event if the fetch lagged.
+                                registeredEvents: ({ context, event }) => mergeRegisteredEvents(event.output.rawEvents, context.newlyRegisteredEvent),
                                 orders: ({ event }) => event.output.orders,
                                 loyalty: ({ event }) => event.output.loyalty,
                                 subscriptions: ({ event }) => event.output.subscriptions,
                                 lastFetchTimestamp: () => Date.now(),
+                                newlyRegisteredEvent: () => null,
                             }),
                         ]
                     },
@@ -1455,7 +1542,30 @@ export const eventsMachine = setup({
                     ]
                 }
             },
+            // Dedicated "Add to your registration" step — shown ONCE, right after the stop/date is
+            // chosen and before contact info, when the stop has upsell bundles + a dollar fee. The
+            // selection lives in context.selectedAddOns and is charged with the registration payment.
+            selectingAddOns: {
+                on: {
+                    CONTINUE: { target: 'selectingContact', actions: assign({ addOnsStepShown: () => true }) },
+                    // Back to the stop picker to change the date/stop; re-arm so add-ons show again if
+                    // they re-select a stop, and clear the current stop + any selections.
+                    BACK: {
+                        target: 'selectingStop',
+                        actions: assign({
+                            addOnsStepShown: () => false,
+                            selectedAddOns: () => [],
+                            selectedLocationId: () => null,
+                            selectedDate: () => null,
+                            selectedTime: () => null,
+                        }),
+                    },
+                },
+            },
+
             selectingContact: {
+                // The registration upsell is now shown AFTER auth, just before payment (see the
+                // selectingPayment one-time bounce into selectingUpsell), framed as a bundle upgrade.
                 entry: [
                     assign({
                         contactInfo: ({ context }) => {
@@ -1616,6 +1726,8 @@ export const eventsMachine = setup({
                 },
             },
             selectingPayment: {
+                // The bundle upgrade is offered inline on the payment screen (an optional card that
+                // updates the total), not as a separate step — see PaymentStepSection + SET_ADDONS.
                 on: {
                     SELECT_PAYMENT_METHOD: {
                         actions: assign({
@@ -1623,6 +1735,9 @@ export const eventsMachine = setup({
                             paymentNonce: ({ event }) => event.cardData?.paymentNonce || null,
                             stripeToken: ({ event }) => event.cardData?.stripeToken || null,
                             encryptedCard: ({ event }) => event.cardData?.encryptedCard || null,
+                            // A real card credential means they're NOT using the saved card; a null
+                            // cardData (saved-card pay) leaves the flag as SET_USE_SAVED_CARD set it.
+                            useSavedCard: ({ context, event }) => (event.cardData?.paymentNonce || event.cardData?.stripeToken || event.cardData?.encryptedCard) ? false : context.useSavedCard,
                             paymentError: null,
                         })
                     },
@@ -1644,7 +1759,7 @@ export const eventsMachine = setup({
                         },
                         {
                             target: 'selectingContact',
-                            actions: assign({ paymentMethod: null, paymentNonce: null, stripeToken: null, encryptedCard: null, paymentError: null }),
+                            actions: assign({ paymentMethod: null, paymentNonce: null, stripeToken: null, encryptedCard: null, paymentError: null, useSavedCard: false, savedCardRef: null }),
                         }
                     ]
                 }
@@ -2257,6 +2372,9 @@ export const eventsMachine = setup({
                                     stripeToken: context.stripeToken || null,
                                     encryptedCard: context.encryptedCard || null,
                                     addOns: context.selectedAddOns || [],
+                                    saveCard: context.saveCard === true,
+                                    useSavedCard: context.useSavedCard === true,
+                                    savedCardRef: context.savedCardRef || null,
                                     customerId: context.customerId || null,
                                     fbc,
                                     fbp,
