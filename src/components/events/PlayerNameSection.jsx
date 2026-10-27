@@ -31,14 +31,14 @@ export const PlayerNameSection = ({ eventName, reason, playerName, error, regist
 
             {registeredPlayers.length > 0 && (
                 <Paper variant="outlined" sx={{ mb: 2, p: 2, borderRadius: 2, bgcolor: 'action.hover' }}>
-                    <Typography sx={{ fontSize: '1.5rem', fontWeight: 600, mb: 1.25 }}>
+                    <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, mb: 1.25 }}>
                         The following player{registeredPlayers.length === 1 ? ' has' : 's have'} already been registered:
                     </Typography>
                     <Stack component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }} spacing={1}>
                         {registeredPlayers.map((name, i) => (
                             <Box component="li" key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <CheckCircleRoundedIcon sx={{ fontSize: '1.8rem', color: 'success.main', flexShrink: 0 }} />
-                                <Typography sx={{ fontSize: '1.5rem' }}>{name}</Typography>
+                                <Typography sx={{ fontSize: '1.6rem' }}>{name}</Typography>
                             </Box>
                         ))}
                     </Stack>

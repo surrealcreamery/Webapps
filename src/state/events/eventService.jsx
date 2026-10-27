@@ -64,6 +64,7 @@ export const fetchInitialData = async () => {
         seriesImageAltText: event['Series Image Alt Text'] || null,
         seriesDescription: event['Series Description'] || null,
         seriesPrizesDescription: event['Series Prizes Description'] || null,
+        seriesPrizesAlign: event['Series Prizes Align'] || 'center',
         seriesPrizes: event['Series Prizes'] || [],
         packPerWin: event['Pack Per Win'] || null,
         seriesAdditionalInfo: event['Series Additional Info'] || null,

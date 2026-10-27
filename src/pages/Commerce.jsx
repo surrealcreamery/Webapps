@@ -126,14 +126,14 @@ const EventsListSection = ({ config = {}, events = [], navigate, selectedLocatio
             .sort((a, b) => a.nextDate.localeCompare(b.nextDate));
 
         if (selectedLocationId) {
-            // Scope to the selected location when it actually has events. If it has none
-            // (e.g. a default/auto-selected store the user never chose), fall back to all
-            // events rather than showing an empty section.
-            const scoped = list.filter(({ event, stop }) =>
+            // Scope STRICTLY to the selected location — the user explicitly chose it, so showing
+            // "all events" when the location has none is misleading. An empty result renders an
+            // empty state below (not a fall-back to every event). Covers tentpole events via
+            // `locationIds` (the union of all stop locations) and the chosen stop.
+            list = list.filter(({ event, stop }) =>
                 (event.locationIds || []).includes(selectedLocationId) ||
                 (stop && stop.locationId === selectedLocationId)
             );
-            if (scoped.length > 0) list = scoped;
         }
         return list;
     }, [events, today, selectedLocationId]);
@@ -152,15 +152,16 @@ const EventsListSection = ({ config = {}, events = [], navigate, selectedLocatio
     const activeCategory = category !== 'All' && categories.includes(category) ? category : 'All';
     const shown = activeCategory === 'All' ? upcoming : upcoming.filter(x => x.event.seriesCategory === activeCategory);
 
-    // Is the list actually scoped to the selected location (vs. fallen back to all)?
-    const scopedToLocation = !!selectedLocationId && upcoming.some(x =>
-        (x.event.locationIds || []).includes(selectedLocationId) || x.stop?.locationId === selectedLocationId
-    );
+    // The list is now strictly scoped whenever a location is selected (no fall-back to all).
+    const scopedToLocation = !!selectedLocationId;
     const selectedStore = pickableLocations.find(l => l.id === selectedLocationId || l.slug === selectedLocationId);
     const locationName = selectedStore?.name || (selectedLocationId ? String(selectedLocationId).replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
     const heading = `${config.title || 'Upcoming Events'}${scopedToLocation && locationName ? ` in ${locationName}` : ''}`;
 
-    if (!upcoming.length) return null;
+    // Only hide the whole section when there's genuinely nothing to show AND no location is chosen.
+    // When a location IS chosen but has no events, we keep the section and render an empty state
+    // (so the user sees the location filtered correctly, not every event).
+    if (!upcoming.length && !selectedLocationId) return null;
 
     const filterBtnSx = (selected) => ({
         textTransform: 'none',
@@ -226,7 +227,16 @@ const EventsListSection = ({ config = {}, events = [], navigate, selectedLocatio
                     </Box>
                 )}
 
-                {/* Vertically-stacked cards (image on top, big & legible); 1 col mobile / 2 col desktop */}
+                {/* Empty state when the selected location has no upcoming events (instead of silently
+                    showing every location's events). */}
+                {shown.length === 0 ? (
+                    <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
+                        <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem' }}>
+                            No upcoming events{locationName ? ` at ${locationName}` : ''}.
+                        </Typography>
+                    </Box>
+                ) : (
+                /* Vertically-stacked cards (image on top, big & legible); 1 col mobile / 2 col desktop */
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2, px: 2 }}>
                     {shown.map(({ event, stop, nextDate }) => {
                         const dateLabel = fmtDateTime(nextDate, stop?.startTime);
@@ -282,6 +292,7 @@ const EventsListSection = ({ config = {}, events = [], navigate, selectedLocatio
                         );
                     })}
                 </Box>
+                )}
             </Container>
         </Box>
     );
@@ -917,11 +928,26 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
 
     // Fulfillment state (used by MYO ad lib and collectibles fulfillment selector)
     const [bottomMode, setBottomMode] = useState('modifiers'); // 'modifiers' | 'fulfillment' | 'location'
-    const productFulfillmentMethods = product?.fulfillmentMethods?.length > 0 ? product.fulfillmentMethods : ['pickup', 'delivery', 'shipping'];
+    // Honor the product's configured methods exactly. Nothing marked → no methods (the product stays
+    // VISIBLE but is NOT purchasable — visibility and purchasability are independent).
+    const productFulfillmentMethods = Array.isArray(product?.fulfillmentMethods) ? product.fulfillmentMethods : [];
     const selectedLocationId = localStorage.getItem('selectedLocation');
     // Only show retail stores (not warehouses) as selectable locations
     const selectableLocations = storeLocations.filter(l => l.type !== 'Warehouse');
     const selectedLocationObj = selectableLocations.find(loc => loc.id === selectedLocationId) || null;
+    // Methods that are actually offerable right now = product's methods minus location-disabled ones
+    // (shipping's origin is resolved at checkout, so it only needs the product opt-in here). If this is
+    // empty the product cannot be purchased.
+    const purchasableMethods = [
+        (productFulfillmentMethods.includes('pickup') && !selectedLocationObj?.disablePickup) ? 'pickup' : null,
+        (productFulfillmentMethods.includes('delivery') && selectedLocationObj?.deliveryEnabled && !selectedLocationObj?.disableDelivery) ? 'delivery' : null,
+        productFulfillmentMethods.includes('shipping') ? 'shipping' : null,
+    ].filter(Boolean);
+    // Kiosk is an in-store terminal → everything visible + in stock is purchasable there, regardless
+    // of online fulfillment methods.
+    const hasAvailableMethod = isKiosk || purchasableMethods.length > 0;
+    // No online fulfillment methods → sold in-store only (visible, not online-purchasable); never on kiosk.
+    const noOnlineMethods = !isKiosk && productFulfillmentMethods.length === 0;
     // Filter out fulfillment methods disabled at the location level
     // Note: shipping is NOT filtered by selected store — it depends on the shipping origin location
     const effectiveFulfillmentMethods = productFulfillmentMethods.filter(m => {
@@ -1099,7 +1125,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
     const isHiddenByChannel = isKiosk
         ? selectedVariant?.visibleOnKiosk === false
         : (selectedVariant?.visibleOnStorefront === false || (selectedVariant?.visibleOnStorefront === undefined && selectedVariant?.inStoreOnly === true));
-    const isAvailable = !isHiddenByChannel && fulfillmentResolution.source !== 'none';
+    // Purchasable = visible-channel + in stock + has at least one available fulfillment method.
+    const isAvailable = !isHiddenByChannel && fulfillmentResolution.source !== 'none' && hasAvailableMethod;
 
     const pendingAddToCartRef = useRef(false);
     const handleStoreSelected = useCallback((locationId) => {
@@ -2662,6 +2689,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                 <CircularProgress size={24} color="inherit" aria-label="Adding to cart" />
                             ) : isHiddenByChannel ? (
                                 'Not Available'
+                            ) : noOnlineMethods ? (
+                                'In-Store Only'
                             ) : !isAvailable ? (
                                 'Out of Stock'
                             ) : (!selectedVariantId || !myoAllValid) ? (
@@ -2690,6 +2719,8 @@ const ProductDetailPage = ({ item, onAddToCart, onClose, onOpenCart, closing, st
                                 <CircularProgress size={24} color="inherit" aria-label="Adding to cart" />
                             ) : isHiddenByChannel ? (
                                 'Not Available'
+                            ) : noOnlineMethods ? (
+                                'In-Store Only'
                             ) : isAvailable ? (
                                 'Add to Cart'
                             ) : !availableAtLocation ? (
@@ -3143,22 +3174,25 @@ function CommerceInner() {
             });
         }
 
-        // Step 2: filter by selected store location
-        const selectedLocationId = localStorage.getItem('selectedLocation');
+        // Step 2: filter by selected store location — STRICTLY (no fall-back to all). Match the
+        // event's location slug/id (`locationIds`, which includes every tentpole stop's location) OR
+        // its display name, against the chosen store's id/slug/name. An empty result shows nothing,
+        // not every location's events.
+        const selectedLocationId = selectedLocationForFilter || localStorage.getItem('selectedLocation');
         if (selectedLocationId && storeLocations.length > 0) {
             const selectedStore = storeLocations.find(loc => loc.id === selectedLocationId);
             if (selectedStore) {
-                const locFiltered = items.filter(event =>
-                    event.locationNames?.some(name =>
-                        name.toLowerCase() === selectedStore.name.toLowerCase()
-                    )
+                const slugs = [selectedStore.id, selectedStore.slug].filter(Boolean).map(s => String(s).toLowerCase());
+                const nm = (selectedStore.name || '').toLowerCase();
+                items = items.filter(event =>
+                    (event.locationIds || []).some(id => slugs.includes(String(id).toLowerCase())) ||
+                    (event.locationNames || []).some(name => (name || '').toLowerCase() === nm)
                 );
-                if (locFiltered.length > 0) items = locFiltered;
             }
         }
 
         return items;
-    }, [events, storeLocations, eventCarouselConfig, getNextEventDate]);
+    }, [events, storeLocations, eventCarouselConfig, getNextEventDate, selectedLocationForFilter]);
 
     // Determine what to show based on route
     // In kiosk mode, use effectivePath from header toggle (defaults to /desserts)

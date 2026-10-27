@@ -178,8 +178,28 @@ const SeriesCard = ({ series, onClick, onRegister, scoped = false }) => {
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
+                bgcolor: 'background.paper',
+                boxShadow: 1,
             }}
         >
+            {/* Prizes ribbon — connected flush to the TOP of the image (black bar, white text).
+                Snug container, text vertically centered, full text (no ellipsis). Rendered only when
+                present so empty cards have no bar. */}
+            {series.prizesDescription && (
+                <Box
+                    aria-hidden="true"
+                    sx={{
+                        display: 'flex', alignItems: 'center',
+                        justifyContent: series.prizesAlign === 'left' ? 'flex-start' : 'center',
+                        textAlign: series.prizesAlign === 'left' ? 'left' : 'center',
+                        px: 1.5, py: 0.5, lineHeight: 1.3,
+                        fontSize: '1.6rem', fontWeight: 700, bgcolor: '#000', color: '#fff',
+                    }}
+                >
+                    {series.prizesDescription}
+                </Box>
+            )}
+
             {/* Image */}
             <Box
                 role="button"
@@ -187,7 +207,7 @@ const SeriesCard = ({ series, onClick, onRegister, scoped = false }) => {
                 onClick={onClick}
                 onKeyDown={handleKeyDown}
                 aria-label={`View details for ${series.name}, ${priceLabel}${series.prizesDescription ? `, prizes: ${series.prizesDescription}` : ''}${series.additionalInfo ? `, ${series.additionalInfo}` : ''}`}
-                sx={{ aspectRatio: '4 / 3', backgroundColor: 'grey.200', overflow: 'hidden', borderRadius: '8px', position: 'relative', cursor: 'pointer', '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
+                sx={{ aspectRatio: '4 / 3', backgroundColor: 'grey.200', overflow: 'hidden', position: 'relative', cursor: 'pointer', '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
             >
                 {series.imageUrl ? (
                     <img
@@ -197,7 +217,7 @@ const SeriesCard = ({ series, onClick, onRegister, scoped = false }) => {
                     />
                 ) : (
                     <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
-                        <Typography component="div" sx={{ opacity: 0.3, fontSize: '1.5rem' }} aria-hidden="true">?</Typography>
+                        <Typography component="div" sx={{ opacity: 0.3, fontSize: '1.6rem' }} aria-hidden="true">?</Typography>
                     </Box>
                 )}
                 {/* Price badge */}
@@ -209,58 +229,53 @@ const SeriesCard = ({ series, onClick, onRegister, scoped = false }) => {
                 }}>
                     {priceLabel}
                 </Box>
-                {/* Prizes badge */}
-                {series.prizesDescription && (
-                    <Box aria-hidden="true" sx={{
-                        position: 'absolute', top: 8, left: 8, right: 80,
-                        bgcolor: 'rgba(0,0,0,0.7)', color: 'white',
-                        px: 2, py: 0.75, borderRadius: '8px',
-                        fontSize: '2rem', fontWeight: 700, lineHeight: 1.3,
-                        width: 'fit-content', maxWidth: '100%',
-                    }}>
-                        {series.prizesDescription}
-                    </Box>
-                )}
-                {/* Additional info overlay */}
-                {series.additionalInfo && (
-                    <Box aria-hidden="true" sx={{
-                        position: 'absolute', bottom: 0, left: 0, right: 0,
-                        bgcolor: 'rgba(0,0,0,0.7)', color: 'white',
-                        py: 1, px: 2, textAlign: 'center',
-                        fontSize: '1.6rem', fontWeight: 500, lineHeight: 1.3,
-                    }}>
-                        {series.additionalInfo}
-                    </Box>
-                )}
             </Box>
 
-            {/* Name */}
-            <Typography component="div" sx={{ fontWeight: 600, fontSize: '2.0rem', mt: 1.5, lineHeight: 1.3 }}>
-                {series.name}
-            </Typography>
-            {scheduleLines.length > 0 && (
-                <Box sx={{ mt: 0.5 }}>
-                    {scheduleLines.map((line, i) => (
-                        <Typography key={i} component="div" sx={{ fontWeight: 700, fontSize: '1.5rem', color: '#000', lineHeight: 1.4 }}>
-                            {line}
-                        </Typography>
-                    ))}
+            {/* Additional info ("desserts" / what's included) ribbon — connected flush to the BOTTOM
+                of the image (black bar, white text). Snug container, text vertically centered, full
+                text (no ellipsis). Rendered only when present. */}
+            {series.additionalInfo && (
+                <Box
+                    sx={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        textAlign: 'center', px: 1.5, py: 0.5, lineHeight: 1.3,
+                        fontSize: '1.6rem', fontWeight: 500, bgcolor: '#000', color: '#fff',
+                    }}
+                >
+                    {series.additionalInfo}
                 </Box>
             )}
-            {series.description && (
-                <Typography component="div" sx={{ color: 'text.secondary', fontSize: '1.4rem', mt: 0.5, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
-                    {series.description}
+
+            {/* Text content — padded, grows so the buttons pin to the card bottom (equal-height cards) */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, px: 1.5, pb: 1.5, pt: 1 }}>
+                {/* Name */}
+                <Typography component="div" sx={{ fontWeight: 600, fontSize: '2.0rem', lineHeight: 1.3 }}>
+                    {series.name}
                 </Typography>
-            )}
-            <Box sx={{ display: 'flex', gap: 1, mt: 'auto', pt: 1.5 }}>
-                <Button variant="outlined" size="small" onClick={onClick} sx={{ fontSize: '1.4rem', textTransform: 'none', flex: 1 }}>
-                    View Detail
-                    <Box component="span" sx={srOnly}> for {series.name}</Box>
-                </Button>
-                <Button variant="contained" size="small" onClick={onRegister} sx={{ fontSize: '1.4rem', textTransform: 'none', flex: 1 }}>
-                    Register – {priceLabel}
-                    <Box component="span" sx={srOnly}> for {series.name}</Box>
-                </Button>
+                {scheduleLines.length > 0 && (
+                    <Box sx={{ mt: 0.5 }}>
+                        {scheduleLines.map((line, i) => (
+                            <Typography key={i} component="div" sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#000', lineHeight: 1.4 }}>
+                                {line}
+                            </Typography>
+                        ))}
+                    </Box>
+                )}
+                {series.description && (
+                    <Typography component="div" sx={{ color: 'text.secondary', fontSize: '1.6rem', mt: 0.5, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
+                        {series.description}
+                    </Typography>
+                )}
+                <Box sx={{ display: 'flex', gap: 1, mt: 'auto', pt: 1.5 }}>
+                    <Button variant="outlined" size="small" onClick={onClick} sx={{ fontSize: '1.6rem', textTransform: 'none', flex: 1 }}>
+                        View Detail
+                        <Box component="span" sx={srOnly}> for {series.name}</Box>
+                    </Button>
+                    <Button variant="contained" size="small" onClick={onRegister} sx={{ fontSize: '1.6rem', textTransform: 'none', flex: 1 }}>
+                        Register – {priceLabel}
+                        <Box component="span" sx={srOnly}> for {series.name}</Box>
+                    </Button>
+                </Box>
             </Box>
 
         </Box>
@@ -292,11 +307,11 @@ const BookSpaceBanner = ({ onClick }) => (
             <Typography component="span" sx={{ display: 'block', fontSize: { xs: '2rem', sm: '2.4rem' }, fontWeight: 800, lineHeight: 1.15 }}>
                 Host your event with us
             </Typography>
-            <Typography component="span" sx={{ display: 'block', fontSize: '1.5rem', mt: 0.5 }}>
+            <Typography component="span" sx={{ display: 'block', fontSize: '1.6rem', mt: 0.5 }}>
                 Book our space for parties, gatherings &amp; more
             </Typography>
         </Box>
-        <Box component="span" sx={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#fff', color: '#111', fontWeight: 700, fontSize: '1.5rem', px: 2.5, py: 1.25, borderRadius: 999, whiteSpace: 'nowrap' }}>
+        <Box component="span" sx={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#fff', color: '#111', fontWeight: 700, fontSize: '1.6rem', px: 2.5, py: 1.25, borderRadius: 999, whiteSpace: 'nowrap' }}>
             Book a Space
             <Box component="span" aria-hidden="true" sx={{ fontSize: '1.7rem', lineHeight: 1 }}>&rarr;</Box>
         </Box>
@@ -337,7 +352,7 @@ const GameTile = ({ label, imageUrl, count, location = null, gradient = null, on
                 {label}
             </Typography>
             {(location || count != null) && (
-                <Typography component="div" sx={{ fontWeight: 600, fontSize: '1.4rem', opacity: 0.82, mt: 0.25 }}>
+                <Typography component="div" sx={{ fontWeight: 600, fontSize: '1.6rem', opacity: 0.82, mt: 0.25 }}>
                     {[location, count != null ? `${count} upcoming` : null].filter(Boolean).join(' · ')}
                 </Typography>
             )}
@@ -639,7 +654,7 @@ const StopCard = ({ card, onClick, regCounts }) => {
                 </Typography>
             )}
             {registeredLabel && (
-                <Typography component="div" sx={{ color: 'text.secondary', fontSize: '0.95rem', fontWeight: 500, mt: 0.1 }}>
+                <Typography component="div" sx={{ color: 'text.secondary', fontSize: '1.6rem', fontWeight: 500, mt: 0.1 }}>
                     {registeredLabel}
                 </Typography>
             )}
@@ -767,33 +782,37 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
             {/* Desktop: two-column — image left, info right */}
             <Grid container spacing={3} sx={{ mb: 4, display: { xs: 'none', sm: 'flex' } }}>
                 <Grid size={{ sm: 6 }}>
-                    <Box sx={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', backgroundColor: 'grey.900' }}>
-                        {series.imageUrl && (
-                            <img
-                                src={series.imageUrl}
-                                alt={series.imageAltText || series.name}
-                                style={{ width: '100%', display: 'block', aspectRatio: '4 / 3', objectFit: 'cover' }}
-                            />
-                        )}
-                        <Box aria-hidden="true" sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'success.main', color: 'white', px: 2, py: 0.75, borderRadius: '8px', fontSize: '2rem', fontWeight: 700, lineHeight: 1 }}>
-                            {priceLabel}
-                        </Box>
+                    {/* Prizes ribbon (top) · image · additional-info ribbon (bottom) — one connected
+                        block, both ribbons solid black / white text / 1.6rem, flush to the image. */}
+                    <Box sx={{ borderRadius: '8px', overflow: 'hidden' }}>
                         {series.prizesDescription && (
-                            <Box aria-hidden="true" sx={{ position: 'absolute', top: 8, left: 8, bgcolor: 'rgba(0,0,0,0.7)', color: 'white', px: 2, py: 0.75, borderRadius: '8px', fontSize: '2rem', fontWeight: 700, lineHeight: 1 }}>
+                            <Box sx={{ bgcolor: '#000', color: '#fff', px: 1.5, py: 0.75, textAlign: series.prizesAlign === 'left' ? 'left' : 'center', fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.3 }}>
                                 {series.prizesDescription}
                             </Box>
                         )}
+                        <Box sx={{ position: 'relative', backgroundColor: 'grey.900' }}>
+                            {series.imageUrl && (
+                                <img
+                                    src={series.imageUrl}
+                                    alt={series.imageAltText || series.name}
+                                    style={{ width: '100%', display: 'block', aspectRatio: '4 / 3', objectFit: 'cover' }}
+                                />
+                            )}
+                            <Box aria-hidden="true" sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'success.main', color: 'white', px: 2, py: 0.75, borderRadius: '8px', fontSize: '2rem', fontWeight: 700, lineHeight: 1 }}>
+                                {priceLabel}
+                            </Box>
+                            {/* SR-only text for badge info */}
+                            <Box sx={srOnly}>
+                                Price: {priceLabel}.
+                                {series.prizesDescription && ` Prizes: ${series.prizesDescription}.`}
+                                {series.additionalInfo && ` ${series.additionalInfo}.`}
+                            </Box>
+                        </Box>
                         {series.additionalInfo && (
-                            <Box aria-hidden="true" sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, bgcolor: 'rgba(0,0,0,0.7)', color: 'white', py: 1, px: 2, textAlign: 'center', fontSize: '1.6rem', fontWeight: 500, lineHeight: 1.3 }}>
+                            <Box sx={{ bgcolor: '#000', color: '#fff', px: 1.5, py: 0.75, textAlign: 'center', fontSize: '1.6rem', fontWeight: 500, lineHeight: 1.3 }}>
                                 {series.additionalInfo}
                             </Box>
                         )}
-                        {/* SR-only text for badge info */}
-                        <Box sx={srOnly}>
-                            Price: {priceLabel}.
-                            {series.prizesDescription && ` Prizes: ${series.prizesDescription}.`}
-                            {series.additionalInfo && ` ${series.additionalInfo}.`}
-                        </Box>
                     </Box>
                 </Grid>
                 <Grid size={{ sm: 6 }} sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
@@ -818,33 +837,37 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
 
             {/* Mobile: stacked — image with badges, then CTA, then info */}
             <Box sx={{ display: { xs: 'block', sm: 'none' }, mb: 4 }}>
-                <Box sx={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', backgroundColor: 'grey.900', mb: 2 }}>
-                    {series.imageUrl && (
-                        <img
-                            src={series.imageUrl}
-                            alt={series.imageAltText || series.name}
-                            style={{ width: '100%', display: 'block', objectFit: 'cover' }}
-                        />
-                    )}
-                    <Box aria-hidden="true" sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'success.main', color: 'white', px: 2, py: 0.75, borderRadius: '8px', fontSize: '2rem', fontWeight: 700, lineHeight: 1 }}>
-                        {priceLabel}
-                    </Box>
+                {/* Prizes ribbon (top) · image · additional-info ribbon (bottom) — one connected
+                    block, both ribbons solid black / white text / 1.6rem, flush to the image. */}
+                <Box sx={{ borderRadius: '8px', overflow: 'hidden', mb: 2 }}>
                     {series.prizesDescription && (
-                        <Box aria-hidden="true" sx={{ position: 'absolute', top: 8, left: 8, bgcolor: 'rgba(0,0,0,0.7)', color: 'white', px: 2, py: 0.75, borderRadius: '8px', fontSize: '2rem', fontWeight: 700, lineHeight: 1 }}>
+                        <Box sx={{ bgcolor: '#000', color: '#fff', px: 1.5, py: 0.75, textAlign: series.prizesAlign === 'left' ? 'left' : 'center', fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.3 }}>
                             {series.prizesDescription}
                         </Box>
                     )}
+                    <Box sx={{ position: 'relative', backgroundColor: 'grey.900' }}>
+                        {series.imageUrl && (
+                            <img
+                                src={series.imageUrl}
+                                alt={series.imageAltText || series.name}
+                                style={{ width: '100%', display: 'block', objectFit: 'cover' }}
+                            />
+                        )}
+                        <Box aria-hidden="true" sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'success.main', color: 'white', px: 2, py: 0.75, borderRadius: '8px', fontSize: '2rem', fontWeight: 700, lineHeight: 1 }}>
+                            {priceLabel}
+                        </Box>
+                        {/* SR-only text for badge info */}
+                        <Box sx={srOnly}>
+                            Price: {priceLabel}.
+                            {series.prizesDescription && ` Prizes: ${series.prizesDescription}.`}
+                            {series.additionalInfo && ` ${series.additionalInfo}.`}
+                        </Box>
+                    </Box>
                     {series.additionalInfo && (
-                        <Box aria-hidden="true" sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, bgcolor: 'rgba(0,0,0,0.7)', color: 'white', py: 1, px: 2, textAlign: 'center', fontSize: '1.6rem', fontWeight: 500, lineHeight: 1.3 }}>
+                        <Box sx={{ bgcolor: '#000', color: '#fff', px: 1.5, py: 0.75, textAlign: 'center', fontSize: '1.6rem', fontWeight: 500, lineHeight: 1.3 }}>
                             {series.additionalInfo}
                         </Box>
                     )}
-                    {/* SR-only text for badge info */}
-                    <Box sx={srOnly}>
-                        Price: {priceLabel}.
-                        {series.prizesDescription && ` Prizes: ${series.prizesDescription}.`}
-                        {series.additionalInfo && ` ${series.additionalInfo}.`}
-                    </Box>
                 </Box>
                 {dateGroups.length > 0 && (
                     <Button
@@ -887,12 +910,12 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                                             ? <img src={pz.imageUrl} alt={pz.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                                             : <Box aria-hidden="true" sx={{ fontSize: '3rem' }}>🎁</Box>}
                                         {pz.label && (
-                                            <Box sx={{ position: 'absolute', top: 6, left: 6, bgcolor: 'primary.main', color: 'white', px: 1, py: 0.25, borderRadius: '6px', fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.2 }}>
+                                            <Box sx={{ position: 'absolute', top: 6, left: 6, bgcolor: 'primary.main', color: 'white', px: 1, py: 0.25, borderRadius: '6px', fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.2 }}>
                                                 {pz.label}
                                             </Box>
                                         )}
                                     </Box>
-                                    <Typography sx={{ fontSize: '1.3rem', fontWeight: 600, lineHeight: 1.2 }}>
+                                    <Typography sx={{ fontSize: '1.6rem', fontWeight: 600, lineHeight: 1.2 }}>
                                         {pz.name}
                                     </Typography>
                                 </Box>
@@ -908,7 +931,7 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                     <Button
                         variant="text"
                         onClick={() => setBundleOpen(true)}
-                        sx={{ color: 'text.secondary', fontSize: '1.4rem', mb: 2, textDecoration: 'underline', textTransform: 'none', p: 0, minWidth: 0, justifyContent: 'flex-start', '&:hover': { color: 'text.primary', textDecoration: 'underline' } }}
+                        sx={{ color: 'text.secondary', fontSize: '1.6rem', mb: 2, textDecoration: 'underline', textTransform: 'none', p: 0, minWidth: 0, justifyContent: 'flex-start', '&:hover': { color: 'text.primary', textDecoration: 'underline' } }}
                     >
                         {series.bundleName}
                     </Button>
@@ -930,7 +953,7 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                                     <Box>
                                         {slotData.map((slot, i) => (
                                             <Box key={i} sx={{ mb: 2 }} role="group" aria-label={`${slot.name} options`}>
-                                                <Typography component="h3" sx={{ fontWeight: 600, fontSize: '1.5rem', mb: 1 }}>
+                                                <Typography component="h3" sx={{ fontWeight: 600, fontSize: '1.6rem', mb: 1 }}>
                                                     {slot.name}
                                                 </Typography>
                                                 {(slot.products || []).length > 0 && slot.products.map((product, j) => {
@@ -946,7 +969,7 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                                                                 sx={{ width: 48, height: 48, borderRadius: 1, objectFit: 'cover', flexShrink: 0, bgcolor: 'grey.100', display: pImg ? 'block' : 'block' }}
                                                                 onError={(e) => { e.target.style.display = 'none'; }}
                                                             />
-                                                            <Typography sx={{ fontSize: '1.4rem', color: 'text.secondary' }}>
+                                                            <Typography sx={{ fontSize: '1.6rem', color: 'text.secondary' }}>
                                                                 {pName}
                                                             </Typography>
                                                         </Box>
@@ -957,7 +980,7 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
                                     </Box>
                                 );
                             })()}
-                            <Button fullWidth variant="outlined" onClick={() => setBundleOpen(false)} sx={{ mt: 2, textTransform: 'none', fontSize: '1.4rem' }}>
+                            <Button fullWidth variant="outlined" onClick={() => setBundleOpen(false)} sx={{ mt: 2, textTransform: 'none', fontSize: '1.6rem' }}>
                                 Close
                             </Button>
                         </DialogContent>
@@ -986,7 +1009,7 @@ const SeriesDetail = ({ series, onBack, onSelectCard, regCounts, scrollToStops =
 
             {/* Disclaimer */}
             {series.disclaimer && (
-                <Typography sx={{ color: 'text.secondary', fontSize: '1.3rem', fontStyle: 'italic', whiteSpace: 'pre-line', mb: 3 }}>
+                <Typography sx={{ color: 'text.secondary', fontSize: '1.6rem', fontStyle: 'italic', whiteSpace: 'pre-line', mb: 3 }}>
                     {series.disclaimer}
                 </Typography>
             )}
@@ -1046,20 +1069,20 @@ const ScheduleRow = ({ card, onSelectCard, regCounts, showLocation = true }) => 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography component="div" sx={{ fontWeight: 700, fontSize: '1.7rem', lineHeight: 1.25 }}>{name}</Typography>
-                {meta && <Typography component="div" sx={{ color: 'text.secondary', fontSize: '1.4rem', mt: 0.25 }}>{meta}</Typography>}
+                {meta && <Typography component="div" sx={{ color: 'text.secondary', fontSize: '1.6rem', mt: 0.25 }}>{meta}</Typography>}
                 {isSoldOut ? (
-                    <Typography component="div" sx={{ color: 'error.main', fontWeight: 700, fontSize: '1.4rem', mt: 0.25 }}>Sold out</Typography>
+                    <Typography component="div" sx={{ color: 'error.main', fontWeight: 700, fontSize: '1.6rem', mt: 0.25 }}>Sold out</Typography>
                 ) : spotsLabel && (
-                    <Typography component="div" sx={{ color: 'success.main', fontWeight: 600, fontSize: '1.4rem', mt: 0.25 }}>{spotsLabel}</Typography>
+                    <Typography component="div" sx={{ color: 'success.main', fontWeight: 600, fontSize: '1.6rem', mt: 0.25 }}>{spotsLabel}</Typography>
                 )}
                 {registeredLabel && (
-                    <Typography component="div" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: '1.2rem', mt: 0.1 }}>{registeredLabel}</Typography>
+                    <Typography component="div" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: '1.6rem', mt: 0.1 }}>{registeredLabel}</Typography>
                 )}
             </Box>
             <Box sx={{ flexShrink: 0, textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.75 }}>
                 <Typography component="div" sx={{ fontWeight: 700, fontSize: '1.6rem' }}>{priceLabel}</Typography>
                 <Button variant={isSoldOut ? 'outlined' : 'contained'} size="small" disabled={isSoldOut}
-                    onClick={() => onSelectCard(card)} sx={{ fontSize: '1.4rem', textTransform: 'none', whiteSpace: 'nowrap' }}>
+                    onClick={() => onSelectCard(card)} sx={{ fontSize: '1.6rem', textTransform: 'none', whiteSpace: 'nowrap' }}>
                     {isSoldOut ? 'Sold out' : 'Register'}
                     <Box component="span" sx={srOnly}> for {name}</Box>
                 </Button>
@@ -1108,7 +1131,7 @@ const EventsControls = ({ view, onView }) => (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
             <ToggleButtonGroup exclusive size="small" value={view} onChange={(_, v) => v && onView(v)} aria-label="Browse events by"
                 sx={{
-                    '& .MuiToggleButton-root': { textTransform: 'none', fontWeight: 600, fontSize: '1.5rem', px: 2.5, py: 0.6, color: '#595959', borderColor: 'divider' },
+                    '& .MuiToggleButton-root': { textTransform: 'none', fontWeight: 600, fontSize: '1.6rem', px: 2.5, py: 0.6, color: '#595959', borderColor: 'divider' },
                     '& .MuiToggleButton-root.Mui-selected': { color: '#fff', bgcolor: '#111', '&:hover': { bgcolor: '#111' } },
                 }}>
                 <ToggleButton value="games">By game</ToggleButton>
@@ -1215,6 +1238,7 @@ export const FlatDirectorySection = ({ events, locations, onSelectCard, regCount
                         imageAltText: card.seriesImageAltText || '',
                         description: card.seriesDescription || '',
                         prizesDescription: card.seriesPrizesDescription || '',
+                        prizesAlign: card.seriesPrizesAlign || 'center',
                         prizes: card.seriesPrizes || [],
                         packPerWin: card.packPerWin || null,
                         additionalInfo: card.seriesAdditionalInfo || '',

@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Box, Typography, Paper, Checkbox, Radio, Dialog, AppBar, Toolbar, IconButton, Container,
-  List, ListItemButton, ListItemAvatar, Avatar, ListItemText, CircularProgress, Link, Divider,
+  List, ListItemButton, ListItemAvatar, Avatar, ListItemText, CircularProgress, Link, Divider, ListSubheader,
 } from '@mui/material';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 
@@ -50,14 +50,15 @@ const slotUpchargeCents = (slot, product) => {
   return 0;
 };
 
-// Options for a slot = products in its categories + explicit extraItems. Each: {sku,name,image,upchargeCents}.
+// Options for a slot = products in its categories + explicit extraItems. Each carries the subcategory
+// it matched (`catId`) so the picker can group by subcategory. {sku,name,image,upchargeCents,catId}.
 const resolveSlotOptions = (slot, allProducts) => {
   if (!slot) return [];
   const catSet = new Set(slot.categoryIds || []);
   const fromCats = (allProducts || [])
     .filter(p => !p.isBundle && p.productType !== 'bundle' && (p.categoryIds || []).some(c => catSet.has(c)))
-    .map(p => ({ sku: p.sku, name: p.name || p.sku, image: productImage(p), upchargeCents: slotUpchargeCents(slot, p) }));
-  const fromExtra = (slot.extraItems || []).map(i => ({ sku: i.sku, name: i.name || i.sku, image: null, upchargeCents: toCents(i.upcharge) }));
+    .map(p => ({ sku: p.sku, name: p.name || p.sku, image: productImage(p), upchargeCents: slotUpchargeCents(slot, p), catId: (p.categoryIds || []).find(c => catSet.has(c)) || null }));
+  const fromExtra = (slot.extraItems || []).map(i => ({ sku: i.sku, name: i.name || i.sku, image: null, upchargeCents: toCents(i.upcharge), catId: null }));
   const bySku = new Map();
   for (const o of [...fromCats, ...fromExtra]) if (o.sku) bySku.set(o.sku, o);
   return [...bySku.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -70,6 +71,7 @@ export const UpsellCard = ({ offer, currentAddOns, onChange }) => {
   const [selected, setSelected] = useState(existingSel); // array of sku or PICKUP; [] = not added
   const [pickerOpen, setPickerOpen] = useState(false);
   const [allProducts, setAllProducts] = useState(null); // null = loading
+  const [categories, setCategories] = useState([]);     // for subcategory grouping in the picker
 
   const extraSlot = useMemo(() => {
     if (!offer?.bundle) return null;
@@ -78,6 +80,25 @@ export const UpsellCard = ({ offer, currentAddOns, onChange }) => {
   }, [offer]);
 
   const options = useMemo(() => resolveSlotOptions(extraSlot, allProducts || []), [extraSlot, allProducts]);
+
+  // Group options by their subcategory (e.g. Matte Sleeves / Classic / Matte Dual), in the slot's
+  // category order; items with no category (explicit extras) fall into a trailing "More" group.
+  const categoryName = (id) => (categories || []).find(c => (c.id || c.sk || c.categoryId) === id)?.name || '';
+  const optionGroups = useMemo(() => {
+    const order = extraSlot?.categoryIds || [];
+    const byCat = new Map();
+    const ungrouped = [];
+    for (const o of options) {
+      if (o.catId) { if (!byCat.has(o.catId)) byCat.set(o.catId, []); byCat.get(o.catId).push(o); }
+      else ungrouped.push(o);
+    }
+    const out = [];
+    for (const cid of order) { const items = byCat.get(cid); if (items?.length) out.push({ catId: cid, name: categoryName(cid), items }); }
+    for (const [cid, items] of byCat) if (!order.includes(cid)) out.push({ catId: cid, name: categoryName(cid), items });
+    if (ungrouped.length) out.push({ catId: null, name: out.length ? 'More' : null, items: ungrouped });
+    return out;
+  }, [options, extraSlot, categories]);
+  const showGroupHeaders = optionGroups.filter(g => g.name).length > 1;
   const deltaCents = offer?.upgrade?.deltaCents || 0;
   const unitCents = (sku) => {
     if (sku === PICKUP || !sku) return deltaCents;
@@ -93,7 +114,10 @@ export const UpsellCard = ({ offer, currentAddOns, onChange }) => {
       try {
         const r = await fetch(`${CATALOG_URL}?t=${Date.now()}`);
         const data = await r.json();
-        if (!cancelled) setAllProducts(Array.isArray(data?.products) ? data.products : (Array.isArray(data) ? data : []));
+        if (!cancelled) {
+          setAllProducts(Array.isArray(data?.products) ? data.products : (Array.isArray(data) ? data : []));
+          setCategories(Array.isArray(data?.categories) ? data.categories : []);
+        }
       } catch { if (!cancelled) setAllProducts([]); }
     })();
     return () => { cancelled = true; };
@@ -210,20 +234,29 @@ export const UpsellCard = ({ offer, currentAddOns, onChange }) => {
                   <ListItemText primary="Decide at pickup" secondary="Pick your color at the counter" primaryTypographyProps={{ fontWeight: 600 }} />
                 </ListItemButton>
                 <Divider />
-                {options.map(o => (
-                  <ListItemButton key={o.sku} selected={selected.includes(o.sku)} onClick={() => pick(o.sku)} sx={{ py: 1.5 }}>
-                    <Radio edge="start" checked={selected.includes(o.sku)} tabIndex={-1} disableRipple />
-                    {o.image && (
-                      <ListItemAvatar>
-                        <Avatar variant="rounded" src={o.image} alt={o.name} sx={{ width: 56, height: 56, bgcolor: 'grey.100' }} />
-                      </ListItemAvatar>
+                {optionGroups.map(g => (
+                  <React.Fragment key={g.catId || 'more'}>
+                    {showGroupHeaders && g.name && (
+                      <ListSubheader disableSticky disableGutters sx={{ bgcolor: 'background.paper', fontWeight: 700, color: 'text.secondary', lineHeight: 1.6, textTransform: 'uppercase', letterSpacing: 0.4, fontSize: 11, px: 2, pt: 1.5, pb: 0.5 }}>
+                        {g.name}
+                      </ListSubheader>
                     )}
-                    <ListItemText primary={o.name} primaryTypographyProps={{ fontWeight: 600 }} />
-                    {/* Only flag a price when this color costs MORE than the base — no redundant "+$8". */}
-                    {(o.upchargeCents || 0) > 0 && (
-                      <Typography variant="body2" fontWeight={700} color="primary.main">+{fmt(deltaCents + o.upchargeCents)}</Typography>
-                    )}
-                  </ListItemButton>
+                    {g.items.map(o => (
+                      <ListItemButton key={o.sku} selected={selected.includes(o.sku)} onClick={() => pick(o.sku)} sx={{ py: 1.5 }}>
+                        <Radio edge="start" checked={selected.includes(o.sku)} tabIndex={-1} disableRipple />
+                        {o.image && (
+                          <ListItemAvatar>
+                            <Avatar variant="rounded" src={o.image} alt={o.name} sx={{ width: 56, height: 56, bgcolor: 'grey.100' }} />
+                          </ListItemAvatar>
+                        )}
+                        <ListItemText primary={o.name} primaryTypographyProps={{ fontWeight: 400 }} />
+                        {/* Only flag a price when this color costs MORE than the base — no redundant "+$8". */}
+                        {(o.upchargeCents || 0) > 0 && (
+                          <Typography variant="body2" fontWeight={700} color="primary.main">+{fmt(deltaCents + o.upchargeCents)}</Typography>
+                        )}
+                      </ListItemButton>
+                    ))}
+                  </React.Fragment>
                 ))}
               </List>
             )}

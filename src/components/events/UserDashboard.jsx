@@ -426,7 +426,7 @@ const OrdersTab = ({ orders, pointsByOrder }) => {
                                         <Chip
                                             label={`+${pointsByOrder[order.masterOrderId]} pts`}
                                             size="small"
-                                            sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700, bgcolor: '#fff8e1', color: '#f57f17', border: '1px solid #f57f17' }}
+                                            sx={{ height: 20, fontSize: '1.6rem', fontWeight: 700, bgcolor: '#fff8e1', color: '#f57f17', border: '1px solid #f57f17' }}
                                         />
                                     )}
                                 </Stack>
@@ -542,7 +542,7 @@ const RewardsTab = ({ loyalty, onRedeem, redeeming }) => {
         <Box>
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, background: 'linear-gradient(135deg, #fff8e1 0%, #fff3e0 100%)' }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>Surreal Rewards</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.6rem' }}>Surreal Rewards</Typography>
                     <Chip label={loyalty.account.tierName} size="small" sx={{ fontWeight: 700, bgcolor: '#fff', border: '1px solid #f57f17', color: '#f57f17' }} />
                 </Stack>
 
@@ -597,39 +597,39 @@ const RewardsTab = ({ loyalty, onRedeem, redeeming }) => {
                             {loyalty.recentActivity.map((e, i) => (
                                 e.type === 'conversion' ? (
                                     <Box key={i} sx={{ py: 0.5 }}>
-                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '1.6rem' }}>
                                             {new Date(e.timestamp).toLocaleDateString()}
                                         </Typography>
-                                        <Typography variant="caption" sx={{ display: 'block', fontSize: '0.7rem', fontWeight: 600 }}>
+                                        <Typography variant="caption" sx={{ display: 'block', fontSize: '1.6rem', fontWeight: 600 }}>
                                             Switched to Surreal Rewards
                                         </Typography>
-                                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.65rem' }}>
+                                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '1.6rem' }}>
                                             Balance carried over: {(e.balance || 0).toLocaleString()} pts
                                         </Typography>
                                     </Box>
                                 ) : (
                                     <Stack key={i} direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.5 }}>
                                         <Box>
-                                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '1.6rem' }}>
                                                 {e.type === 'tournament_points' ? 'Tournament' : e.type === 'earn' ? 'Earned' : 'Redeemed'} · {new Date(e.timestamp).toLocaleDateString()}
                                             </Typography>
                                             {e.type === 'tournament_points' && e.tournamentName && (
-                                                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.65rem', color: '#6a1b9a', fontWeight: 600 }}>
+                                                <Typography variant="caption" sx={{ display: 'block', fontSize: '1.6rem', color: '#6a1b9a', fontWeight: 600 }}>
                                                     {e.tournamentName}{e.place ? ` — ${e.place}` : ''}
                                                 </Typography>
                                             )}
                                             {e.type === 'redeem' && e.rewardName && (
-                                                <Typography variant="caption" sx={{ display: 'block', fontSize: '0.65rem', color: 'text.secondary' }}>
+                                                <Typography variant="caption" sx={{ display: 'block', fontSize: '1.6rem', color: 'text.secondary' }}>
                                                     {e.rewardName}
                                                 </Typography>
                                             )}
                                         </Box>
                                         <Box sx={{ textAlign: 'right' }}>
-                                            <Typography variant="caption" sx={{ fontSize: '0.7rem', fontWeight: 600, color: e.type === 'tournament_points' ? '#6a1b9a' : e.points > 0 ? 'success.main' : e.points < 0 ? 'error.main' : 'text.secondary' }}>
+                                            <Typography variant="caption" sx={{ fontSize: '1.6rem', fontWeight: 600, color: e.type === 'tournament_points' ? '#6a1b9a' : e.points > 0 ? 'success.main' : e.points < 0 ? 'error.main' : 'text.secondary' }}>
                                                 {e.points > 0 ? '+' : ''}{e.points} pts
                                             </Typography>
                                             {e.type !== 'tournament_points' && (
-                                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.6rem' }}>
+                                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '1.6rem' }}>
                                                     Balance: {(e.balance || 0).toLocaleString()}
                                                 </Typography>
                                             )}

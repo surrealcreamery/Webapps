@@ -213,9 +213,10 @@ export const ProductModal = ({
         if (tags.includes('delivery') || tags.includes('local-delivery')) methods.push('delivery');
         if (tags.includes('shipping')) methods.push('shipping');
         if (methods.length > 0) return methods;
-        
-        // Default: all methods available
-        return ['pickup', 'delivery', 'shipping'];
+
+        // Nothing marked → not purchasable (visibility is separate; the product can still SHOW on the
+        // storefront, but with no fulfillment method set it cannot be added to cart / ordered).
+        return [];
     };
     
     const rawFulfillmentMethods = getFulfillmentMethods();
@@ -466,6 +467,19 @@ export const ProductModal = ({
             locationName: store?.name || null,
         };
     }, [fulfillmentResolution, storeLocations]);
+
+    // Which fulfillment methods are actually available to PURCHASE right now = the product's enabled
+    // methods ∩ what the resolved location/shipping supports. Pickup/Delivery need a local store;
+    // Shipping needs the product to allow it AND a shipping origin with stock (source !== 'none').
+    // If none are available the product is VISIBLE but NOT purchasable (no add-to-cart, no checkout).
+    // The kiosk is an IN-STORE terminal, so anything visible + in stock is purchasable there (handed
+    // over in person), regardless of online fulfillment methods — don't apply the online gating.
+    const isKiosk = typeof window !== 'undefined' && window.location.pathname.startsWith('/kiosk');
+    const _fSource = fulfillmentResolution.source;
+    const availPickup = allowsPickup && _fSource === 'local';
+    const availDelivery = allowsDelivery && _fSource === 'local';
+    const availShipping = allowsShipping && _fSource !== 'none';
+    const hasPurchasableMethod = isKiosk || availPickup || availDelivery || availShipping;
 
     // Debug
     console.log('🖼️ Modal debug:', {
@@ -789,11 +803,12 @@ export const ProductModal = ({
                         {(() => {
                             const source = fulfillmentResolution.source;
                             const isLocal = source === 'local';
-                            const isNone = source === 'none';
 
-                            const pickupAvail = allowsPickup && isLocal;
-                            const deliveryAvail = allowsDelivery && isLocal;
-                            const shippingAvail = (allowsShipping || !isLocal) && !isNone;
+                            // Use the shared availability (shipping now requires the product to ALLOW
+                            // shipping — it's no longer shown just because the item resolved non-local).
+                            const pickupAvail = availPickup;
+                            const deliveryAvail = availDelivery;
+                            const shippingAvail = availShipping;
 
                             const methodRow = (icon, label, available, detail) => (
                                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, opacity: available ? 1 : 0.45 }}>
@@ -979,8 +994,17 @@ export const ProductModal = ({
                     const showContinue = hasModifiers && !isLastModifierStep && !allModifierStepsComplete;
                     const continueDisabled = showContinue && !canContinueModifiers;
                     const isInStoreOnly = selectedVariant?.visibleOnStorefront === false || (selectedVariant?.visibleOnStorefront === undefined && selectedVariant?.inStoreOnly === true);
+                    // Product has NO online fulfillment methods configured → it's sold in-store only
+                    // (visible but not online-purchasable). This takes precedence over "Out of Stock":
+                    // such an item isn't out of stock, it just isn't sold online. On a KIOSK (in-store)
+                    // it IS purchasable, so this never gates there.
+                    const noOnlineMethods = !isKiosk && rawFulfillmentMethods.length === 0;
+                    // Has methods + in stock, but none available at the current location/state.
+                    const notPurchasable = !noOnlineMethods && !isOutOfStock && !hasPurchasableMethod;
                     const addToCartDisabled = !showContinue && (
                         isInStoreOnly ||
+                        noOnlineMethods ||
+                        notPurchasable ||
                         addingToCart ||
                         (!selectedVariantId && !product.variantId) ||
                         isOutOfStock ||
@@ -1026,10 +1050,12 @@ export const ProductModal = ({
                         >
                             {addingToCart ? (
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Adding...</Typography>
-                            ) : isInStoreOnly ? (
+                            ) : (isInStoreOnly || noOnlineMethods) ? (
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>In-Store Only</Typography>
                             ) : isOutOfStock ? (
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Out of Stock</Typography>
+                            ) : notPurchasable ? (
+                                <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Unavailable</Typography>
                             ) : showContinue ? (
                                 <Typography sx={{ fontSize: '1.6rem', fontWeight: 600 }}>Continue</Typography>
                             ) : (

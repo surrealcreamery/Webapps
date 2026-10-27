@@ -82,7 +82,7 @@ const evCardTheme = evervaultThemes.minimal({
             '&:focus': { borderColor: '#000' },
         },
         label: {
-            fontSize: '14px',
+            fontSize: '16px',
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         },
         '.field[ev-valid=false] input': { borderColor: '#d32f2f' },

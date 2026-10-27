@@ -16,6 +16,24 @@ export const CatalogProvider = ({ children }) => {
         send({ type: 'LOAD' });
     }, []);
 
+    // Keep the catalog fresh on long-lived sessions — especially KIOSKS, which stay open for hours and
+    // never reload, so without this they'd hold the first catalog forever (stale prices/availability/
+    // new products). Refresh on a timer + whenever the tab/app regains focus. REFRESH re-fetches (the
+    // service cache is short); the current catalog stays on screen during the refetch, so no flicker.
+    useEffect(() => {
+        const REFRESH_MS = 2 * 60 * 1000; // every 2 minutes
+        const doRefresh = () => send({ type: 'REFRESH' });
+        const interval = setInterval(doRefresh, REFRESH_MS);
+        const onVisible = () => { if (typeof document !== 'undefined' && document.visibilityState === 'visible') doRefresh(); };
+        if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
+        if (typeof window !== 'undefined') window.addEventListener('focus', doRefresh);
+        return () => {
+            clearInterval(interval);
+            if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
+            if (typeof window !== 'undefined') window.removeEventListener('focus', doRefresh);
+        };
+    }, []);
+
     // Listen for location changes (localStorage + custom event)
     useEffect(() => {
         const slug = localStorage.getItem('selectedLocation');

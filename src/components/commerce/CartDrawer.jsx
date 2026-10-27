@@ -738,6 +738,7 @@ export function CartDrawer({
         })),
         pickupLocation: selectedLocationSlug,
         cartSessionId: localCart?.cartId,
+        environment: (typeof window !== 'undefined' && window.location.hostname.includes('beta')) ? 'beta' : 'production',
       };
 
       // Include delivery data if validated

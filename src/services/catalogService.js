@@ -6,7 +6,9 @@
  */
 
 const CATALOG_URL = 'https://data.surrealcreamery.com/catalog.json';
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+// Short in-memory dedupe window only — long-lived sessions (kiosks) refresh on a 2-min timer, so this
+// must be below that interval or REFRESH would keep returning the stale cached copy.
+const CACHE_DURATION = 60 * 1000; // 60 seconds
 
 let catalogCache = null;
 let cacheTimestamp = 0;

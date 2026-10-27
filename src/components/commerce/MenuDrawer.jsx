@@ -21,9 +21,9 @@ const MENU_ITEMS = [
         description: 'Ice cream, milkshakes & more'
     },
     {
-        title: 'Collectibles',
+        title: 'TCGs',
         path: '/collectibles',
-        description: 'tokidoki collectibles'
+        description: 'Pokémon, Riftbound, One Piece & more'
     },
     {
         title: 'Events',

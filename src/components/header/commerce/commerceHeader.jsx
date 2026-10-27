@@ -393,7 +393,7 @@ const Header = () => {
     ));
     const SHOP_SUBCATEGORIES = [
         { label: 'Desserts', path: '/desserts' },
-        { label: 'Collectibles', path: '/collectibles' },
+        { label: 'TCGs', path: '/collectibles' },
     ];
     const userInitials = isAuthenticated ? getInitials(contactInfo) : '';
     const avatarSize = 40;
